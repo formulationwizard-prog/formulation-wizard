@@ -1,0 +1,297 @@
+@import "tailwindcss";
+
+/* ============================================================
+   FORMULATION WIZARD — BRAND PALETTE
+   ------------------------------------------------------------
+   Designed for 8+ hour daily use by food scientists. Warm
+   off-white surface reduces retinal fatigue vs pure #FFF.
+   Single muted teal accent (matched to the nautilus logo)
+   replaces Tailwind's default emerald "demo" green. Semantic
+   colors are desaturated so warnings feel serious, not noisy.
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --color-canvas: #FAF8F5;         /* warm off-white app background */
+  --color-surface: #FFFFFF;        /* elevated panels */
+  --color-surface-raised: #F6F2EB; /* subtle secondary zones (inactive tabs) */
+  --color-divider: #E8E0D2;        /* warm neutral borders */
+
+  /* Ink */
+  --color-ink: #2C3440;            /* matches logo charcoal */
+  --color-ink-muted: #5B6675;
+  --color-ink-soft: #8F99A6;
+
+  /* Brand teal (from logo) */
+  --color-brand-50:  #E8EEF0;
+  --color-brand-100: #D4DFE3;
+  --color-brand-200: #A8C0C8;
+  --color-brand-300: #7CA1AD;
+  --color-brand-400: #5A8997;
+  --color-brand-500: #3A7486;  /* primary — matches logo mark */
+  --color-brand-600: #2F6373;
+  --color-brand-700: #2C5866;
+  --color-brand-800: #224650;
+  --color-brand-900: #1B3840;
+
+  /* Semantic (muted, professional) */
+  --color-success-50:  #EEF3EE;
+  --color-success-100: #DCE8DD;
+  --color-success-200: #B8D1BA;
+  --color-success-300: #8DB091;
+  --color-success-500: #4A7D52;  /* forest green — less candy than default emerald */
+  --color-success-600: #3D6B45;
+  --color-success-700: #325838;
+
+  --color-warn-50:  #FAF4E7;
+  --color-warn-100: #F5E9CF;
+  --color-warn-200: #EAD29B;
+  --color-warn-300: #DDB765;
+  --color-warn-500: #C89B3C;  /* aged amber — warmer, less neon */
+  --color-warn-600: #A8811F;
+  --color-warn-700: #886617;
+
+  --color-danger-50:  #F8EEEC;
+  --color-danger-100: #F1DCD8;
+  --color-danger-200: #E4B9B3;
+  --color-danger-300: #D08E85;
+  --color-danger-500: #B85450;  /* muted brick red — less Christmas */
+  --color-danger-600: #9A4441;
+  --color-danger-700: #7C3735;
+
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink);
+}
+
+/* ============================================================
+   Tailwind v4 theme remapping — redefines the *names* Tailwind
+   classes reach for. After this:
+     - `bg-emerald-*` / `text-emerald-*` / `border-emerald-*`
+       classes across the codebase now render as logo teal.
+     - `bg-amber-*` renders as aged amber (warmer, less neon).
+     - `bg-rose-*` renders as muted brick red.
+     - `bg-white` resolves to the current theme's surface color.
+     - Body background warmed via `--color-background`.
+   NOTE: `@theme` (NOT `@theme inline`) so utilities generate
+   `var(--color-x)` references instead of baked-in hex values.
+   That way the `html[data-appearance='dim'|'dark']` variable
+   overrides below actually apply at runtime to every panel.
+   ============================================================ */
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* ─── Panel color — warm cream instead of pure white ───
+     Panels across the app use `bg-white`. Redefining the
+     token here shifts every panel to a whisper-warm cream
+     that reads as "white" to the eye but kills the retinal
+     whiteout effect of a pure #FFF dominated screen. */
+  --color-white: #FCF9F3;
+
+  /* Remap emerald → brand teal */
+  --color-emerald-50:  var(--color-brand-50);
+  --color-emerald-100: var(--color-brand-100);
+  --color-emerald-200: var(--color-brand-200);
+  --color-emerald-300: var(--color-brand-300);
+  --color-emerald-400: var(--color-brand-400);
+  --color-emerald-500: var(--color-brand-500);
+  --color-emerald-600: var(--color-brand-500);  /* primary buttons use -600, pin to -500 for consistency */
+  --color-emerald-700: var(--color-brand-700);
+  --color-emerald-800: var(--color-brand-800);
+  --color-emerald-900: var(--color-brand-900);
+
+  /* Remap rose → muted danger */
+  --color-rose-50:  var(--color-danger-50);
+  --color-rose-100: var(--color-danger-100);
+  --color-rose-200: var(--color-danger-200);
+  --color-rose-300: var(--color-danger-300);
+  --color-rose-400: var(--color-danger-300);
+  --color-rose-500: var(--color-danger-500);
+  --color-rose-600: var(--color-danger-600);
+  --color-rose-700: var(--color-danger-700);
+  --color-rose-800: var(--color-danger-700);
+
+  /* Remap amber → aged amber (keeps visual semantics but warmer) */
+  --color-amber-50:  var(--color-warn-50);
+  --color-amber-100: var(--color-warn-100);
+  --color-amber-200: var(--color-warn-200);
+  --color-amber-300: var(--color-warn-300);
+  --color-amber-500: var(--color-warn-500);
+  --color-amber-600: var(--color-warn-600);
+  --color-amber-700: var(--color-warn-700);
+  --color-amber-800: var(--color-warn-700);
+  --color-amber-900: var(--color-warn-700);
+
+  /* Gentler gray on warm background — match neutrals to canvas */
+  --color-gray-50:  #F6F2EB;
+  --color-gray-100: #EEE8DC;
+  --color-gray-200: #E0D8C8;
+  --color-gray-300: #C9C0AF;
+  --color-gray-400: #9C968A;
+  --color-gray-500: #6F6A5F;
+  --color-gray-600: #524E46;
+  --color-gray-700: #3B3832;
+  --color-gray-800: #2E2B26;
+  --color-gray-900: #1F1D1A;
+}
+
+/* ============================================================
+   USER-SELECTABLE APPEARANCE MODES
+   ------------------------------------------------------------
+   Applied by toggling data-appearance on <html>.
+     light  : default (the root declarations above)
+     dim    : soft slate — softest contrast, good for evening
+     dark   : true dark mode — high contrast on near-black
+   Each mode re-declares the canvas + ink + panel variables.
+   Brand teal stays as-is across all modes so semantic tint
+   classes (bg-emerald-50, etc.) read consistently.
+   ============================================================ */
+
+html[data-appearance='dim'] {
+  --color-white: #243541;     /* panels render as slate in dim mode */
+  --color-canvas: #1E2A33;
+  --color-surface: #243541;
+  --color-surface-raised: #2A3E4B;
+  --color-divider: #344856;
+  --color-ink: #E8EBEF;
+  --color-ink-muted: #9FB0BC;
+  --color-ink-soft: #6D8494;
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink);
+  /* Tint tiles slightly brighter for readability on slate */
+  --color-brand-50:  #24414C;
+  --color-brand-100: #2D5060;
+  --color-brand-200: #386374;
+  /* Semantic tints need to work on slate, not parchment */
+  --color-success-50:  #2A3E33;
+  --color-success-100: #375447;
+  --color-warn-50:  #3D3528;
+  --color-warn-100: #4C4232;
+  --color-danger-50:  #3D2F2E;
+  --color-danger-100: #4C3C3A;
+  /* Gray remap for slate */
+  --color-gray-50:  #2A3E4B;
+  --color-gray-100: #344856;
+  --color-gray-200: #3D5462;
+  --color-gray-300: #526E7F;
+  --color-gray-400: #7A94A4;
+  --color-gray-500: #9FB0BC;
+  --color-gray-600: #C2CCD3;
+  --color-gray-700: #DDE3E7;
+  --color-gray-800: #EFF2F4;
+  --color-gray-900: #FFFFFF;
+}
+
+html[data-appearance='dark'] {
+  --color-white: #1A1F22;     /* panels render as deep slate in dark mode */
+  --color-canvas: #121618;
+  --color-surface: #1A1F22;
+  --color-surface-raised: #21272B;
+  --color-divider: #2A3135;
+  --color-ink: #EEF0F2;
+  --color-ink-muted: #A2ABB3;
+  --color-ink-soft: #6E7780;
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink);
+  --color-brand-50:  #1B3842;
+  --color-brand-100: #234655;
+  --color-brand-200: #2D5A6C;
+  --color-success-50:  #1F2E24;
+  --color-success-100: #2B3F33;
+  --color-warn-50:  #302B1D;
+  --color-warn-100: #423923;
+  --color-danger-50:  #2E201E;
+  --color-danger-100: #3F2B28;
+  --color-gray-50:  #1A1F22;
+  --color-gray-100: #21272B;
+  --color-gray-200: #2A3135;
+  --color-gray-300: #3D4449;
+  --color-gray-400: #656B71;
+  --color-gray-500: #8A9198;
+  --color-gray-600: #ADB4BB;
+  --color-gray-700: #CAD0D6;
+  --color-gray-800: #E4E7EB;
+  --color-gray-900: #F4F6F8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Keep light mode even in dark OS — user must opt into dim/dark explicitly */
+    --background: var(--color-canvas);
+    --foreground: var(--color-ink);
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ensure form inputs pick up brand teal for focus rings */
+input:focus, select:focus, textarea:focus {
+  outline-color: var(--color-brand-500);
+}
+
+/* ===== Print styles for Batch Sheet ===== */
+@media print {
+  :root {
+    --background: #ffffff;
+    --foreground: #000000;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  .print\:p-0 { padding: 0 !important; }
+  .print\:border-0 { border: 0 !important; }
+  .print\:rounded-none { border-radius: 0 !important; }
+  .print\:shadow-none { box-shadow: none !important; }
+  .print\:block { display: block !important; }
+  @page {
+    size: letter;
+    margin: 0.5in;
+  }
+  table, tr, td, th {
+    page-break-inside: avoid;
+  }
+  section {
+    page-break-inside: avoid;
+  }
+  input, select, textarea {
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  body.print-label-only,
+  body.print-label-only * {
+    visibility: hidden;
+  }
+  body.print-label-only #printable-label,
+  body.print-label-only #printable-label * {
+    visibility: visible;
+  }
+  body.print-label-only #printable-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0.25in;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  body.print-label-only .print\:hidden {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}

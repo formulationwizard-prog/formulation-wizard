@@ -1,0 +1,397 @@
+// ============================================================
+// SUPPLEMENT FACTS LABEL ENGINE  (21 CFR 101.36)
+// ------------------------------------------------------------
+// Generates a compliant Supplement Facts panel from a list of
+// formulation ingredients. Handles:
+//   • Classification: vitamin / mineral / herbal / amino /
+//     mushroom / probiotic / specialty / excipient
+//   • Reference Daily Intake (RDI / DV) lookup for actives that
+//     have an established Daily Value per 21 CFR 101.36 Table 1.
+//   • Unit normalization (mg / mcg / IU / CFU) for display.
+//   • Proper "Other Ingredients" section — excipients only,
+//     listed in descending order by weight (like an ingredient
+//     statement).
+//   • "†" footnote for actives with no established DV (herbals,
+//     mushrooms, amino acids above label-claim levels, etc.).
+//
+// The engine is deliberately forgiving: ingredients whose name
+// matches a known active get a DV; everything else falls through
+// to the "other actives" section where it will display with "†".
+// Excipients are anything in the 'Excipients' category.
+// ============================================================
+import type { Ingredient } from '../types';
+import { UNIT_TO_GRAMS } from './utils';
+
+// ============================================================
+// REFERENCE DAILY VALUES (21 CFR 101.36 Table 1, adults & kids 4+)
+// ------------------------------------------------------------
+// Each entry carries:
+//   • displayName: the exact name to show on the label
+//   • dv: the Daily Value amount (in `unit`)
+//   • unit: mg | mcg | IU — label uses this unit
+//   • keywords: case-insensitive substrings; first match wins
+//   • potencyPerGram: if the ingredient qty represents a carrier-
+//     loaded active (e.g. "Vitamin D3 100,000 IU/g"), this is the
+//     effective active content per gram of ingredient. Defaults
+//     to 1 (ingredient qty is already the active weight).
+//   • unitFactor: multiplier from ingredient grams → DV unit.
+//     For minerals where the ingredient is a salt (e.g., calcium
+//     carbonate = 40% elemental calcium), this can be <1.
+//     Defaults to 1.0 (1:1 mg-to-mg).
+//   • scientific: optional Latin name for herbals/botanicals.
+// ============================================================
+
+export interface DVEntry {
+  displayName: string;
+  dv: number;
+  unit: 'mg' | 'mcg' | 'IU' | 'g';
+  keywords: string[];
+  /** Rough % of ingredient mass that is the active (0-1). Defaults 1.0. */
+  elementalFactor?: number;
+  /** Latin / scientific name appended in italics on the label. */
+  scientific?: string;
+  /** Subcategory for panel ordering. */
+  group: 'vitamin' | 'mineral';
+}
+
+export const DV_TABLE: DVEntry[] = [
+  // ─── VITAMINS ──────────────────────────────────────────────
+  { group: 'vitamin', displayName: 'Vitamin A', dv: 900, unit: 'mcg', keywords: ['vitamin a', 'retinyl', 'retinol', 'beta-carotene', 'beta carotene'] },
+  { group: 'vitamin', displayName: 'Vitamin C', dv: 90, unit: 'mg', keywords: ['vitamin c', 'ascorbic acid', 'sodium ascorbate', 'calcium ascorbate'] },
+  { group: 'vitamin', displayName: 'Vitamin D', dv: 20, unit: 'mcg', keywords: ['vitamin d', 'cholecalciferol', 'ergocalciferol', 'vitamin d3', 'vitamin d2'] },
+  { group: 'vitamin', displayName: 'Vitamin E', dv: 15, unit: 'mg', keywords: ['vitamin e', 'tocopher', 'tocotrien'] },
+  { group: 'vitamin', displayName: 'Vitamin K', dv: 120, unit: 'mcg', keywords: ['vitamin k', 'phytonadione', 'menaquinone', 'mk-4', 'mk-7', 'menaq'] },
+  { group: 'vitamin', displayName: 'Thiamin', dv: 1.2, unit: 'mg', keywords: ['thiamin', 'vitamin b1', 'b-1'] },
+  { group: 'vitamin', displayName: 'Riboflavin', dv: 1.3, unit: 'mg', keywords: ['riboflavin', 'vitamin b2', 'b-2'] },
+  { group: 'vitamin', displayName: 'Niacin', dv: 16, unit: 'mg', keywords: ['niacin', 'niacinamide', 'nicotinamide', 'vitamin b3', 'b-3'] },
+  { group: 'vitamin', displayName: 'Vitamin B6', dv: 1.7, unit: 'mg', keywords: ['vitamin b6', 'b-6', 'pyridox', 'p-5-p', 'p5p'] },
+  { group: 'vitamin', displayName: 'Folate', dv: 400, unit: 'mcg', keywords: ['folate', 'folic acid', 'methylfolate', '5-mthf', 'vitamin b9'] },
+  { group: 'vitamin', displayName: 'Vitamin B12', dv: 2.4, unit: 'mcg', keywords: ['vitamin b12', 'b-12', 'cobalamin', 'cyanocobalamin', 'methylcobalamin'] },
+  { group: 'vitamin', displayName: 'Biotin', dv: 30, unit: 'mcg', keywords: ['biotin', 'vitamin b7', 'b-7', 'vitamin h'] },
+  { group: 'vitamin', displayName: 'Pantothenic Acid', dv: 5, unit: 'mg', keywords: ['pantothen', 'vitamin b5', 'b-5'] },
+  { group: 'vitamin', displayName: 'Choline', dv: 550, unit: 'mg', keywords: ['choline bitartrate', 'choline citrate', 'phosphatidylcholine', 'alpha-gpc', 'choline'] },
+
+  // ─── MINERALS ──────────────────────────────────────────────
+  // elementalFactor approximates mass fraction of elemental mineral in the named salt/chelate form.
+  { group: 'mineral', displayName: 'Calcium', dv: 1300, unit: 'mg', keywords: ['calcium carbonate'], elementalFactor: 0.40 },
+  { group: 'mineral', displayName: 'Calcium', dv: 1300, unit: 'mg', keywords: ['calcium citrate'], elementalFactor: 0.21 },
+  { group: 'mineral', displayName: 'Calcium', dv: 1300, unit: 'mg', keywords: ['calcium'], elementalFactor: 0.25 },
+  { group: 'mineral', displayName: 'Iron', dv: 18, unit: 'mg', keywords: ['ferrous sulfate'], elementalFactor: 0.30 },
+  { group: 'mineral', displayName: 'Iron', dv: 18, unit: 'mg', keywords: ['ferrous bisglycinate', 'ferrochel', 'iron bisglycinate'], elementalFactor: 0.20 },
+  { group: 'mineral', displayName: 'Iron', dv: 18, unit: 'mg', keywords: ['iron', 'ferrous'], elementalFactor: 0.20 },
+  { group: 'mineral', displayName: 'Phosphorus', dv: 1250, unit: 'mg', keywords: ['phosphorus', 'phosphate'] },
+  { group: 'mineral', displayName: 'Iodine', dv: 150, unit: 'mcg', keywords: ['iodine', 'potassium iodide', 'kelp'], elementalFactor: 0.76 },
+  { group: 'mineral', displayName: 'Magnesium', dv: 420, unit: 'mg', keywords: ['magnesium oxide'], elementalFactor: 0.60 },
+  { group: 'mineral', displayName: 'Magnesium', dv: 420, unit: 'mg', keywords: ['magnesium glycinate', 'magnesium bisglycinate'], elementalFactor: 0.14 },
+  { group: 'mineral', displayName: 'Magnesium', dv: 420, unit: 'mg', keywords: ['magnesium citrate'], elementalFactor: 0.16 },
+  { group: 'mineral', displayName: 'Magnesium', dv: 420, unit: 'mg', keywords: ['magnesium'], elementalFactor: 0.16 },
+  { group: 'mineral', displayName: 'Zinc', dv: 11, unit: 'mg', keywords: ['zinc picolinate'], elementalFactor: 0.20 },
+  { group: 'mineral', displayName: 'Zinc', dv: 11, unit: 'mg', keywords: ['zinc gluconate'], elementalFactor: 0.14 },
+  { group: 'mineral', displayName: 'Zinc', dv: 11, unit: 'mg', keywords: ['zinc'], elementalFactor: 0.20 },
+  { group: 'mineral', displayName: 'Selenium', dv: 55, unit: 'mcg', keywords: ['selenomethionine', 'selenium'], elementalFactor: 0.40 },
+  { group: 'mineral', displayName: 'Copper', dv: 0.9, unit: 'mg', keywords: ['copper gluconate'], elementalFactor: 0.14 },
+  { group: 'mineral', displayName: 'Copper', dv: 0.9, unit: 'mg', keywords: ['copper'], elementalFactor: 0.20 },
+  { group: 'mineral', displayName: 'Manganese', dv: 2.3, unit: 'mg', keywords: ['manganese'], elementalFactor: 0.32 },
+  { group: 'mineral', displayName: 'Chromium', dv: 35, unit: 'mcg', keywords: ['chromium picolinate'], elementalFactor: 0.12 },
+  { group: 'mineral', displayName: 'Chromium', dv: 35, unit: 'mcg', keywords: ['chromium'], elementalFactor: 0.20 },
+  { group: 'mineral', displayName: 'Molybdenum', dv: 45, unit: 'mcg', keywords: ['molybdenum'] },
+  { group: 'mineral', displayName: 'Sodium', dv: 2300, unit: 'mg', keywords: ['sodium chloride', 'sodium'], elementalFactor: 0.40 },
+  { group: 'mineral', displayName: 'Potassium', dv: 4700, unit: 'mg', keywords: ['potassium chloride', 'potassium citrate', 'potassium'], elementalFactor: 0.38 },
+];
+
+// ============================================================
+// CLASSIFICATION
+// ============================================================
+
+export type ActiveGroup =
+  | 'vitamin'
+  | 'mineral'
+  | 'amino'
+  | 'herbal'
+  | 'mushroom'
+  | 'probiotic'
+  | 'fatty-acid'
+  | 'specialty'
+  | 'excipient';
+
+/**
+ * Classify an ingredient into a label section.
+ * Uses the ingredient's `category` field (from the DB) as primary signal.
+ */
+export function classifyActive(categoryOrName: string | undefined, name: string): ActiveGroup {
+  const cat = (categoryOrName || '').toLowerCase();
+  const n = name.toLowerCase();
+  if (cat.includes('excipient')) return 'excipient';
+  if (cat.includes('vitamin')) return 'vitamin';
+  if (cat.includes('mineral')) return 'mineral';
+  if (cat.includes('amino')) return 'amino';
+  if (cat.includes('probiotic')) return 'probiotic';
+  if (cat.includes('mushroom')) return 'mushroom';
+  if (cat.includes('herb') || cat.includes('botanical')) return 'herbal';
+  if (cat.includes('omega') || cat.includes('fatty') || cat.includes('oil')) return 'fatty-acid';
+  if (cat.includes('enzyme') || cat.includes('specialty') || cat.includes('compound')) return 'specialty';
+  // Fall back to name-based guesses
+  if (/vitamin|ascorb|tocopher|thiamin|riboflav|niacin|biotin|folate|cobalamin|pantothen|choline|cholecalcif|phytonad|menaquinone/i.test(n)) return 'vitamin';
+  if (/calcium|iron|magnesium|zinc|selen|copper|mangan|chrom|molyb|iodine|potass|sodium|phosphor|ferrous/i.test(n)) return 'mineral';
+  if (/(^|\s|-)l-|glycine|taurine|creatine|carnitine|glutamine|tryptophan|arginine|lysine|citrulline|theanine|cysteine|beta-alanine|ornithine/i.test(n)) return 'amino';
+  if (/lactobacill|bifido|saccharo|bacillus|cfu/i.test(n)) return 'probiotic';
+  if (/mushroom|reishi|lion's mane|cordyc|chaga|turkey tail|maitake|shiitake/i.test(n)) return 'mushroom';
+  if (/extract|root|leaf|bark|ashwagandh|rhodiola|ginkgo|ginseng|turmeric|curcumin|milk thistle|saw palmetto|elderberry|echinacea/i.test(n)) return 'herbal';
+  if (/omega|fish oil|krill|algae|mct|cla|gla|dha|epa/i.test(n)) return 'fatty-acid';
+  return 'specialty';
+}
+
+/** True when ingredient is a formulation aid (MCC, magnesium stearate, silica, etc.). */
+export function isExcipient(categoryOrName: string | undefined): boolean {
+  return (categoryOrName || '').toLowerCase().includes('excipient');
+}
+
+// ============================================================
+// DV LOOKUP
+// ============================================================
+
+/**
+ * Find the first DV entry whose keyword appears in the ingredient name.
+ * More specific entries should appear earlier in DV_TABLE.
+ */
+export function findDVEntry(name: string): DVEntry | null {
+  const n = name.toLowerCase();
+  for (const e of DV_TABLE) {
+    if (e.keywords.some(k => n.includes(k))) return e;
+  }
+  return null;
+}
+
+// ============================================================
+// SUPPLEMENT FACTS COMPUTATION
+// ============================================================
+
+/**
+ * A single row on the Supplement Facts panel.
+ */
+export interface SupplementFactRow {
+  /** Display name for the row (e.g., "Vitamin C (as Ascorbic Acid)"). */
+  displayName: string;
+  /** Amount per serving, already converted to the display unit. */
+  amount: number;
+  /** Display unit: mg / mcg / IU / g. */
+  unit: string;
+  /** Percent Daily Value (0-9999). Null when no DV established → shows "†". */
+  percentDV: number | null;
+  /** Group used for section placement. */
+  group: ActiveGroup;
+  /** Source ingredient (name) — for debugging / tooltips. */
+  sourceName: string;
+  /** Italicized scientific name for herbals (appended inline). */
+  scientific?: string;
+}
+
+/**
+ * The full structured Supplement Facts label data.
+ */
+export interface SupplementFactsData {
+  servingSize: string;
+  servingsPerContainer: number | string;
+  /** Calories per serving — only shown if ≥5. Null when negligible. */
+  caloriesPerServing: number | null;
+  /** Standard macro rows shown under Calories (fat/carbs/protein/sodium etc.). */
+  macroRows: SupplementFactRow[];
+  /** Vitamin + Mineral rows with established DV. */
+  vitaminMineralRows: SupplementFactRow[];
+  /** Herbal / amino / mushroom / specialty / fatty-acid rows (no DV). */
+  otherActivesRows: SupplementFactRow[];
+  /** "Other Ingredients" text — excipients only, by descending weight. */
+  otherIngredientsStatement: string;
+  /** Whether a "†" footnote is needed (any row has percentDV null). */
+  needsDaggerFootnote: boolean;
+}
+
+/**
+ * Convert an ingredient's quantity (in its original unit) to grams.
+ */
+function ingredientGrams(ing: Ingredient): number {
+  return ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+}
+
+/**
+ * Build structured Supplement Facts from the ingredient list.
+ *
+ * @param ingredients  Active formulation ingredients.
+ * @param servingSizeInGrams  Serving size expressed in grams (or ml).
+ * @param totalBatchGrams  Sum of all ingredient grams in the batch.
+ * @param servingsPerContainer  What appears on the label.
+ * @param servingSizeLabel  Free-text label for the serving (e.g. "2 Capsules", "1 Scoop (30g)").
+ * @param caloriesPerServing  Raw calories per serving from nutrition rollup.
+ * @param macroPerServing  Raw macro grams per serving (total fat, carbs, protein, sugars, sodium).
+ */
+export function buildSupplementFacts(params: {
+  ingredients: Ingredient[];
+  servingSizeInGrams: number;
+  totalBatchGrams: number;
+  servingsPerContainer: number | string;
+  servingSizeLabel: string;
+  caloriesPerServing: number;
+  macroPerServing: { totalFat: number; totalCarbs: number; protein: number; sodium: number; totalSugars: number };
+}): SupplementFactsData {
+  const { ingredients, servingSizeInGrams, totalBatchGrams, servingsPerContainer, servingSizeLabel,
+          caloriesPerServing, macroPerServing } = params;
+
+  const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+  const vitaminMineralRows: SupplementFactRow[] = [];
+  const otherActivesRows: SupplementFactRow[] = [];
+  const excipientList: { name: string; grams: number }[] = [];
+
+  for (const ing of ingredients) {
+    const cat = ing.foodData?.type === 'industrial' ? ing.foodData.data?.category : undefined;
+    const group = classifyActive(cat, ing.name);
+
+    if (group === 'excipient') {
+      excipientList.push({ name: ing.name, grams: ingredientGrams(ing) });
+      continue;
+    }
+
+    // Apply potencyFactor for carrier-loaded SKUs (Vit D3 100,000 IU/g on MCC = 0.25%
+    // active by mass, etc.). Defaults to 1.0. Without this, the label would show the
+    // full ingredient mass as if it were all active, drastically overstating %DV.
+    const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+      ? ing.foodData.data.potencyFactor : 1;
+
+    // Amount of ACTIVE per serving, in grams (or ml treated as 1:1)
+    const gramsPerServing = ingredientGrams(ing) * scale * potency;
+    if (gramsPerServing <= 0) continue;
+
+    const dv = findDVEntry(ing.name);
+
+    if (dv && (group === 'vitamin' || group === 'mineral')) {
+      // Express in DV unit. Apply elementalFactor for mineral salts.
+      const activeMg = gramsPerServing * 1000 * (dv.elementalFactor ?? 1);
+      let amount: number;
+      if (dv.unit === 'mg') amount = activeMg;
+      else if (dv.unit === 'mcg') amount = activeMg * 1000;
+      else if (dv.unit === 'g') amount = activeMg / 1000;
+      else amount = activeMg; // IU — caller should provide IU-dosed ingredients
+      const percentDV = dv.dv > 0 ? (amount / dv.dv) * 100 : null;
+      vitaminMineralRows.push({
+        displayName: dv.displayName + (shouldShowSource(ing.name, dv.displayName) ? ` (as ${cleanFormName(ing.name)})` : ''),
+        amount, unit: dv.unit, percentDV, group,
+        sourceName: ing.name,
+      });
+    } else {
+      // No DV — display in mg (or g if >= 1000 mg) with "†"
+      const mgPerServing = gramsPerServing * 1000;
+      const displayAmount = mgPerServing >= 1000 ? mgPerServing / 1000 : mgPerServing;
+      const displayUnit = mgPerServing >= 1000 ? 'g' : 'mg';
+      otherActivesRows.push({
+        displayName: cleanFormName(ing.name),
+        amount: displayAmount, unit: displayUnit, percentDV: null, group,
+        sourceName: ing.name,
+      });
+    }
+  }
+
+  // Excipients ordered by descending weight (ingredient statement)
+  excipientList.sort((a, b) => b.grams - a.grams);
+  const otherIngredientsStatement = excipientList.map(e => cleanFormName(e.name)).join(', ');
+
+  // Macro rows (Total Fat, Total Carb, Protein, Sodium, Total Sugars) shown when ≥ labeling threshold.
+  const macroRows: SupplementFactRow[] = [];
+  if (macroPerServing.totalFat >= 0.5) {
+    macroRows.push({ displayName: 'Total Fat', amount: macroPerServing.totalFat, unit: 'g', percentDV: (macroPerServing.totalFat / 78) * 100, group: 'specialty', sourceName: 'macro' });
+  }
+  if (macroPerServing.totalCarbs >= 1) {
+    macroRows.push({ displayName: 'Total Carbohydrate', amount: macroPerServing.totalCarbs, unit: 'g', percentDV: (macroPerServing.totalCarbs / 275) * 100, group: 'specialty', sourceName: 'macro' });
+  }
+  if (macroPerServing.totalSugars >= 0.5) {
+    macroRows.push({ displayName: '  Total Sugars', amount: macroPerServing.totalSugars, unit: 'g', percentDV: null, group: 'specialty', sourceName: 'macro' });
+  }
+  if (macroPerServing.protein >= 1) {
+    macroRows.push({ displayName: 'Protein', amount: macroPerServing.protein, unit: 'g', percentDV: (macroPerServing.protein / 50) * 100, group: 'specialty', sourceName: 'macro' });
+  }
+  if (macroPerServing.sodium >= 5) {
+    macroRows.push({ displayName: 'Sodium', amount: macroPerServing.sodium, unit: 'mg', percentDV: (macroPerServing.sodium / 2300) * 100, group: 'specialty', sourceName: 'macro' });
+  }
+
+  const needsDaggerFootnote = otherActivesRows.some(r => r.percentDV === null);
+
+  return {
+    servingSize: servingSizeLabel,
+    servingsPerContainer,
+    caloriesPerServing: caloriesPerServing >= 5 ? caloriesPerServing : null,
+    macroRows,
+    vitaminMineralRows,
+    otherActivesRows,
+    otherIngredientsStatement,
+    needsDaggerFootnote,
+  };
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+/**
+ * Decide whether to append the source form in parentheses.
+ * e.g. "Vitamin C (as Ascorbic Acid)" when source name differs from the generic DV name.
+ */
+function shouldShowSource(ingredientName: string, dvDisplayName: string): boolean {
+  const n = ingredientName.toLowerCase();
+  const dv = dvDisplayName.toLowerCase();
+  // If the ingredient name is just the DV name with maybe a USP/form suffix, skip the "(as ...)".
+  if (n.startsWith(dv)) return false;
+  return true;
+}
+
+/**
+ * Trim trailing parenthetical grade/assay info from the ingredient name so the
+ * label reads cleanly: "Vitamin C (Ascorbic Acid USP, Fine)" → "Ascorbic Acid".
+ */
+function cleanFormName(name: string): string {
+  // Strip leading "Vitamin X (" → "X" where the parenthesis explains the form
+  const parenMatch = name.match(/^(?:Vitamin\s+[A-Z0-9]+)\s*\(([^)]+)\)/i);
+  if (parenMatch) {
+    // Take the form but strip grade suffixes like "USP", ", Fine", ", 500,000 IU/g"
+    return parenMatch[1].replace(/\s*,?\s*(USP|NF|FCC|Fine|Pharma[- ]?Grade|\d[\d,]*\s*IU\/g|mcg|mg)\b.*$/i, '').trim();
+  }
+  // Otherwise strip trailing parenthetical grade info
+  return name.replace(/\s*\((?:USP|NF|FCC|Fine|Pharma[- ]?Grade|crystalline|powder)[^)]*\)\s*$/i, '').trim();
+}
+
+/**
+ * Format a number for label display.
+ * Vitamins/minerals: integer mcg/mg where appropriate; no trailing zeros.
+ * Returns the string (no unit — caller appends it).
+ */
+export function formatSupplementAmount(amount: number, unit: string): string {
+  if (!isFinite(amount) || amount <= 0) return '0';
+  if (unit === 'mcg' || unit === 'IU') {
+    // Whole numbers for mcg and IU
+    return amount >= 10 ? String(Math.round(amount)) : amount.toFixed(1).replace(/\.0$/, '');
+  }
+  if (unit === 'mg') {
+    if (amount >= 100) return String(Math.round(amount));
+    if (amount >= 10) return amount.toFixed(0);
+    if (amount >= 1) return amount.toFixed(1).replace(/\.0$/, '');
+    return amount.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  }
+  if (unit === 'g') {
+    if (amount >= 10) return amount.toFixed(0);
+    return amount.toFixed(1).replace(/\.0$/, '');
+  }
+  return String(Math.round(amount * 100) / 100);
+}
+
+/**
+ * Format %DV for the label per 21 CFR 101.36(b)(3):
+ * <2% → show nothing / "<1%" in edge cases; otherwise rounded to whole number
+ * for low values; rounded to nearest 2/5/10 as amount grows.
+ * We follow the same rounding as the food panel for simplicity.
+ */
+export function formatSupplementDV(pct: number | null): string {
+  if (pct === null) return '†';
+  if (pct < 1) return '<1%';
+  if (pct < 2) return '1%';
+  if (pct <= 10) return `${Math.round(pct / 2) * 2}%`;
+  if (pct <= 50) return `${Math.round(pct / 5) * 5}%`;
+  if (pct <= 999) return `${Math.round(pct / 10) * 10}%`;
+  return '>999%';
+}

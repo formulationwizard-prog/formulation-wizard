@@ -1,0 +1,8223 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import type {
+  Ingredient,
+  Nutrition,
+  SavedFormulation,
+  FoodResult,
+  IndustrialIngredient,
+  IngredientSourceData,
+  PackagingItem,
+} from '@/types';
+import {
+  UNIT_TO_GRAMS,
+  detectAllergens,
+  emptyNutrition,
+  isIndustrial,
+  fdaRoundCalories,
+  fdaRoundFat,
+  fdaRoundCholesterol,
+  fdaRoundSodium,
+  fdaRoundGrams,
+  fdaRoundVitaminD,
+  fdaRoundIron,
+  fdaRoundPotassium,
+  fdaRoundCalcium,
+  fdaRoundPercentDV,
+} from '@/lib/utils';
+import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
+import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, type ParsedRow } from '@/lib/parseFormula';
+import { estimateSpecs } from '@/lib/foodScience';
+import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
+import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
+import { getPackagingSustainability } from '@/lib/packagingSustainability';
+import { CERT_LABELS, getSupplierInfo } from '@/lib/data/suppliers';
+import type { SustainabilityCert, LeadTimeBucket, SupplierQualification, SupplierDocType } from '@/types';
+import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
+import { generatePartNumber } from '@/lib/partNumber';
+import { getIngredientPartNumber, getPackagingPartNumber, getCustomPackagingPartNumber } from '@/lib/skuCodes';
+import { NautilusMark } from '@/components/NautilusMark';
+import { PROCESS_AUTHORITIES, PA_TYPE_LABELS, getPAStates, type ProcessAuthorityType } from '@/lib/data/processAuthorities';
+import { DEFAULT_TEMPLATE } from '@/lib/processTemplates';
+import { MODES, MODE_ORDER, type ModeId } from '@/lib/modes';
+import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
+import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
+import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
+import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV } from '@/lib/supplementLabeling';
+import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
+import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
+import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, buildDisclaimers } from '@/lib/supplementClaims';
+import { checkCompatibility, summarizeCompatibility } from '@/lib/supplementCompatibility';
+import { analyzeNDI } from '@/lib/supplementNDI';
+import { analyzeRetailFit } from '@/lib/supplementRetailFit';
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+export default function FormulationWizard() {
+  // ----- Mode (vertical) --------------------------------------------------
+  const [mode, setMode] = useState<ModeId>('fb');
+  const mc = MODES[mode]; // Active mode configuration
+  // Local aliases so the rest of the component can keep using familiar names;
+  // these re-compute automatically when the user switches mode.
+  const INDUSTRIAL_DB = mc.ingredientDB;
+  const PACKAGING_DB = mc.packagingDB;
+  const PRODUCT_TYPES = mc.productTypes;
+  const CATEGORIES = mc.categories;
+
+  const [ingredientsRaw, setIngredientsRaw] = useState<Ingredient[]>([]);
+
+  // Always re-resolve industrial-DB-backed ingredients against the CURRENT DB.
+  // Otherwise, fields added to the DB after an ingredient was saved (like the
+  // new `potencyFactor` for carrier-loaded vitamins) wouldn't propagate into
+  // existing formulas — the user would have to re-add every ingredient. By
+  // merging fresh DB data on every render, DB improvements reach live formulas
+  // immediately. Falls back to the stored snapshot when no match is found.
+  const ingredients: Ingredient[] = ingredientsRaw.map(ing => {
+    if (ing.foodData?.type !== 'industrial') return ing;
+    const fresh = INDUSTRIAL_DB.find(r => r.name === ing.name);
+    if (!fresh) return ing;
+    return { ...ing, foodData: { ...ing.foodData, data: fresh } };
+  });
+  // Preserve the existing setIngredients call sites — they mutate the raw list.
+  const setIngredients = setIngredientsRaw;
+  const [newIngredient, setNewIngredient] = useState('');
+  const [newQty, setNewQty] = useState('');
+  const [newUnit, setNewUnit] = useState('g');
+  const [nutrition, setNutrition] = useState<Nutrition>(emptyNutrition());
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<(IndustrialIngredient | FoodResult)[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [ingredientStatement, setIngredientStatement] = useState('');
+  const [allergenStatement, setAllergenStatement] = useState<string[]>([]);
+  const [servingSize, setServingSize] = useState(30);
+  const [servingUnit, setServingUnit] = useState('g');
+  const [packageSize, setPackageSize] = useState(300);
+  const [packageUnit, setPackageUnit] = useState('g');
+
+  // ----- Mode-switch unit reconciliation --------------------------------------
+  // When the user switches modes, the current unit selections may no longer be
+  // in the new mode's allowed list (e.g., "tsp" in F&B → not available in
+  // Supplements). Reset each stale unit to the mode's natural default. Also
+  // reset size defaults when they're still at the vertical-mismatch values —
+  // e.g., switching from F&B to Supplements with a 30 g serving (sauce-sized)
+  // makes the capsule fill calculator read 15,000 mg per unit, which is absurd.
+  useEffect(() => {
+    const modeUnits = mc.units;
+    const defaultUnit = mode === 'supplements' ? 'mg' : modeUnits[0];
+    if (!modeUnits.includes(servingUnit)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mode-switch reconciliation
+      setServingUnit(mode === 'supplements' ? 'g' : defaultUnit);
+    }
+    if (!modeUnits.includes(packageUnit)) {
+      setPackageUnit(mode === 'supplements' ? 'g' : defaultUnit);
+    }
+    if (!modeUnits.includes(newUnit)) {
+      setNewUnit(defaultUnit);
+    }
+    // Supplement-appropriate size defaults when the user is still on F&B numeric defaults.
+    if (mode === 'supplements' && servingSize === 30 && packageSize === 300) {
+      setServingSize(2);
+      setPackageSize(60);
+    }
+    // Reverse direction — if they switch AWAY from supplements and sizes are still
+    // supplement-typical (2g serving, 60g package), restore F&B defaults.
+    if (mode !== 'supplements' && servingSize === 2 && packageSize === 60) {
+      setServingSize(30);
+      setPackageSize(300);
+    }
+  }, [mode, mc.units, servingUnit, packageUnit, newUnit, servingSize, packageSize]);
+
+  // ----- Supplement-specific dosage model (visible only when mode === 'supplements') --
+  // Delivery form controls the noun shown on the Supplement Facts label ("2 Capsules"
+  // vs. "1 Softgel" vs. "1 Scoop"), and unlocks the capsule-size fill-weight calculator.
+  type SupplementDeliveryForm = 'capsule' | 'tablet' | 'softgel' | 'gummy' | 'powder' | 'liquid' | 'lozenge' | 'chewable';
+  type CapsuleSize = '000' | '00' | '0' | '1' | '2' | '3' | '4' | '5';
+  const [suppDeliveryForm, setSuppDeliveryForm] = useState<SupplementDeliveryForm>('capsule');
+  const [suppUnitsPerServing, setSuppUnitsPerServing] = useState<number>(2);
+  const [suppCapsuleSize, setSuppCapsuleSize] = useState<CapsuleSize>('0');
+  /** Intended audience for the supplement — tightens UL thresholds (pregnancy retinol, pediatric iron, etc.). */
+  const [suppAudience, setSuppAudience] = useState<SupplementAudience>('general');
+  // ----- Supplement stability / overage conditions ---------------------------
+  const [suppShelfLifeMonths, setSuppShelfLifeMonths] = useState<number>(24);
+  const [suppStorage, setSuppStorage] = useState<StorageCondition>('ambient');
+  const [suppAmberPkg, setSuppAmberPkg] = useState<boolean>(false);
+  const [suppDesiccant, setSuppDesiccant] = useState<boolean>(true);
+  const [suppNitrogen, setSuppNitrogen] = useState<boolean>(false);
+  const [suppTocopherol, setSuppTocopherol] = useState<boolean>(false);
+  /** User's draft label-copy / claim text — analyzed for disease-claim language in the Claims Validator card. */
+  const [suppDraftClaim, setSuppDraftClaim] = useState<string>('');
+  /**
+   * Tracks which supplement analysis cards the user has manually toggled.
+   * Default collapsed/expanded is derived from findings (cards with issues
+   * expand; clean cards collapse) — but once the user clicks, their choice
+   * wins. Keyed by card id ('safety', 'stability', 'compat', 'ndi',
+   * 'claims', 'retail').
+   */
+  const [suppCardsManuallyToggled, setSuppCardsManuallyToggled] = useState<Record<string, boolean>>({});
+  const toggleSuppCard = (id: string, currentlyExpanded: boolean) => {
+    setSuppCardsManuallyToggled(prev => ({ ...prev, [id]: !currentlyExpanded }));
+  };
+  /** Max fill weight per standard hard-shell capsule (mg) — empirical industry values. */
+  const CAPSULE_CAPACITY_MG: Record<CapsuleSize, number> = {
+    '000': 1370, '00': 950, '0': 680, '1': 500, '2': 355, '3': 275, '4': 205, '5': 130,
+  };
+  /** Label noun for delivery forms — used on the Supplement Facts Serving Size row. */
+  const SUPP_FORM_NOUN: Record<SupplementDeliveryForm, { singular: string; plural: string }> = {
+    capsule:   { singular: 'Capsule',   plural: 'Capsules'   },
+    tablet:    { singular: 'Tablet',    plural: 'Tablets'    },
+    softgel:   { singular: 'Softgel',   plural: 'Softgels'   },
+    gummy:     { singular: 'Gummy',     plural: 'Gummies'    },
+    powder:    { singular: 'Scoop',     plural: 'Scoops'     },
+    liquid:    { singular: 'Dropper',   plural: 'Droppers'   },
+    lozenge:   { singular: 'Lozenge',   plural: 'Lozenges'   },
+    chewable:  { singular: 'Chewable',  plural: 'Chewables'  },
+  };
+
+  const [formulationName, setFormulationName] = useState('');
+  const [productType, setProductType] = useState<string>('');
+  const [savedFormulations, setSavedFormulations] = useState<SavedFormulation[]>([]);
+  const [activeTab, setActiveTab] = useState<'home' | 'build' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
+  // ----- Terms of Use / liability acknowledgment ------------------------
+  const [tosAccepted, setTosAccepted] = useState(false);
+  useEffect(() => {
+    // One-shot hydration from localStorage on mount — idiomatic pattern;
+    // the react-hooks/purity rule flags it but setState in useEffect is the
+    // correct way to seed React state from browser storage post-SSR.
+    if (typeof window === 'undefined') return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+    if (window.localStorage.getItem('fw-tos-v1') === 'accepted') setTosAccepted(true);
+  }, []);
+  const acceptTos = () => {
+    setTosAccepted(true);
+    if (typeof window !== 'undefined') window.localStorage.setItem('fw-tos-v1', 'accepted');
+  };
+  // ----- Process Authority directory filter state -----------------------
+  const [paStateFilter, setPaStateFilter] = useState<string>('All');
+  const [paTypeFilter, setPaTypeFilter] = useState<ProcessAuthorityType | 'All'>('All');
+  const [paSearch, setPaSearch] = useState('');
+  // ----- Services / lead capture state ----------------------------------
+  const [serviceRequestType, setServiceRequestType] = useState<'' | 'bench' | 'reform' | 'scaleup' | 'copacker'>('');
+  const [serviceClientName, setServiceClientName] = useState('');
+  const [serviceClientEmail, setServiceClientEmail] = useState('');
+  const [serviceClientCompany, setServiceClientCompany] = useState('');
+  const [serviceNotes, setServiceNotes] = useState('');
+  // ----- Sourcing tab filter state --------------------------------------
+  const [sourcingFilterOrganic, setSourcingFilterOrganic] = useState(false);
+  const [sourcingFilterNonGmo, setSourcingFilterNonGmo] = useState(false);
+  const [sourcingFilterKosher, setSourcingFilterKosher] = useState(false);
+  const [sourcingFilterHalal, setSourcingFilterHalal] = useState(false);
+  const [sourcingFilterRspo, setSourcingFilterRspo] = useState(false);
+  const [sourcingFilterMsc, setSourcingFilterMsc] = useState(false);
+  const [sourcingFilterFairTrade, setSourcingFilterFairTrade] = useState(false);
+  const [sourcingFilterCgmp, setSourcingFilterCgmp] = useState(false);
+  const [sourcingFilterMaxLeadTime, setSourcingFilterMaxLeadTime] = useState<'any' | '1-3-days' | '1-2-weeks' | '2-4-weeks' | '4-8-weeks'>('any');
+  // ----- Cost Tool state --------------------------------------------------
+  const [freightModel, setFreightModel] = useState<'fob' | 'delivered'>('delivered');
+  /** Freight adder (USD / kg of ingredient) when FOB. */
+  const [freightPerKg, setFreightPerKg] = useState(0);
+  /** Direct labor allocated per retail unit (USD). */
+  const [laborPerUnit, setLaborPerUnit] = useState(0);
+  /** Plant overhead as a % of (ingredients + packaging + labor). */
+  const [overheadPct, setOverheadPct] = useState(8);
+  /** Target retail (SRP) for margin math. */
+  const [targetSRP, setTargetSRP] = useState(4.99);
+  /** Target gross margin % (wholesale basis). */
+  const [targetMarginPct, setTargetMarginPct] = useState(35);
+  /** Retailer markup factor: wholesale = SRP × factor. 0.50 ≈ 50% off SRP (standard grocery). */
+  const [wholesaleFactor, setWholesaleFactor] = useState(0.5);
+  /** Sensitivity: commodity spike % applied globally to ingredient costs. */
+  const [commoditySpikePct, setCommoditySpikePct] = useState(0);
+  // ----- Versioning / comparison state ---------------------------------
+  /** Which formulation is expanded in Saved tab (null = none). */
+  const [historyExpandedId, setHistoryExpandedId] = useState<string | null>(null);
+  /** Formulations selected for comparison (max 3). */
+  const [compareSelectionIds, setCompareSelectionIds] = useState<string[]>([]);
+  /** Whether comparison view is currently showing. */
+  const [showComparison, setShowComparison] = useState(false);
+  /** Which two versions of a single formula to diff (by version string). */
+  const [diffSelection, setDiffSelection] = useState<{ formulaId: string; v1: string; v2: string } | null>(null);
+  /** User-selected visual appearance. Persisted to localStorage, applied to <html>. */
+  const [appearance, setAppearance] = useState<'light' | 'dim' | 'dark'>('light');
+  /** Claim being tested against FDA 21 CFR 101.54/.56 in the claim-validator panel. */
+  const [claimInput, setClaimInput] = useState('');
+  /** Which ingredient's raw-material spec sheet is currently open in the modal (null = closed). */
+  const [specSheetIngredientIndex, setSpecSheetIngredientIndex] = useState<number | null>(null);
+  // ----- Command Palette state ------------------------------------------
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [cmdPaletteQuery, setCmdPaletteQuery] = useState('');
+  const [cmdPaletteSelectedIndex, setCmdPaletteSelectedIndex] = useState(0);
+  const cmdInputRef = useRef<HTMLInputElement>(null);
+  // Cross-platform ⌘K / Ctrl+K to open, Esc to close. Arrows to navigate, Enter to select.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdPaletteOpen(prev => !prev);
+      } else if (e.key === 'Escape' && cmdPaletteOpen) {
+        setCmdPaletteOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cmdPaletteOpen]);
+  // Reset query + selection when opening/closing
+  useEffect(() => {
+    if (cmdPaletteOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- side-effect in response to toggle
+      setCmdPaletteSelectedIndex(0);
+      setTimeout(() => cmdInputRef.current?.focus(), 50);
+    } else {
+      setCmdPaletteQuery('');
+    }
+  }, [cmdPaletteOpen]);
+  // ----- Formula Status state --------------------------------------------
+  /** Lifecycle status for the current in-progress formula. Persisted when saved. */
+  const [formulaStatus, setFormulaStatus] = useState<'draft' | 'in-pilot' | 'launched' | 'on-hold'>('draft');
+  /** Part number for the in-progress formula — auto-assigned on first save, user-editable thereafter. */
+  const [partNumber, setPartNumber] = useState<string>('');
+  // ----- Supplier Qualification Tracker state ---------------------------
+  const [supplierQuals, setSupplierQuals] = useState<SupplierQualification[]>([]);
+  /** Sourcing tab sub-view toggle. */
+  const [sourcingSubView, setSourcingSubView] = useState<'suppliers' | 'qualifications'>('suppliers');
+  /** Which qualification is being edited in the modal (null = closed, 'new' = creating). */
+  const [editingQualId, setEditingQualId] = useState<string | 'new' | null>(null);
+  const [qualForm, setQualForm] = useState<Partial<SupplierQualification>>({
+    supplierName: '', docType: 'locg', issuedDate: '', expirationDate: '', certifier: '', notes: '',
+  });
+  // Load on mount
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+    setSupplierQuals(loadQualifications());
+  }, []);
+  // Persist whenever state changes
+  useEffect(() => {
+    saveQualifications(supplierQuals);
+  }, [supplierQuals]);
+  // Reactive "now" timestamp — refreshes every minute so dashboard relative
+  // times stay accurate without calling Date.now() during render (which the
+  // react-hooks/purity lint rule prohibits).
+  const [dashboardNow, setDashboardNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setDashboardNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+  useEffect(() => {
+    // Restore on mount
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('fw-appearance');
+    if (saved === 'light' || saved === 'dim' || saved === 'dark') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+      setAppearance(saved);
+    }
+  }, []);
+  useEffect(() => {
+    // Apply + persist whenever appearance changes
+    if (typeof window === 'undefined') return;
+    document.documentElement.setAttribute('data-appearance', appearance);
+    window.localStorage.setItem('fw-appearance', appearance);
+  }, [appearance]);
+  // Filing (Scheduled Process) form state
+  const [filing, setFiling] = useState({
+    establishmentName: '',
+    fceNumber: '',
+    establishmentAddress: '',
+    contactName: '',
+    contactEmail: '',
+    processAuthorityName: '',
+    processAuthorityOrg: '',
+    processAuthorityDate: '',
+    containerHeadspace: '',
+    containerVacuum: '',
+    fillInitialTemp: '',
+    fillTargetTemp: '',
+    holdTime: '',
+    retortProcessTemp: '',
+    retortProcessTime: '',
+    coolWaterChlorine: '1.0',
+    processMethod: 'hot-fill',
+    equilibriumPhDay: '10',
+    targetPh: '',
+    acidulantType: '',
+    saltPercent: '',
+    notes: '',
+  });
+  const [customQaTests, setCustomQaTests] = useState<QaTest[]>([]);
+  const [batchSize, setBatchSize] = useState(10);
+  const [batchSizeUnit, setBatchSizeUnit] = useState('kg');
+  const [batchNumber, setBatchNumber] = useState('');
+  const [productionDate, setProductionDate] = useState(new Date().toISOString().slice(0, 10));
+  const [operator, setOperator] = useState('');
+  const [saveMessage, setSaveMessage] = useState('');
+  const [dbCategory, setDbCategory] = useState('All');
+  const [dbSearch, setDbSearch] = useState('');
+  // selectedFood can hold either an industrial SKU, a USDA result, or be null
+  const [selectedFood, setSelectedFood] = useState<IngredientSourceData | null>(null);
+  const [selectedPackaging, setSelectedPackaging] = useState<PackagingItem | null>(null);
+  const [selectedClosure, setSelectedClosure] = useState<PackagingItem | null>(null);
+  // ----- Custom packaging -----------------------------------------------------
+  // When nothing in the DB matches what the user actually uses (unusual bottle,
+  // boutique pouch, bulk tote, "half carafe," etc.), they can define a custom
+  // entry. It appears at the top of the dropdown and behaves exactly like a DB
+  // item for cost rollup, label display, batch sheet, and package calculations.
+  const [customContainer, setCustomContainer] = useState<PackagingItem | null>(null);
+  const [customClosure, setCustomClosure] = useState<PackagingItem | null>(null);
+  /** Monotonic counter used to build FWP-CUS-XXXX part numbers for user-defined packaging. */
+  const [customPackagingSeq, setCustomPackagingSeq] = useState<number>(1);
+  const [showContainerForm, setShowContainerForm] = useState<boolean>(false);
+  const [showClosureForm, setShowClosureForm] = useState<boolean>(false);
+  /** When true, the on-demand Packaging Data Sheet modal is rendered. */
+  const [showPackagingSheet, setShowPackagingSheet] = useState<boolean>(false);
+  // Draft fields for the custom form — kept separate from the committed
+  // customContainer / customClosure so the user can abandon without losing state.
+  const [draftCustom, setDraftCustom] = useState<{
+    name: string; material: string; capacityVal: number; capacityUnit: string;
+    neckFinish: string; costPerUnit: number; kind: 'container' | 'closure';
+    unitsPerCase: number; casesPerLayer: number; layersPerPallet: number;
+    palletType: string;
+  }>({ name: '', material: '', capacityVal: 0, capacityUnit: 'ml', neckFinish: '', costPerUnit: 0, kind: 'container',
+       unitsPerCase: 0, casesPerLayer: 0, layersPerPallet: 0, palletType: '48x40 GMA' });
+  const [showPaste, setShowPaste] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  /** If true, applying a bulk paste REPLACES the current formulation instead of appending. */
+  const [replaceOnPaste, setReplaceOnPaste] = useState(true);
+  const [showFullHaccp, setShowFullHaccp] = useState(false);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Container categories are now mode-scoped so the dropdown doesn't drown the
+  // user in packaging that isn't remotely appropriate for their vertical.
+  // The custom container + closure entries (below) give the user a fallback
+  // for anything not in the DB.
+  const containerCategories = mc.packagingContainerCategories;
+  const closureCategories = ['Closures', 'Pumps & Dispensers'];
+  // Split PACKAGING_DB into selector pools, scoped to mode-relevant categories.
+  const containerItems = PACKAGING_DB.filter(p =>
+    containerCategories.includes(p.category)
+    && p.category !== 'Closures'
+    && p.category !== 'Pumps & Dispensers'
+  );
+  const closureItems = PACKAGING_DB.filter(p => p.category === 'Closures' || p.category === 'Pumps & Dispensers');
+
+  // Current product-type definition (or null if none chosen / unknown name).
+  const currentProductType = productType ? PRODUCT_TYPES.find(pt => pt.name === productType) || null : null;
+  // Containers recommended for the current product type (keep DB order within the recommendations
+  // array itself, since product-type authors ordered them by typicality).
+  const recommendedContainers = currentProductType
+    ? currentProductType.typicalContainers
+        .map(name => PACKAGING_DB.find(p => p.name === name))
+        .filter((p): p is NonNullable<typeof p> => !!p)
+    : [];
+  const recommendedClosures = currentProductType
+    ? currentProductType.typicalClosures
+        .map(name => PACKAGING_DB.find(p => p.name === name))
+        .filter((p): p is NonNullable<typeof p> => !!p)
+    : [];
+  const recommendedContainerNames = new Set(recommendedContainers.map(p => p.name));
+  const recommendedClosureNames = new Set(recommendedClosures.map(p => p.name));
+
+  const servingSizeInGrams = servingSize * (UNIT_TO_GRAMS[servingUnit] || 1);
+  const packageSizeInGrams = packageSize * (UNIT_TO_GRAMS[packageUnit] || 1);
+  /** Auto-computed servings count based on package ÷ serving size. Used as the default. */
+  const autoServingsPerContainer = packageSizeInGrams && servingSizeInGrams
+    ? Math.round((packageSizeInGrams / servingSizeInGrams) * 10) / 10 : 1;
+  /** User override — when null we fall back to the auto value. Persists across renders. */
+  const [servingsPerContainerOverride, setServingsPerContainerOverride] = useState<number | null>(null);
+  /** Effective number used everywhere (label, facts panel, safety/stability cards). */
+  const servingsPerContainer = servingsPerContainerOverride ?? autoServingsPerContainer;
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const searchIngredients = (query: string) => {
+    setNewIngredient(query);
+    setSelectedFood(null);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (query.length < 2) { setShowDropdown(false); return; }
+    const industrialMatches = INDUSTRIAL_DB.filter(i =>
+      i.name.toLowerCase().includes(query.toLowerCase()) ||
+      i.category.toLowerCase().includes(query.toLowerCase())
+    ).slice(0, 5);
+    if (industrialMatches.length > 0) { setSearchResults(industrialMatches); setShowDropdown(true); }
+    searchTimeout.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const response = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=DEMO_KEY&query=${encodeURIComponent(query)}&pageSize=4&dataType=Branded,SR%20Legacy,Foundation`);
+        const data = await response.json();
+        if (data.foods?.length > 0) { setSearchResults([...industrialMatches, ...data.foods.slice(0, 4)]); setShowDropdown(true); }
+      } catch { } finally { setSearching(false); }
+    }, 400);
+  };
+
+  const selectIngredient = (item: IndustrialIngredient | FoodResult) => {
+    if (isIndustrial(item)) {
+      setNewIngredient(item.name);
+      setSelectedFood({ type: 'industrial', data: item, subIngredients: item.subIngredients, allergens: item.allergens, costPerKg: item.costPerKg, supplier: item.suppliers[0], nutrition: item.nutrition });
+    } else {
+      const food = item as FoodResult;
+      const subs = food.ingredients ? food.ingredients.split(/,(?![^(]*\))/).map(s => s.trim()).filter(s => s.length > 0 && s.length < 60).slice(0, 8) : [];
+      setNewIngredient(food.brandName ? `${food.description} (${food.brandName})` : food.description);
+      setSelectedFood({ type: 'usda', data: food, subIngredients: subs, allergens: detectAllergens((food.description || '') + ' ' + (food.ingredients || '')), costPerKg: 0, supplier: 'USDA Database', nutrition: {} });
+    }
+    setShowDropdown(false);
+    setSearchResults([]);
+  };
+
+  const recalculate = (currentIngredients: Ingredient[]) => {
+    const n = emptyNutrition();
+    const allAllergens = new Set<string>();
+    currentIngredients.forEach((item) => {
+      item.allergens?.forEach(a => allAllergens.add(a));
+      const qtyInGrams = item.qty * (UNIT_TO_GRAMS[item.unit] || 1);
+      const factor = qtyInGrams / 100;
+      if (item.foodData?.type === 'industrial' && item.foodData?.nutrition) {
+        const nut = item.foodData.nutrition as Record<string, number | undefined>;
+        Object.keys(nut).forEach(key => {
+          const nObj = n as unknown as Record<string, number>;
+          nObj[key] = (nObj[key] || 0) + ((nut[key] || 0) * factor);
+        });
+      } else if (item.foodData?.type === 'usda' && item.foodData.data && 'foodNutrients' in item.foodData.data && item.foodData.data.foodNutrients) {
+        const nutrients = item.foodData.data.foodNutrients as Array<{ nutrientName?: string; value?: number }>;
+        const get = (kw: string) => (nutrients.find(x => x.nutrientName?.toLowerCase().includes(kw))?.value || 0) * factor;
+        n.calories += get('energy'); n.totalFat += get('total lipid'); n.saturatedFat += get('fatty acids, total saturated');
+        n.cholesterol += get('cholesterol'); n.sodium += get('sodium'); n.totalCarbs += get('carbohydrate');
+        n.dietaryFiber += get('fiber'); n.totalSugars += get('sugars'); n.protein += get('protein');
+        n.calcium += get('calcium'); n.iron += get('iron'); n.potassium += get('potassium');
+      }
+      detectAllergens(item.name).forEach(a => allAllergens.add(a));
+    });
+    setNutrition(n);
+    setAllergenStatement(Array.from(allAllergens));
+    const sorted = [...currentIngredients].sort((a, b) => (b.qty * (UNIT_TO_GRAMS[b.unit] || 1)) - (a.qty * (UNIT_TO_GRAMS[a.unit] || 1)));
+    setIngredientStatement(sorted.map(i => i.subIngredients?.length > 0 ? `${i.name} (${i.subIngredients.join(', ')})` : i.name).join(', '));
+  };
+
+  const totalCost = ingredients.reduce((sum, ing) => sum + ((ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000) * (ing.costPerKg || 0), 0);
+  const totalWeightKg = ingredients.reduce((sum, ing) => sum + (ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000, 0);
+  const totalBatchGrams = totalWeightKg * 1000;
+  const costPerServing = totalWeightKg > 0 ? (totalCost / totalWeightKg) * (servingSizeInGrams / 1000) : 0;
+
+  // Packaging cost per retail unit (container + closure/dispenser).
+  const packagingCostPerUnit = (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0);
+  // Share of ingredient cost allocated to one retail package (by weight ratio).
+  const ingredientCostPerPackage = totalBatchGrams > 0 ? totalCost * (packageSizeInGrams / totalBatchGrams) : 0;
+  // Total delivered cost per retail unit = ingredients in that package + packaging hardware.
+  const costPerPackage = ingredientCostPerPackage + packagingCostPerUnit;
+
+  // Food-science spec estimates from the current formulation (pH, Brix, moisture, a_w,
+  // viscosity, acetic acid, regulatory class). Lightweight — recomputed each render.
+  const specs = estimateSpecs(ingredients.map(ing => ({
+    name: ing.name,
+    qty: ing.qty,
+    unit: ing.unit,
+    category: ing.foodData?.type === 'industrial' ? ing.foodData?.data?.category : undefined,
+  })));
+  const processTemplate = (productType && mc.processTemplates[productType]) || DEFAULT_TEMPLATE;
+
+  // Regulatory compliance findings — one per regulated ingredient present.
+  // NOTE: the master compliance checker covers FDA food preservatives + USDA-FSIS
+  // cure rules (nitrite/nitrate ppm, ascorbic acid as cure accelerator, BHA/BHT,
+  // sorbates, benzoates, sulfites, phosphates). These rules do NOT apply to
+  // dietary supplements — a supplement with 200 mg Vitamin C is not a cured meat.
+  // Supplements have their own dedicated UL / NDI / compatibility / retail-fit
+  // safety stack, so we skip this checker entirely in that mode to prevent
+  // false positives (e.g., "Vitamin C exceeds USDA cure accelerator ppm").
+  const complianceFindings: ComplianceFinding[] = mode === 'supplements' ? [] : checkCompliance(
+    ingredients.map(ing => ({ name: ing.name, qty: ing.qty, unit: ing.unit }))
+  );
+  const complianceViolations = complianceFindings.filter(f => f.violated);
+
+  // HACCP suggested category — derived from active vertical + product type tags + live specs +
+  // spec-estimator product classification (the authoritative food-pathway signal).
+  const currentProductTypeDef = productType ? PRODUCT_TYPES.find(p => p.name === productType) : undefined;
+  const suggestedHaccp = suggestHaccpCategory(
+    currentProductTypeDef?.tags,
+    { pH: specs.pH, aw: specs.aw, productClassification: specs.productClassification },
+    mode
+  );
+  /** Safety-critical mismatch between product-type tags and actual computed specs. */
+  const haccpMismatch = detectSpecTagMismatch(
+    currentProductTypeDef?.tags,
+    { pH: specs.pH, aw: specs.aw },
+  );
+  // Scheduled-process filing determination + default QA tests.
+  const filingReq = determineFilingRequirement(suggestedHaccp?.id || null, {
+    pH: specs.pH,
+    aw: specs.aw,
+    lowAcidComponentPct: specs.lowAcidComponentPct,
+    productClassification: specs.productClassification,
+  });
+  const defaultQaTests = defaultQaTestsForCategory(suggestedHaccp?.id || null);
+  const mergedQaTests: QaTest[] = [...defaultQaTests, ...customQaTests];
+
+  // Nutrition values in `nutrition` are summed totals for the entire batch
+  // (each ingredient contributes its per-100g × (qty/100)).
+  // To render per-serving on the FDA label, scale by servingSize / batchWeight.
+  const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+  /** Raw per-serving amount for a nutrient (no rounding — use fdaRound* for display). */
+  const perServing = (val: number) => val * scale;
+  /** Raw %DV (0-100+) for a nutrient with a valid DV. Returns 0 when DV is 0. */
+  const rawPct = (val: number, dv: number) => dv > 0 ? (val * scale / dv) * 100 : 0;
+
+  const addIngredient = () => {
+    if (!newIngredient || !newQty) { alert('Please enter both ingredient name and quantity'); return; }
+    const newItem: Ingredient = { name: newIngredient.trim(), qty: parseFloat(newQty) || 0, unit: newUnit, foodData: selectedFood || null, subIngredients: selectedFood?.subIngredients || [], allergens: selectedFood?.allergens || detectAllergens(newIngredient), costPerKg: selectedFood?.costPerKg || 0, supplier: selectedFood?.supplier || '' };
+    const updated = [...ingredients, newItem];
+    setIngredients(updated); recalculate(updated);
+    setNewIngredient(''); setNewQty(''); setSelectedFood(null);
+  };
+
+  const updateQuantity = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].qty = parseFloat(val) || 0; setIngredients(u); recalculate(u); } };
+  const updateName = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].name = val; setIngredients(u); recalculate(u); } };
+  const updateCost = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].costPerKg = parseFloat(val) || 0; setIngredients(u); recalculate(u); } };
+  /** Change the supplier name on an ingredient (propagates to subsequent Cost Tool + Sourcing lookups). */
+  const updateSupplier = (i: number, supplier: string) => {
+    const u = [...ingredients];
+    if (u[i]) { u[i].supplier = supplier; setIngredients(u); recalculate(u); }
+  };
+  /**
+   * Apply a supplier's registry price modifier to an ingredient's cost.
+   * Uses the current ingredient's DB baseline cost as the reference —
+   * so the modifier compounds from the canonical baseline, not whatever the user last typed.
+   */
+  const applySupplierFromRegistry = (i: number, supplierName: string) => {
+    const u = [...ingredients];
+    if (!u[i]) return;
+    const info = getSupplierInfo(supplierName);
+    // Reference cost = the DB's original cost for this ingredient
+    const dbCost = u[i].foodData?.type === 'industrial'
+      ? ((u[i].foodData.data as IndustrialIngredient).costPerKg || u[i].costPerKg)
+      : u[i].costPerKg;
+    u[i].supplier = supplierName;
+    u[i].costPerKg = Math.round(dbCost * info.priceModifier * 100) / 100;
+    setIngredients(u);
+    recalculate(u);
+  };
+  const updateSubIngredients = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].subIngredients = val.split(',').map(s => s.trim()).filter(Boolean); setIngredients(u); recalculate(u); } };
+  /** Reset an ingredient's sub-ingredient statement to the database default for that SKU. */
+  const resetSubIngredients = (i: number) => {
+    const u = [...ingredients];
+    const ing = u[i];
+    if (!ing) return;
+    const dbDefault: string[] = ing.foodData?.type === 'industrial'
+      ? (ing.foodData?.data?.subIngredients || [])
+      : [];
+    ing.subIngredients = [...dbDefault];
+    setIngredients(u);
+    recalculate(u);
+  };
+  const removeIngredient = (i: number) => { const u = ingredients.filter((_, idx) => idx !== i); setIngredients(u); recalculate(u); };
+
+  /**
+   * Convert every ingredient currently in a volume unit (cup, tsp, tbsp, fl oz,
+   * ml, L, pt, qt, gal) into grams using its density lookup. Non-destructive
+   * for ingredients already in weight units.
+   */
+  const convertVolumesToGrams = () => {
+    let converted = 0;
+    const updated = ingredients.map(ing => {
+      if (VOLUME_UNITS.has(ing.unit)) {
+        const ml = ing.qty * VOLUME_TO_ML[ing.unit];
+        const density = lookupDensity(ing.name);
+        const grams = Math.round(ml * density * 100) / 100;
+        converted++;
+        return { ...ing, qty: grams, unit: 'g' };
+      }
+      return ing;
+    });
+    if (converted > 0) {
+      setIngredients(updated);
+      recalculate(updated);
+      setSaveMessage(`✓ Converted ${converted} volume measurement${converted > 1 ? 's' : ''} to grams using ingredient density.`);
+      setTimeout(() => setSaveMessage(''), 4000);
+    } else {
+      setSaveMessage('No volume measurements in this formulation — everything is already in weight units.');
+      setTimeout(() => setSaveMessage(''), 3000);
+    }
+  };
+
+  /**
+   * Print just the Label card (Nutrition Facts + Ingredient Statement + Allergen Statement).
+   * Toggles a body class that the print stylesheet uses to hide everything else,
+   * then triggers window.print(). Most browsers offer "Save as PDF" as a print destination.
+   */
+  const printLabel = () => {
+    document.body.classList.add('print-label-only');
+    const cleanup = () => {
+      document.body.classList.remove('print-label-only');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+    // Safety: some browsers don't fire afterprint reliably if dialog is cancelled fast
+    setTimeout(cleanup, 3000);
+  };
+
+  /**
+   * Reset the formulation to an empty state. Does NOT clear product type,
+   * packaging choices, or formulation name — those are user-selected context
+   * that survives across ingredient edits.
+   */
+  const clearFormulation = () => {
+    setIngredients([]);
+    setNutrition(emptyNutrition());
+    setIngredientStatement('');
+    setAllergenStatement([]);
+    setSelectedFood(null);
+    setSaveMessage('');
+  };
+
+  const applyParsedRows = () => {
+    const toAdd = parsedRows.filter(r => r.accepted && r.matchedItem);
+    if (toAdd.length === 0) return;
+    const newIngs: Ingredient[] = toAdd.map(r => ({
+      name: r.matchedItem!.name,
+      qty: r.parsedQty,
+      unit: r.parsedUnit,
+      foodData: {
+        type: 'industrial',
+        data: r.matchedItem,
+        subIngredients: r.matchedItem!.subIngredients,
+        allergens: r.matchedItem!.allergens,
+        costPerKg: r.matchedItem!.costPerKg,
+        supplier: r.matchedItem!.suppliers[0],
+        nutrition: r.matchedItem!.nutrition,
+      },
+      subIngredients: r.matchedItem!.subIngredients,
+      allergens: r.matchedItem!.allergens,
+      costPerKg: r.matchedItem!.costPerKg,
+      supplier: r.matchedItem!.suppliers[0],
+    }));
+    // If replace is on AND there's an existing formulation, start fresh.
+    const base = (replaceOnPaste && ingredients.length > 0) ? [] : ingredients;
+    const updated = [...base, ...newIngs];
+    setIngredients(updated);
+    recalculate(updated);
+    setShowPaste(false);
+    setPasteText('');
+    setParsedRows([]);
+  };
+
+  /**
+   * Increment a semantic version. `level` determines how:
+   *  - 'patch' → 1.0.0 → 1.0.1 (small tweak)
+   *  - 'minor' → 1.0.0 → 1.1.0 (meaningful change — added/removed ingredient, spec shift)
+   *  - 'major' → 1.0.0 → 2.0.0 (fundamental change — allergen added, category change)
+   */
+  const bumpVersion = (current: string, level: 'patch' | 'minor' | 'major'): string => {
+    const parts = current.split('.').map(n => parseInt(n, 10));
+    const [maj, min, pat] = parts.length === 3 ? parts : [1, 0, 0];
+    if (level === 'major') return `${maj + 1}.0.0`;
+    if (level === 'minor') return `${maj}.${min + 1}.0`;
+    return `${maj}.${min}.${pat + 1}`;
+  };
+
+  /**
+   * Compare two ingredient arrays and infer the smallest version level
+   * required. Used when a user saves a new version without manually
+   * specifying the level.
+   */
+  const inferVersionLevel = (
+    oldIngs: Ingredient[],
+    newIngs: Ingredient[],
+  ): 'patch' | 'minor' | 'major' => {
+    const oldNames = new Set(oldIngs.map(i => i.name));
+    const newNames = new Set(newIngs.map(i => i.name));
+    const added = [...newNames].filter(n => !oldNames.has(n));
+    const removed = [...oldNames].filter(n => !newNames.has(n));
+    // Major: allergen was added/removed (changes label)
+    const oldAllergens = new Set(oldIngs.flatMap(i => i.allergens));
+    const newAllergens = new Set(newIngs.flatMap(i => i.allergens));
+    if ([...oldAllergens].some(a => !newAllergens.has(a)) ||
+        [...newAllergens].some(a => !oldAllergens.has(a))) return 'major';
+    // Minor: ingredient added or removed (changes ingredient statement)
+    if (added.length > 0 || removed.length > 0) return 'minor';
+    // Patch: same ingredients, just qty tweaks
+    return 'patch';
+  };
+
+  const saveFormulation = () => {
+    if (!formulationName.trim()) { alert('Please enter a name'); return; }
+    if (ingredients.length === 0) { alert('Add at least one ingredient'); return; }
+
+    // Check if an existing formula with this name exists → version it
+    const existing = savedFormulations.find(f => f.name === formulationName.trim());
+    const now = new Date().toISOString();
+    const nowHuman = new Date().toLocaleDateString();
+
+    if (existing) {
+      // Create a new version — preserve any existing status, user may update via UI
+      const lastVersion = existing.currentVersion || '1.0.0';
+      const previousIngredients = existing.versions?.[existing.versions.length - 1]?.ingredients || existing.ingredients;
+      const level = inferVersionLevel(previousIngredients, ingredients);
+      const newVersion = bumpVersion(lastVersion, level);
+
+      const reason = window.prompt(
+        `Saving new version (${lastVersion} → ${newVersion}).\n\nReason for change (optional, but strongly recommended for audit trail):`,
+        '',
+      ) || 'No reason provided';
+
+      const snapshot = {
+        version: newVersion,
+        timestamp: now,
+        author: 'Formulator', // TODO: pull from auth when user accounts exist
+        reasonForChange: reason,
+        ingredients: [...ingredients],
+        servingSize, servingUnit, packageSize, packageUnit,
+        packagingName: selectedPackaging?.name || null,
+        closureName: selectedClosure?.name || null,
+        productType: productType || null,
+      };
+
+      const updated: SavedFormulation = {
+        ...existing,
+        ingredients: [...ingredients],
+        servingSize, servingUnit, packageSize, packageUnit,
+        packagingName: selectedPackaging?.name || null,
+        closureName: selectedClosure?.name || null,
+        productType: productType || null,
+        lastModified: now,
+        currentVersion: newVersion,
+        versions: [...(existing.versions || []), snapshot],
+        status: formulaStatus,
+        // Preserve the original part number across versions (version string conveys revisions).
+        // Allow user-visible override if the editor has entered a different one.
+        partNumber: partNumber.trim() || existing.partNumber,
+      };
+      setSavedFormulations(savedFormulations.map(f => f.id === existing.id ? updated : f));
+      setSaveMessage(`✅ "${formulationName}" updated to v${newVersion} (${level})`);
+      setTimeout(() => setSaveMessage(''), 4000);
+      return;
+    }
+
+    // Brand-new formulation at v1.0.0
+    const firstSnapshot = {
+      version: '1.0.0',
+      timestamp: now,
+      author: 'Formulator',
+      reasonForChange: 'Initial creation',
+      ingredients: [...ingredients],
+      servingSize, servingUnit, packageSize, packageUnit,
+      packagingName: selectedPackaging?.name || null,
+      closureName: selectedClosure?.name || null,
+      productType: productType || null,
+    };
+    // Auto-generate a part number if the user hasn't supplied one.
+    const assignedPartNumber = partNumber.trim() || generatePartNumber(mode, savedFormulations);
+    const newSave: SavedFormulation = {
+      // eslint-disable-next-line react-hooks/purity -- saveFormulation is an event handler, not called during render
+      id: Date.now().toString(),
+      name: formulationName.trim(),
+      mode,
+      productType: productType || null,
+      ingredients: [...ingredients],
+      servingSize, servingUnit, packageSize, packageUnit,
+      packagingName: selectedPackaging?.name || null,
+      closureName: selectedClosure?.name || null,
+      createdAt: nowHuman,
+      lastModified: now,
+      currentVersion: '1.0.0',
+      versions: [firstSnapshot],
+      status: formulaStatus,
+      partNumber: assignedPartNumber,
+    };
+    setSavedFormulations([...savedFormulations, newSave]);
+    setPartNumber(assignedPartNumber);
+    setSaveMessage(`✅ "${formulationName}" saved as ${assignedPartNumber} (v1.0.0)`);
+    setTimeout(() => setSaveMessage(''), 3000);
+  };
+
+  const loadFormulation = (f: SavedFormulation) => {
+    // Switch vertical first so all downstream derived data (product types,
+    // ingredient/packaging DBs) matches what was saved.
+    if (f.mode && f.mode !== mode) setMode(f.mode);
+    setIngredients(f.ingredients); setServingSize(f.servingSize); setServingUnit(f.servingUnit);
+    setPackageSize(f.packageSize); setPackageUnit(f.packageUnit); setFormulationName(f.name);
+    setProductType(f.productType || '');
+    setSelectedPackaging(f.packagingName ? PACKAGING_DB.find(p => p.name === f.packagingName) || null : null);
+    setSelectedClosure(f.closureName ? PACKAGING_DB.find(p => p.name === f.closureName) || null : null);
+    setFormulaStatus(f.status || 'draft');
+    setPartNumber(f.partNumber || '');
+    recalculate(f.ingredients); setActiveTab('build');
+  };
+
+  const filteredDB = INDUSTRIAL_DB.filter(i => {
+    const matchCat = dbCategory === 'All' || i.category === dbCategory;
+    const matchSearch = dbSearch === '' || i.name.toLowerCase().includes(dbSearch.toLowerCase()) || i.notes.toLowerCase().includes(dbSearch.toLowerCase());
+    return matchCat && matchSearch;
+  });
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* ══════════════════════════════════════════════════════════════════
+          TERMS OF USE + LIABILITY ACKNOWLEDGMENT (first-visit modal)
+          Required under normal SaaS liability boilerplate. Prevents user
+          from interacting with the tool until they acknowledge that this
+          is advisory/educational, not legal/regulatory/scientific advice.
+          ══════════════════════════════════════════════════════════════════ */}
+      {!tosAccepted && (
+        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 overflow-auto">
+          <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <NautilusMark size={52} />
+              <div>
+                <h2 className="text-2xl font-semibold text-emerald-700">
+                  formulation<span className="text-gray-500 font-light tracking-[0.3em] ml-2 text-base uppercase">wizard</span>
+                </h2>
+                <p className="text-xs text-gray-500 italic">Welcome — please review before using the tool.</p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-4">
+              <h3 className="text-sm font-bold text-amber-900 mb-2">⚠️ This is a decision-support tool, not a substitute for qualified professional review.</h3>
+              <p className="text-xs text-amber-900 leading-relaxed">
+                Formulation Wizard computes regulatory classifications (Acid, Acidified, LACF, Shelf-Stable Dry), suggests HACCP categories, generates filing-requirement indicators, and validates nutrition claims based on published FDA regulations. These outputs are <strong>advisory and educational only</strong>.
+              </p>
+            </div>
+
+            <div className="text-xs text-gray-700 space-y-2 mb-4 max-h-64 overflow-auto">
+              <p><strong>1. No Legal or Regulatory Advice.</strong> Nothing in this tool constitutes legal, regulatory, scientific, medical, or engineering advice. Outputs are algorithmic estimates based on user-entered data and published FDA / USDA regulations. Compliance with 21 CFR 113 (LACF), 21 CFR 114 (Acidified Foods), 21 CFR 117 (Preventive Controls), and all other applicable regulations is the sole responsibility of the user.</p>
+
+              <p><strong>2. Process Authority Review Required.</strong> Any product requiring FDA Scheduled Process filing (21 CFR 113, 114) <strong>MUST</strong> be reviewed by a qualified Process Authority (defined in 21 CFR 113.83 / 114.83) before commercial production. The tool&apos;s classification and filing-requirement outputs are starting points for that review, not substitutes for it. A directory of Process Authorities is available under the ⚖️ Process Authorities tab.</p>
+
+              <p><strong>3. User Responsibility.</strong> You are responsible for: (a) the accuracy of formula data you input, (b) verifying all pH, a<sub>w</sub>, moisture, and microbiological values in an accredited laboratory before production, (c) engaging a Process Authority and qualified regulatory/food-safety professionals (PCQI, HACCP-certified supervisor, etc.), (d) confirming all label claims against current FDA regulations, (e) verifying supplier certifications with the actual supplier before contracting.</p>
+
+              <p><strong>4. No Warranty.</strong> This tool is provided &ldquo;as is&rdquo; without warranty of any kind, express or implied, including warranties of merchantability, fitness for a particular purpose, and non-infringement. The authors and operators make no representation that outputs are error-free, complete, or current.</p>
+
+              <p><strong>5. Limitation of Liability.</strong> To the maximum extent permitted by law, the tool&apos;s authors, operators, and affiliates shall not be liable for any direct, indirect, incidental, consequential, or punitive damages arising from your use of this tool, including but not limited to regulatory non-compliance, product recalls, consumer injury, economic loss, or enforcement actions.</p>
+
+              <p><strong>6. Third-Party Information.</strong> Supplier names, certifications, cost estimates, and Process Authority contact information are compiled from public sources and may be outdated or inaccurate. Verify directly with the supplier or authority before relying on this information.</p>
+
+              <p><strong>7. Intended Audience.</strong> This tool is designed for qualified food scientists, product developers, R&amp;D teams, and regulatory professionals. It is not intended for home cooks, amateur fermenters, or consumers preparing food for themselves or others outside of a properly regulated commercial setting.</p>
+
+              <p><strong>8. Acknowledgment.</strong> By clicking &ldquo;I Understand,&rdquo; you acknowledge you have read and understand these terms and will engage appropriate qualified professionals for all regulatory filings and production decisions.</p>
+            </div>
+
+            <button
+              onClick={acceptTos}
+              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition"
+            >
+              ✓ I Understand — This Tool is Advisory Only
+            </button>
+          </div>
+        </div>
+      )}
+      {/* ══════════════════════════════════════════════════════════════════
+          COMMAND PALETTE (⌘K / Ctrl+K)
+          Global search + quick actions overlay. Searches formulas,
+          ingredients, suppliers, Process Authorities, and tab nav.
+          ══════════════════════════════════════════════════════════════════ */}
+      {cmdPaletteOpen && (() => {
+        const q = cmdPaletteQuery.toLowerCase().trim();
+        // Build search indices for each result type
+        type CmdResult = {
+          type: 'tab' | 'action' | 'formula' | 'ingredient' | 'supplier' | 'authority';
+          icon: string;
+          label: string;
+          sublabel?: string;
+          onSelect: () => void;
+        };
+
+        const results: CmdResult[] = [];
+
+        // ─── Static tab nav + quick actions ───
+        const tabs: { id: typeof activeTab; label: string; icon: string }[] = [
+          { id: 'build', label: 'Build', icon: '🔬' },
+          { id: 'cost', label: 'Cost Tool', icon: '💰' },
+          { id: 'sourcing', label: 'Sourcing', icon: '🌐' },
+          { id: 'batch', label: 'Batch Sheet', icon: '🏭' },
+          { id: 'filing', label: 'Filing', icon: '📋' },
+          { id: 'services', label: 'Services', icon: '🤝' },
+          { id: 'authorities', label: 'Process Authorities', icon: '⚖️' },
+          { id: 'saved', label: 'Saved Formulas', icon: '💾' },
+          { id: 'database', label: 'Ingredient Library', icon: '📦' },
+        ];
+        tabs.forEach(t => {
+          if (!q || t.label.toLowerCase().includes(q)) {
+            results.push({
+              type: 'tab',
+              icon: t.icon,
+              label: `Go to ${t.label}`,
+              sublabel: 'Navigation',
+              onSelect: () => { setActiveTab(t.id); setCmdPaletteOpen(false); },
+            });
+          }
+        });
+
+        // Quick actions
+        const actions: { label: string; icon: string; run: () => void }[] = [
+          { label: 'New formula (clear current)', icon: '✨', run: () => { setIngredients([]); setFormulationName(''); setFormulaStatus('draft'); setActiveTab('build'); } },
+          { label: 'Open bulk paste', icon: '📋', run: () => { setShowPaste(true); setActiveTab('build'); } },
+          { label: 'Save current formula', icon: '💾', run: () => { saveFormulation(); } },
+          { label: 'Compare saved formulas', icon: '🔀', run: () => { setActiveTab('saved'); } },
+          { label: 'Toggle appearance mode', icon: '🌓', run: () => { setAppearance(appearance === 'light' ? 'dim' : appearance === 'dim' ? 'dark' : 'light'); } },
+          { label: 'Review Terms of Use', icon: '⚠️', run: () => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); } },
+        ];
+        actions.forEach(a => {
+          if (!q || a.label.toLowerCase().includes(q)) {
+            results.push({
+              type: 'action',
+              icon: a.icon,
+              label: a.label,
+              sublabel: 'Quick Action',
+              onSelect: () => { a.run(); setCmdPaletteOpen(false); },
+            });
+          }
+        });
+
+        // ─── Saved formulas ───
+        savedFormulations.forEach(f => {
+          if (!q || f.name.toLowerCase().includes(q)) {
+            results.push({
+              type: 'formula',
+              icon: '💾',
+              label: f.name,
+              sublabel: `v${f.currentVersion || '1.0.0'} • ${MODES[f.mode || 'fb']?.name || f.mode || ''} • ${f.ingredients.length} ingredients`,
+              onSelect: () => { loadFormulation(f); setCmdPaletteOpen(false); },
+            });
+          }
+        });
+
+        // ─── Ingredients (current mode's DB, limit to 15 matches) ───
+        if (q) {
+          const matchedIngredients = INDUSTRIAL_DB
+            .filter(i => i.name.toLowerCase().includes(q))
+            .slice(0, 15);
+          matchedIngredients.forEach(ing => {
+            results.push({
+              type: 'ingredient',
+              icon: '🧪',
+              label: ing.name,
+              sublabel: `${ing.category} • $${ing.costPerKg.toFixed(2)}/kg • ${ing.suppliers[0] || '—'}`,
+              onSelect: () => {
+                setActiveTab('build');
+                setNewIngredient(ing.name);
+                setSelectedFood({ type: 'industrial', data: ing, subIngredients: ing.subIngredients, allergens: ing.allergens, costPerKg: ing.costPerKg, supplier: ing.suppliers[0], nutrition: ing.nutrition });
+                setCmdPaletteOpen(false);
+              },
+            });
+          });
+        }
+
+        // ─── Suppliers (unique names from registry) ───
+        if (q) {
+          const supplierNames = new Set<string>();
+          INDUSTRIAL_DB.forEach(i => i.suppliers?.forEach(s => supplierNames.add(s)));
+          Array.from(supplierNames)
+            .filter(s => s.toLowerCase().includes(q))
+            .slice(0, 10)
+            .forEach(s => {
+              const info = getSupplierInfo(s);
+              results.push({
+                type: 'supplier',
+                icon: '🏭',
+                label: s,
+                sublabel: `${info.country} • ${info.tier} • ${info.certs.length} certs`,
+                onSelect: () => { setActiveTab('sourcing'); setCmdPaletteOpen(false); },
+              });
+            });
+        }
+
+        // ─── Process Authorities ───
+        if (q) {
+          PROCESS_AUTHORITIES
+            .filter(pa => pa.name.toLowerCase().includes(q) || (pa.city || '').toLowerCase().includes(q) || pa.specialty.some(sp => sp.toLowerCase().includes(q)))
+            .slice(0, 10)
+            .forEach(pa => {
+              results.push({
+                type: 'authority',
+                icon: '⚖️',
+                label: pa.name,
+                sublabel: `${pa.city ? pa.city + ', ' : ''}${pa.state} • ${PA_TYPE_LABELS[pa.type]}`,
+                onSelect: () => {
+                  setActiveTab('authorities');
+                  setPaSearch(pa.name);
+                  setCmdPaletteOpen(false);
+                },
+              });
+            });
+        }
+
+        // Clamp selected index
+        const maxIdx = Math.max(0, results.length - 1);
+        const safeIdx = Math.min(cmdPaletteSelectedIndex, maxIdx);
+
+        const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setCmdPaletteSelectedIndex(prev => Math.min(prev + 1, maxIdx));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setCmdPaletteSelectedIndex(prev => Math.max(prev - 1, 0));
+          } else if (e.key === 'Enter' && results[safeIdx]) {
+            e.preventDefault();
+            results[safeIdx].onSelect();
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/50 z-[90] flex items-start justify-center pt-24 p-4" onClick={() => setCmdPaletteOpen(false)}>
+            <div className="bg-white rounded-xl max-w-2xl w-full shadow-2xl border border-gray-200 overflow-hidden" onClick={e => e.stopPropagation()}>
+              {/* Search input */}
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
+                <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 110-16 8 8 0 010 16z" />
+                </svg>
+                <input
+                  ref={cmdInputRef}
+                  type="text"
+                  value={cmdPaletteQuery}
+                  onChange={e => { setCmdPaletteQuery(e.target.value); setCmdPaletteSelectedIndex(0); }}
+                  onKeyDown={handleKey}
+                  placeholder="Search formulas, ingredients, suppliers, Process Authorities, or type a command…"
+                  className="flex-1 outline-none text-sm text-gray-800 placeholder:text-gray-400"
+                />
+                <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono text-gray-500 shrink-0">Esc</kbd>
+              </div>
+
+              {/* Results list */}
+              <div className="max-h-96 overflow-auto">
+                {results.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-gray-400">
+                    {q ? `No matches for "${q}"` : 'Type to search'}
+                  </div>
+                ) : (
+                  <div className="py-1">
+                    {(() => {
+                      // Group by type with headers
+                      const groups: Record<string, CmdResult[]> = {};
+                      results.forEach(r => {
+                        const key = r.sublabel?.split('•')[0].trim() || r.type;
+                        const groupLabel =
+                          r.type === 'tab' ? 'Navigation' :
+                          r.type === 'action' ? 'Quick Actions' :
+                          r.type === 'formula' ? 'Saved Formulas' :
+                          r.type === 'ingredient' ? 'Ingredients' :
+                          r.type === 'supplier' ? 'Suppliers' :
+                          r.type === 'authority' ? 'Process Authorities' : key;
+                        if (!groups[groupLabel]) groups[groupLabel] = [];
+                        groups[groupLabel].push(r);
+                      });
+
+                      let flatIdx = 0;
+                      return Object.entries(groups).map(([groupLabel, items]) => (
+                        <div key={groupLabel} className="mb-1">
+                          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400 font-semibold bg-gray-50 border-b border-gray-100">{groupLabel}</div>
+                          {items.map((r, localIdx) => {
+                            const idx = flatIdx++;
+                            const isSelected = idx === safeIdx;
+                            return (
+                              <button
+                                key={`${groupLabel}-${localIdx}`}
+                                onClick={() => r.onSelect()}
+                                onMouseEnter={() => setCmdPaletteSelectedIndex(idx)}
+                                className={`w-full flex items-center gap-3 px-3 py-2 text-left transition ${
+                                  isSelected ? 'bg-emerald-50' : 'hover:bg-gray-50'
+                                }`}
+                              >
+                                <span className="text-base w-5 text-center shrink-0">{r.icon}</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className={`text-sm truncate ${isSelected ? 'text-emerald-800 font-semibold' : 'text-gray-800'}`}>{r.label}</div>
+                                  {r.sublabel && <div className="text-[10px] text-gray-500 truncate">{r.sublabel}</div>}
+                                </div>
+                                {isSelected && (
+                                  <kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded text-[10px] font-mono text-gray-500 shrink-0">↵</kbd>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer hints */}
+              <div className="flex items-center justify-between px-3 py-2 border-t border-gray-200 bg-gray-50 text-[10px] text-gray-500">
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1"><kbd className="px-1 bg-white border border-gray-300 rounded font-mono">↑↓</kbd> navigate</span>
+                  <span className="flex items-center gap-1"><kbd className="px-1 bg-white border border-gray-300 rounded font-mono">↵</kbd> select</span>
+                  <span className="flex items-center gap-1"><kbd className="px-1 bg-white border border-gray-300 rounded font-mono">Esc</kbd> close</span>
+                </div>
+                <div className="text-gray-400">{results.length} result{results.length !== 1 ? 's' : ''}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Header — tinted surface, generous breathing room, big wordmark */}
+      <div className="bg-gray-50 border-b border-gray-200 px-6 py-6 print:hidden">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+            <div className="flex items-center gap-5">
+              <NautilusMark size={72} />
+              <div>
+                <h1 className="text-4xl font-semibold text-emerald-700 tracking-tight leading-none">
+                  formulation<span className="text-gray-600 font-light tracking-[0.32em] ml-2 text-2xl uppercase">wizard</span>
+                </h1>
+                <p className="text-gray-500 text-xs mt-2 italic max-w-xl">Industrial food R&amp;D, formulation, and regulatory compliance — built for product developers and food scientists.</p>
+                <p className="text-gray-600 text-sm mt-1 font-medium">
+                  {mc.icon} {mc.name}
+                  <span className="text-gray-400 font-normal"> — {mc.tagline}</span>
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* ⌘K command palette hint / launcher */}
+              <button
+                onClick={() => setCmdPaletteOpen(true)}
+                title="Open command palette (⌘K / Ctrl+K)"
+                className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 bg-white rounded-lg text-xs text-gray-500 hover:border-emerald-400 hover:text-gray-700 transition"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 110-16 8 8 0 010 16z" />
+                </svg>
+                <span className="hidden md:inline">Search everything</span>
+                <kbd className="ml-1 px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono text-gray-600">⌘K</kbd>
+              </button>
+
+              {/* Appearance toggle — light / dim / dark */}
+              <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5 border border-gray-200">
+                {(['light', 'dim', 'dark'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setAppearance(mode)}
+                    title={`${mode[0].toUpperCase() + mode.slice(1)} appearance`}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition flex items-center gap-1 ${
+                      appearance === mode
+                        ? 'bg-white text-gray-800 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <span>{mode === 'light' ? '☀️' : mode === 'dim' ? '🌤' : '🌙'}</span>
+                    <span className="capitalize hidden sm:inline">{mode}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {(['home', 'build', 'cost', 'sourcing', 'batch', 'filing', 'services', 'authorities', 'saved', 'database'] as const).map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 rounded-lg font-medium transition text-sm ${activeTab === tab ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                  {tab === 'home' ? '🏠 Home'
+                    : tab === 'saved' ? `💾 Saved (${savedFormulations.length})`
+                    : tab === 'database' ? '📦 Ingredient DB'
+                    : tab === 'batch' ? '🏭 Batch Sheet'
+                    : tab === 'filing' ? '📋 Filing'
+                    : tab === 'cost' ? '💰 Cost Tool'
+                    : tab === 'sourcing' ? '🌐 Sourcing'
+                    : tab === 'authorities' ? '⚖️ Process Authorities'
+                    : tab === 'services' ? '🤝 Services'
+                    : '🔬 Build'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Mode (vertical) switcher */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {MODE_ORDER.map(id => {
+              const m = MODES[id];
+              const isActive = mode === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => {
+                    if (id === mode) return;
+                    if (ingredients.length > 0) {
+                      const confirmed = window.confirm(
+                        `Switching to ${m.name} will clear the current formulation (different ingredient database). Continue?`
+                      );
+                      if (!confirmed) return;
+                    }
+                    setMode(id);
+                    setIngredients([]);
+                    setSelectedPackaging(null);
+                    setSelectedClosure(null);
+                    setProductType('');
+                    setFormulationName('');
+                    setNutrition(emptyNutrition());
+                    setIngredientStatement('');
+                    setAllergenStatement([]);
+                  }}
+                  className={`text-left p-3 rounded-lg border-2 transition ${
+                    isActive ? 'bg-emerald-50 border-emerald-500 shadow-sm' : 'bg-white border-gray-200 hover:border-emerald-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-2xl">{m.icon}</span>
+                    <span className={`font-semibold text-sm ${isActive ? 'text-emerald-800' : 'text-gray-800'}`}>{m.name}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 leading-tight">{m.tagline}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          FORMULA STATUS BAR (contextual sub-header)
+          Shows only when a formula is in progress. Displays name (inline
+          editable), version chip, lifecycle status pill, last-saved
+          indicator, allergen count, cost/unit, and a quick Save button.
+          Scrollable on narrow viewports.
+          ══════════════════════════════════════════════════════════════════ */}
+      {(ingredients.length > 0 || formulationName) && activeTab !== 'home' && activeTab !== 'authorities' && activeTab !== 'services' && activeTab !== 'database' && (() => {
+        const existing = savedFormulations.find(f => f.name === formulationName.trim());
+        const currentVersion = existing?.currentVersion;
+        const lastModified = existing?.lastModified;
+        const lastModifiedStr = lastModified
+          ? (() => {
+              const then = new Date(lastModified).getTime();
+              const now = Date.now();
+              const mins = Math.floor((now - then) / 60000);
+              if (mins < 1) return 'Saved just now';
+              if (mins < 60) return `Saved ${mins}m ago`;
+              const hrs = Math.floor(mins / 60);
+              if (hrs < 24) return `Saved ${hrs}h ago`;
+              return `Saved ${new Date(lastModified).toLocaleDateString()}`;
+            })()
+          : 'Not saved yet';
+
+        // Unsaved changes: if there's an existing save, compare to its latest version
+        const hasUnsavedChanges = existing
+          ? JSON.stringify(existing.ingredients) !== JSON.stringify(ingredients)
+              || existing.servingSize !== servingSize
+              || existing.packageSize !== packageSize
+              || (existing.status || 'draft') !== formulaStatus
+          : ingredients.length > 0;
+
+        // Per-unit cost for the chip
+        const packageSizeInG = packageSize * (UNIT_TO_GRAMS[packageUnit] || 1);
+        const perUnitCost = totalBatchGrams > 0
+          ? totalCost * (packageSizeInG / totalBatchGrams) + (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0)
+          : 0;
+
+        const statusConfig = {
+          'draft':     { label: 'Draft',     color: 'gray',    icon: '📝' },
+          'in-pilot':  { label: 'In Pilot',  color: 'amber',   icon: '🧪' },
+          'launched':  { label: 'Launched',  color: 'emerald', icon: '🚀' },
+          'on-hold':   { label: 'On Hold',   color: 'rose',    icon: '⏸️' },
+        } as const;
+        const curStatus = statusConfig[formulaStatus];
+
+        return (
+          <div className="bg-white border-b border-gray-200 px-6 py-3 print:hidden">
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+              {/* Left cluster — name, version, status */}
+              <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                <input
+                  type="text"
+                  value={formulationName}
+                  onChange={e => setFormulationName(e.target.value)}
+                  placeholder="Untitled formulation"
+                  className="font-semibold text-gray-800 text-base bg-transparent border-0 border-b border-transparent hover:border-gray-300 focus:border-emerald-500 focus:outline-none px-1 py-0.5 min-w-[180px] max-w-md truncate"
+                />
+                {currentVersion && (
+                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-mono font-bold rounded">
+                    v{currentVersion}
+                  </span>
+                )}
+                {/* Lifecycle status pill (dropdown on click) */}
+                <div className="relative">
+                  <select
+                    value={formulaStatus}
+                    onChange={e => setFormulaStatus(e.target.value as typeof formulaStatus)}
+                    className={`appearance-none pl-7 pr-6 py-1 rounded-full text-[11px] font-semibold border-2 cursor-pointer focus:outline-none transition bg-${curStatus.color}-50 border-${curStatus.color}-300 text-${curStatus.color}-700 hover:bg-${curStatus.color}-100`}
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="in-pilot">In Pilot</option>
+                    <option value="launched">Launched</option>
+                    <option value="on-hold">On Hold</option>
+                  </select>
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs pointer-events-none">{curStatus.icon}</span>
+                  <svg className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none opacity-60" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                    <path d="M19 9l-7 7-7-7" strokeLinecap="round" />
+                  </svg>
+                </div>
+                {mc.name && (
+                  <span className="text-[11px] text-gray-400 border-l border-gray-200 pl-2 ml-1">
+                    {mc.icon} {mc.name}
+                  </span>
+                )}
+              </div>
+
+              {/* Right cluster — metric chips + save */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Metric chips */}
+                {specs.pH > 0 && (
+                  <span className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700 font-mono">
+                    pH {specs.pH.toFixed(2)}
+                  </span>
+                )}
+                {allergenStatement.length > 0 && (
+                  <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 font-semibold" title={`Contains: ${allergenStatement.join(', ')}`}>
+                    ⚠ {allergenStatement.length} allergen{allergenStatement.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {perUnitCost > 0 && (
+                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-700 font-mono font-semibold">
+                    ${perUnitCost.toFixed(2)}/unit
+                  </span>
+                )}
+                {/* Last saved indicator */}
+                <span className={`text-[11px] ${hasUnsavedChanges ? 'text-amber-600 font-semibold' : 'text-gray-500'}`}>
+                  {hasUnsavedChanges ? '● Unsaved changes' : lastModifiedStr}
+                </span>
+                {/* Save button */}
+                <button
+                  onClick={saveFormulation}
+                  disabled={!hasUnsavedChanges || !formulationName.trim() || ingredients.length === 0}
+                  className={`px-3 py-1 rounded text-xs font-semibold transition ${
+                    hasUnsavedChanges && formulationName.trim() && ingredients.length > 0
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  💾 Save
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          HOME / DASHBOARD TAB
+          Portfolio-level view. Shows: KPIs, lifecycle status breakdown,
+          recent activity, items needing attention, top ingredients used
+          across the portfolio, quick actions, and commercial pipeline
+          placeholder (for future service-request tracking).
+          ══════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'home' && (() => {
+        // ─── Portfolio stats ───
+        const totalFormulas = savedFormulations.length;
+        const byStatus: Record<string, number> = { draft: 0, 'in-pilot': 0, launched: 0, 'on-hold': 0 };
+        savedFormulations.forEach(f => { byStatus[f.status || 'draft']++; });
+        const totalVersions = savedFormulations.reduce((s, f) => s + (f.versions?.length || 0), 0);
+        const totalIngredientsInUse = new Set(savedFormulations.flatMap(f => f.ingredients.map(i => i.name))).size;
+
+        // ─── Recent activity (last 5 modified) ───
+        const recentFormulas = [...savedFormulations]
+          .sort((a, b) => {
+            const tA = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+            const tB = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+            return tB - tA;
+          })
+          .slice(0, 5);
+
+        // Use dashboardNow (reactive state — updates every minute) instead of
+        // calling Date.now() directly in render, which the react-hooks/purity
+        // rule flags as impure behavior during rendering.
+        const now = dashboardNow;
+        // ─── Items needing attention ───
+        const attention: { icon: string; title: string; subtitle: string; action?: () => void }[] = [];
+
+        // Supplier qualification expirations
+        const qualSummary = summarizeQualifications(supplierQuals, now);
+        qualSummary.expiredList.forEach(q => {
+          attention.push({
+            icon: '🚨',
+            title: `${q.supplierName} — ${DOC_TYPE_LABELS[q.docType]} EXPIRED`,
+            subtitle: `Expired ${new Date(q.expirationDate).toLocaleDateString()}. Request renewal before next shipment.`,
+            action: () => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); },
+          });
+        });
+        qualSummary.expiringList.slice(0, 5).forEach(q => {
+          const st = getQualificationStatus(q, now);
+          attention.push({
+            icon: '⚠️',
+            title: `${q.supplierName} — ${DOC_TYPE_LABELS[q.docType]} expiring`,
+            subtitle: `${st.label}. Start renewal workflow now to avoid gap in coverage.`,
+            action: () => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); },
+          });
+        });
+        // In-pilot for more than 30 days
+        savedFormulations.forEach(f => {
+          if (f.status === 'in-pilot' && f.lastModified) {
+            const days = Math.floor((now - new Date(f.lastModified).getTime()) / 86400000);
+            if (days > 30) {
+              attention.push({
+                icon: '🧪',
+                title: `${f.name} — in pilot ${days} days`,
+                subtitle: 'Consider promoting to Launched or moving to On Hold.',
+                action: () => loadFormulation(f),
+              });
+            }
+          }
+        });
+        // Drafts older than 60 days
+        savedFormulations.forEach(f => {
+          if (f.status === 'draft' && f.lastModified) {
+            const days = Math.floor((now - new Date(f.lastModified).getTime()) / 86400000);
+            if (days > 60) {
+              attention.push({
+                icon: '📝',
+                title: `${f.name} — draft unchanged ${days} days`,
+                subtitle: 'Abandoned draft? Delete, archive, or advance to pilot.',
+                action: () => loadFormulation(f),
+              });
+            }
+          }
+        });
+
+        // ─── Top ingredients across portfolio (by count of formulas using) ───
+        const ingCount: Record<string, number> = {};
+        savedFormulations.forEach(f => {
+          const seen = new Set<string>();
+          f.ingredients.forEach(i => {
+            if (seen.has(i.name)) return;
+            seen.add(i.name);
+            ingCount[i.name] = (ingCount[i.name] || 0) + 1;
+          });
+        });
+        const topIngredients = Object.entries(ingCount)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8);
+
+        // ─── Portfolio sustainability average ───
+        let avgSustainability = 0;
+        if (totalFormulas > 0) {
+          const scores = savedFormulations.map(f => {
+            const rows = f.ingredients.map(i => ({
+              name: i.name,
+              category: i.foodData?.type === 'industrial' ? (i.foodData.data as IndustrialIngredient).category : '',
+              massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1),
+            }));
+            return computeFormulationSustainability(rows).score;
+          });
+          avgSustainability = Math.round(scores.reduce((s, n) => s + n, 0) / scores.length);
+        }
+
+        const statusColor: Record<string, string> = {
+          'draft': 'gray', 'in-pilot': 'amber', 'launched': 'emerald', 'on-hold': 'rose',
+        };
+        const statusIcon: Record<string, string> = {
+          'draft': '📝', 'in-pilot': '🧪', 'launched': '🚀', 'on-hold': '⏸️',
+        };
+
+        return (
+          <div className="max-w-7xl mx-auto px-6 py-8">
+            {/* Welcome banner */}
+            <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50 border border-emerald-200 rounded-xl p-8 mb-6">
+              <div className="flex items-center gap-5 flex-wrap">
+                <NautilusMark size={80} />
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-3xl font-semibold text-gray-800 tracking-tight">
+                    Welcome back.
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1 max-w-xl">
+                    {totalFormulas === 0
+                      ? 'Your formulation portfolio lives here. Start a new formula on the 🔬 Build tab, or jump anywhere with ⌘K.'
+                      : `${totalFormulas} formulation${totalFormulas !== 1 ? 's' : ''} in your portfolio across ${Object.keys(byStatus).filter(k => byStatus[k] > 0).length} lifecycle stage${Object.keys(byStatus).filter(k => byStatus[k] > 0).length !== 1 ? 's' : ''}.`}
+                  </p>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => { setIngredients([]); setFormulationName(''); setFormulaStatus('draft'); setActiveTab('build'); }}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-semibold"
+                  >
+                    ✨ New Formula
+                  </button>
+                  <button
+                    onClick={() => setCmdPaletteOpen(true)}
+                    className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-emerald-400 transition text-sm"
+                  >
+                    🔍 Search <kbd className="ml-1 px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono">⌘K</kbd>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Portfolio KPI tiles */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Total Formulas</div>
+                <div className="text-3xl font-bold text-gray-800 mt-1">{totalFormulas}</div>
+                <div className="text-[10px] text-gray-400 mt-1">{totalVersions} version{totalVersions !== 1 ? 's' : ''} tracked</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">🚀 Launched</div>
+                <div className="text-3xl font-bold text-emerald-700 mt-1">{byStatus.launched}</div>
+                <div className="text-[10px] text-gray-400 mt-1">in commercial production</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">🧪 In Pilot</div>
+                <div className="text-3xl font-bold text-amber-700 mt-1">{byStatus['in-pilot']}</div>
+                <div className="text-[10px] text-gray-400 mt-1">in pilot testing</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">📝 Drafts</div>
+                <div className="text-3xl font-bold text-gray-700 mt-1">{byStatus.draft}</div>
+                <div className="text-[10px] text-gray-400 mt-1">early development</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">🌱 Avg Sustainability</div>
+                <div className={`text-3xl font-bold mt-1 ${
+                  avgSustainability >= 75 ? 'text-emerald-700' : avgSustainability >= 55 ? 'text-amber-700' : 'text-rose-700'
+                }`}>{avgSustainability}</div>
+                <div className="text-[10px] text-gray-400 mt-1">/100 across portfolio</div>
+              </div>
+            </div>
+
+            {/* Qualification health strip */}
+            {qualSummary.total > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <button onClick={() => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); }}
+                  className="bg-white rounded-xl border border-gray-200 p-4 text-left hover:border-emerald-400 transition">
+                  <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">📋 Supplier Quals Tracked</div>
+                  <div className="text-2xl font-bold text-gray-800 mt-1">{qualSummary.total}</div>
+                  <div className="text-[10px] text-gray-400 mt-1">documents on file</div>
+                </button>
+                <button onClick={() => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); }}
+                  className="bg-white rounded-xl border border-emerald-200 p-4 text-left hover:border-emerald-400 transition">
+                  <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold">✓ Current</div>
+                  <div className="text-2xl font-bold text-emerald-700 mt-1">{qualSummary.current}</div>
+                  <div className="text-[10px] text-gray-400 mt-1">valid beyond 60 days</div>
+                </button>
+                <button onClick={() => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); }}
+                  className={`bg-white rounded-xl border p-4 text-left transition ${qualSummary.expiring > 0 ? 'border-amber-300 hover:border-amber-500 ring-1 ring-amber-100' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold">⚠ Expiring ≤ 60d</div>
+                  <div className="text-2xl font-bold text-amber-700 mt-1">{qualSummary.expiring}</div>
+                  <div className="text-[10px] text-gray-400 mt-1">needs renewal</div>
+                </button>
+                <button onClick={() => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); }}
+                  className={`bg-white rounded-xl border p-4 text-left transition ${qualSummary.expired > 0 ? 'border-rose-300 hover:border-rose-500 ring-1 ring-rose-100' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <div className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold">🚨 Expired</div>
+                  <div className="text-2xl font-bold text-rose-700 mt-1">{qualSummary.expired}</div>
+                  <div className="text-[10px] text-gray-400 mt-1">immediate action</div>
+                </button>
+              </div>
+            )}
+
+            {/* Two-column layout: Recent Activity + Needs Attention */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+              {/* Recent activity */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">🕐 Recent Activity</h3>
+                  <button onClick={() => setActiveTab('saved')} className="text-xs text-emerald-700 hover:underline">View all →</button>
+                </div>
+                {recentFormulas.length === 0 ? (
+                  <div className="text-center py-6 text-sm text-gray-400 italic">
+                    No formulas yet. Build your first one on the 🔬 Build tab.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {recentFormulas.map(f => {
+                      const lmDate = f.lastModified ? new Date(f.lastModified) : null;
+                      const mins = lmDate ? Math.floor((now - lmDate.getTime()) / 60000) : 0;
+                      const ago =
+                        mins < 1 ? 'just now' :
+                        mins < 60 ? `${mins}m ago` :
+                        mins < 1440 ? `${Math.floor(mins / 60)}h ago` :
+                        lmDate ? lmDate.toLocaleDateString() : '—';
+                      const color = statusColor[f.status || 'draft'];
+                      return (
+                        <button
+                          key={f.id}
+                          onClick={() => loadFormulation(f)}
+                          className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-emerald-400 hover:bg-gray-50 transition text-left"
+                        >
+                          <span className="text-xl">{statusIcon[f.status || 'draft']}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="font-semibold text-gray-800 text-sm truncate">{f.name}</span>
+                              <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">v{f.currentVersion || '1.0.0'}</span>
+                              <span className={`text-[10px] font-semibold text-${color}-700`}>{f.status || 'draft'}</span>
+                            </div>
+                            <div className="text-[11px] text-gray-500 mt-0.5">
+                              {f.ingredients.length} ingredients • {MODES[f.mode || 'fb']?.name || f.mode} • {ago}
+                            </div>
+                          </div>
+                          <span className="text-gray-300">→</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Needs attention */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">⚠️ Needs Attention</h3>
+                  <span className="text-xs text-gray-500">{attention.length} item{attention.length !== 1 ? 's' : ''}</span>
+                </div>
+                {attention.length === 0 ? (
+                  <div className="text-center py-6 text-sm text-gray-400 italic">
+                    ✨ All clear. No drafts or pilot runs need review.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {attention.map((a, i) => (
+                      <button
+                        key={i}
+                        onClick={a.action}
+                        className="w-full flex items-start gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 transition text-left"
+                      >
+                        <span className="text-xl shrink-0">{a.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-amber-900 text-sm">{a.title}</div>
+                          <div className="text-[11px] text-amber-800 mt-0.5">{a.subtitle}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom row: Top ingredients + Commercial pipeline */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+              {/* Top ingredients */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">📊 Top Ingredients in Portfolio</h3>
+                  <span className="text-xs text-gray-500">{totalIngredientsInUse} unique SKUs tracked</span>
+                </div>
+                {topIngredients.length === 0 ? (
+                  <div className="text-center py-6 text-sm text-gray-400 italic">
+                    Ingredient frequency chart appears as you save formulas.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {topIngredients.map(([name, count]) => {
+                      const maxCount = topIngredients[0][1];
+                      const pct = Math.max(5, (count / maxCount) * 100);
+                      return (
+                        <div key={name} className="text-xs">
+                          <div className="flex justify-between mb-0.5">
+                            <span className="font-medium text-gray-700 truncate flex-1 mr-2">{name}</span>
+                            <span className="font-mono text-gray-500">{count} formula{count !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Commercial pipeline placeholder */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">🤝 Commercial Pipeline</h3>
+                  <button onClick={() => setActiveTab('services')} className="text-xs text-emerald-700 hover:underline">Open Services →</button>
+                </div>
+                <div className="space-y-3">
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">🧪</span>
+                      <div className="flex-1">
+                        <div className="font-semibold text-gray-800 text-sm">Bench-Top Sample Requests</div>
+                        <div className="text-[11px] text-gray-500">Client intake via Services tab → your inbox</div>
+                      </div>
+                      <button onClick={() => { setActiveTab('services'); setServiceRequestType('bench'); }} className="text-xs text-emerald-700 hover:underline whitespace-nowrap">Request →</button>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">📈</span>
+                      <div className="flex-1">
+                        <div className="font-semibold text-gray-800 text-sm">Scale-Up Consulting</div>
+                        <div className="text-[11px] text-gray-500">Formulas flagged as 21 CFR 113/114 (acidified / LACF) needing Process Authority liaison</div>
+                      </div>
+                      <button onClick={() => { setActiveTab('services'); setServiceRequestType('scaleup'); }} className="text-xs text-emerald-700 hover:underline whitespace-nowrap">Request →</button>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">🏭</span>
+                      <div className="flex-1">
+                        <div className="font-semibold text-gray-800 text-sm">Co-Packer Placement</div>
+                        <div className="text-[11px] text-gray-500">Exclusive F&amp;B network. Matched to volume + certifications.</div>
+                      </div>
+                      <button onClick={() => { setActiveTab('services'); setServiceRequestType('copacker'); }} className="text-xs text-emerald-700 hover:underline whitespace-nowrap">Request →</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick actions row */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3">⚡ Quick Actions</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button
+                  onClick={() => { setIngredients([]); setFormulationName(''); setFormulaStatus('draft'); setActiveTab('build'); }}
+                  className="p-4 rounded-lg border border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition text-left"
+                >
+                  <div className="text-2xl mb-1">✨</div>
+                  <div className="font-semibold text-gray-800 text-sm">New Formula</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">Clear and start fresh</div>
+                </button>
+                <button
+                  onClick={() => { setActiveTab('build'); setShowPaste(true); }}
+                  className="p-4 rounded-lg border border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition text-left"
+                >
+                  <div className="text-2xl mb-1">📋</div>
+                  <div className="font-semibold text-gray-800 text-sm">Bulk Paste</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">Import from markdown/CSV</div>
+                </button>
+                <button
+                  onClick={() => setActiveTab('saved')}
+                  className="p-4 rounded-lg border border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition text-left"
+                >
+                  <div className="text-2xl mb-1">🔀</div>
+                  <div className="font-semibold text-gray-800 text-sm">Compare Formulas</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">Side-by-side analysis</div>
+                </button>
+                <button
+                  onClick={() => setActiveTab('sourcing')}
+                  className="p-4 rounded-lg border border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition text-left"
+                >
+                  <div className="text-2xl mb-1">🌐</div>
+                  <div className="font-semibold text-gray-800 text-sm">Sourcing</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">Filter by cert requirements</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* DATABASE TAB */}
+      {activeTab === 'database' && (
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-800">Industrial Ingredient Library</h2>
+            <p className="text-gray-500 text-sm mt-1">Curated industrial-grade ingredients with verified suppliers, specs, and sustainability profiles{dbSearch || dbCategory !== 'All' ? ` — ${filteredDB.length} match current filters` : ''}.</p>
+          </div>
+          <div className="flex flex-wrap gap-3 mb-6">
+            <input type="text" placeholder="Search ingredients..." value={dbSearch}
+              onChange={(e) => setDbSearch(e.target.value)}
+              className="flex-1 min-w-48 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:border-emerald-500" />
+            <div className="flex flex-wrap gap-2">
+              {CATEGORIES.map(cat => (
+                <button key={cat} onClick={() => setDbCategory(cat)}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium transition ${dbCategory === cat ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3">
+            {filteredDB.map((ing, i) => (
+              <div key={i} className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <h3 className="font-semibold text-gray-800">{ing.name}</h3>
+                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs">{ing.category}</span>
+                      {ing.allergens.map(a => <span key={a} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">⚠️ {a}</span>)}
+                    </div>
+                    <p className="text-xs text-gray-500 mb-2">{ing.notes}</p>
+                    <div className="flex flex-wrap gap-4 text-xs text-gray-600">
+                      <span>💰 ~${ing.costPerKg.toFixed(2)}/kg</span>
+                      {ing.nutrition.calories !== undefined && <span>🔥 {ing.nutrition.calories} kcal/100g</span>}
+                      {ing.nutrition.protein !== undefined && ing.nutrition.protein > 0 && <span>💪 {ing.nutrition.protein}g protein</span>}
+                      <span>🏭 {ing.suppliers.slice(0, 3).join(' • ')}</span>
+                    </div>
+                    {ing.subIngredients.length > 0 && <p className="text-xs text-gray-400 mt-1">Contains: {ing.subIngredients.join(', ')}</p>}
+                  </div>
+                  <button onClick={() => { setActiveTab('build'); setNewIngredient(ing.name); setSelectedFood({ type: 'industrial', data: ing, subIngredients: ing.subIngredients, allergens: ing.allergens, costPerKg: ing.costPerKg, supplier: ing.suppliers[0], nutrition: ing.nutrition }); }}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition whitespace-nowrap flex-shrink-0">
+                    + Add
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* SAVED TAB */}
+      {activeTab === 'saved' && (
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+            <h2 className="text-2xl font-bold text-gray-800">Saved Formulations</h2>
+            {compareSelectionIds.length >= 2 && (
+              <div className="flex gap-2 items-center bg-emerald-50 border border-emerald-300 rounded-lg px-3 py-2">
+                <span className="text-sm text-emerald-800 font-semibold">
+                  {compareSelectionIds.length} selected for comparison
+                </span>
+                <button
+                  onClick={() => setShowComparison(true)}
+                  className="px-3 py-1 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700 transition"
+                >
+                  🔀 Compare
+                </button>
+                <button
+                  onClick={() => setCompareSelectionIds([])}
+                  className="px-3 py-1 bg-white text-gray-600 rounded text-sm hover:bg-gray-100 transition"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+
+          {savedFormulations.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400 text-lg">
+              No saved formulations yet. Build one on the 🔬 Build tab and hit 💾 Save.
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {savedFormulations.map(f => {
+                const isSelected = compareSelectionIds.includes(f.id);
+                const isExpanded = historyExpandedId === f.id;
+                const numVersions = f.versions?.length || 0;
+                const currentVer = f.currentVersion || 'v1.0.0';
+                const lastModDate = f.lastModified
+                  ? new Date(f.lastModified).toLocaleDateString()
+                  : f.createdAt;
+
+                // Derive headline metrics from current snapshot
+                const totalMassG = f.ingredients.reduce((s, i) => s + i.qty * (UNIT_TO_GRAMS[i.unit] || 1), 0);
+                const totalKg = totalMassG / 1000;
+                const totalC = f.ingredients.reduce((s, i) => s + ((i.qty * (UNIT_TO_GRAMS[i.unit] || 1)) / 1000) * (i.costPerKg || 0), 0);
+                const allergens = Array.from(new Set(f.ingredients.flatMap(i => i.allergens))).filter(Boolean);
+
+                return (
+                  <div key={f.id} className={`bg-white rounded-xl border ${isSelected ? 'border-emerald-400 ring-2 ring-emerald-200' : 'border-gray-200'} overflow-hidden`}>
+                    {/* Header */}
+                    <div className="p-6 flex items-center justify-between flex-wrap gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <h3 className="text-xl font-semibold text-gray-800">{f.name}</h3>
+                          <span className="text-xs font-mono bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">v{currentVer}</span>
+                          {numVersions > 1 && (
+                            <span className="text-[10px] text-gray-500">({numVersions} versions)</span>
+                          )}
+                          {f.mode && (
+                            <span className="text-[10px] text-gray-500 uppercase tracking-wide">• {MODES[f.mode]?.name}</span>
+                          )}
+                        </div>
+                        {f.productType && <p className="text-emerald-700 text-xs mt-0.5 font-medium">🏷️ {f.productType}</p>}
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3 text-xs">
+                          <div>
+                            <div className="text-[10px] uppercase text-gray-400">Ingredients</div>
+                            <div className="font-semibold text-gray-700">{f.ingredients.length}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase text-gray-400">Batch</div>
+                            <div className="font-semibold text-gray-700">{totalKg.toFixed(2)} kg</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase text-gray-400">Cost</div>
+                            <div className="font-semibold text-emerald-700">${totalC.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase text-gray-400">Package</div>
+                            <div className="font-semibold text-gray-700">{f.packageSize}{f.packageUnit}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase text-gray-400">Last modified</div>
+                            <div className="font-semibold text-gray-700">{lastModDate}</div>
+                          </div>
+                        </div>
+                        {allergens.length > 0 && (
+                          <div className="mt-2 text-xs">
+                            <span className="text-gray-400">Allergens: </span>
+                            <span className="font-semibold text-rose-600">{allergens.join(', ')}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={() => {
+                            if (isSelected) {
+                              setCompareSelectionIds(compareSelectionIds.filter(id => id !== f.id));
+                            } else {
+                              if (compareSelectionIds.length >= 3) {
+                                alert('Maximum 3 formulas can be compared at once.');
+                                return;
+                              }
+                              setCompareSelectionIds([...compareSelectionIds, f.id]);
+                            }
+                          }}
+                          className={`px-3 py-2 rounded-lg text-sm transition ${isSelected ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >
+                          {isSelected ? '✓ Selected' : '🔀 Compare'}
+                        </button>
+                        {numVersions > 1 && (
+                          <button
+                            onClick={() => setHistoryExpandedId(isExpanded ? null : f.id)}
+                            className="px-3 py-2 bg-sky-50 text-sky-700 rounded-lg text-sm hover:bg-sky-100 transition"
+                          >
+                            {isExpanded ? '▲ Hide history' : `📜 History (${numVersions})`}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => loadFormulation(f)}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm"
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete "${f.name}" and all ${numVersions} version${numVersions > 1 ? 's' : ''}?`)) {
+                              setSavedFormulations(savedFormulations.filter(x => x.id !== f.id));
+                            }
+                          }}
+                          className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-sm"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Version History Panel */}
+                    {isExpanded && f.versions && f.versions.length > 0 && (
+                      <div className="border-t border-gray-200 bg-gray-50 p-6">
+                        <div className="flex items-baseline justify-between mb-3">
+                          <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Version History</h4>
+                          <span className="text-[10px] text-gray-500">oldest → newest</span>
+                        </div>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-gray-300 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                              <th className="py-2">Version</th>
+                              <th className="py-2">Date</th>
+                              <th className="py-2">Author</th>
+                              <th className="py-2">Reason for change</th>
+                              <th className="py-2 text-right">Ingredients</th>
+                              <th className="py-2">Diff against</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {f.versions.map((v, idx) => {
+                              const prevVersion = idx > 0 ? f.versions![idx - 1].version : null;
+                              const dateStr = new Date(v.timestamp).toLocaleString();
+                              return (
+                                <tr key={v.version} className="border-b border-gray-200">
+                                  <td className="py-2">
+                                    <span className="font-mono font-semibold text-emerald-700">v{v.version}</span>
+                                    {v.version === f.currentVersion && (
+                                      <span className="ml-2 text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded uppercase tracking-wide">current</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 text-gray-600">{dateStr}</td>
+                                  <td className="py-2 text-gray-600">{v.author}</td>
+                                  <td className="py-2 text-gray-700 italic">{v.reasonForChange}</td>
+                                  <td className="py-2 text-right font-mono">{v.ingredients.length}</td>
+                                  <td className="py-2">
+                                    {prevVersion && (
+                                      <button
+                                        onClick={() => setDiffSelection({ formulaId: f.id, v1: prevVersion, v2: v.version })}
+                                        className="text-sky-600 hover:underline text-[10px]"
+                                      >
+                                        diff vs v{prevVersion}
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ─── DIFF MODAL (v1 vs v2 of same formula) ─── */}
+          {diffSelection && (() => {
+            const formula = savedFormulations.find(f => f.id === diffSelection.formulaId);
+            if (!formula?.versions) return null;
+            const va = formula.versions.find(v => v.version === diffSelection.v1);
+            const vb = formula.versions.find(v => v.version === diffSelection.v2);
+            if (!va || !vb) return null;
+
+            // Build ingredient diff
+            const ingA = new Map(va.ingredients.map(i => [i.name, i]));
+            const ingB = new Map(vb.ingredients.map(i => [i.name, i]));
+            const allNames = Array.from(new Set([...ingA.keys(), ...ingB.keys()]));
+            type DiffRow = { name: string; aQty: number | null; bQty: number | null; unit: string; status: 'added' | 'removed' | 'changed' | 'unchanged'; deltaG: number };
+            const diffRows: DiffRow[] = allNames.map(name => {
+              const a = ingA.get(name);
+              const b = ingB.get(name);
+              const aQty = a ? a.qty : null;
+              const bQty = b ? b.qty : null;
+              const aG = a ? a.qty * (UNIT_TO_GRAMS[a.unit] || 1) : 0;
+              const bG = b ? b.qty * (UNIT_TO_GRAMS[b.unit] || 1) : 0;
+              let status: DiffRow['status'];
+              if (aQty === null && bQty !== null) status = 'added';
+              else if (aQty !== null && bQty === null) status = 'removed';
+              else if (Math.abs((aQty || 0) - (bQty || 0)) > 0.0001) status = 'changed';
+              else status = 'unchanged';
+              return { name, aQty, bQty, unit: (a || b)!.unit, status, deltaG: bG - aG };
+            });
+
+            const costA = va.ingredients.reduce((s, i) => s + ((i.qty * (UNIT_TO_GRAMS[i.unit] || 1)) / 1000) * (i.costPerKg || 0), 0);
+            const costB = vb.ingredients.reduce((s, i) => s + ((i.qty * (UNIT_TO_GRAMS[i.unit] || 1)) / 1000) * (i.costPerKg || 0), 0);
+            const totalAG = va.ingredients.reduce((s, i) => s + i.qty * (UNIT_TO_GRAMS[i.unit] || 1), 0);
+            const totalBG = vb.ingredients.reduce((s, i) => s + i.qty * (UNIT_TO_GRAMS[i.unit] || 1), 0);
+            void totalAG; void totalBG;
+            const specsA = estimateSpecs(va.ingredients);
+            const specsB = estimateSpecs(vb.ingredients);
+            const allergensA = new Set(va.ingredients.flatMap(i => i.allergens));
+            const allergensB = new Set(vb.ingredients.flatMap(i => i.allergens));
+            const addedAllergens = [...allergensB].filter(a => !allergensA.has(a));
+            const removedAllergens = [...allergensA].filter(a => !allergensB.has(a));
+
+            return (
+              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-auto" onClick={() => setDiffSelection(null)}>
+                <div className="bg-white rounded-xl max-w-5xl w-full max-h-[90vh] overflow-auto p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-800">🔀 Version Diff — {formula.name}</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        <span className="font-mono text-rose-600">v{va.version}</span>
+                        <span className="mx-2">→</span>
+                        <span className="font-mono text-emerald-700">v{vb.version}</span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setDiffSelection(null)}
+                      className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  {/* Change reason */}
+                  <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 mb-4 text-xs">
+                    <div className="text-[10px] uppercase tracking-wide text-sky-800 font-bold mb-1">Reason for change</div>
+                    <div className="text-sky-900 italic">{vb.reasonForChange || '(none provided)'}</div>
+                    <div className="text-[10px] text-gray-500 mt-1">Saved {new Date(vb.timestamp).toLocaleString()} by {vb.author}</div>
+                  </div>
+
+                  {/* Summary tiles */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500">Batch Δ</div>
+                      <div className="font-mono font-bold text-gray-800">{((totalBG - totalAG) / 1000).toFixed(3)} kg</div>
+                      <div className="text-[10px] text-gray-400">{(totalAG / 1000).toFixed(3)} → {(totalBG / 1000).toFixed(3)}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500">Cost Δ (batch)</div>
+                      <div className={`font-mono font-bold ${costB - costA > 0 ? 'text-rose-700' : costB - costA < 0 ? 'text-emerald-700' : 'text-gray-800'}`}>
+                        {costB - costA > 0 ? '+' : ''}${(costB - costA).toFixed(2)}
+                      </div>
+                      <div className="text-[10px] text-gray-400">${costA.toFixed(2)} → ${costB.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500">pH Δ</div>
+                      <div className="font-mono font-bold text-gray-800">
+                        {specsB.pH && specsA.pH
+                          ? `${specsB.pH > specsA.pH ? '+' : ''}${(specsB.pH - specsA.pH).toFixed(2)}`
+                          : '—'}
+                      </div>
+                      <div className="text-[10px] text-gray-400">
+                        {specsA.pH?.toFixed(2) || '—'} → {specsB.pH?.toFixed(2) || '—'}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500">aw Δ</div>
+                      <div className="font-mono font-bold text-gray-800">
+                        {specsB.aw && specsA.aw
+                          ? `${specsB.aw > specsA.aw ? '+' : ''}${(specsB.aw - specsA.aw).toFixed(3)}`
+                          : '—'}
+                      </div>
+                      <div className="text-[10px] text-gray-400">
+                        {specsA.aw?.toFixed(3) || '—'} → {specsB.aw?.toFixed(3) || '—'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Allergen delta */}
+                  {(addedAllergens.length > 0 || removedAllergens.length > 0) && (
+                    <div className="bg-rose-50 border border-rose-300 rounded-lg p-3 mb-4">
+                      <div className="text-[10px] uppercase tracking-wide text-rose-800 font-bold mb-1">⚠️ Allergen Changes (label must be updated!)</div>
+                      {addedAllergens.length > 0 && (
+                        <div className="text-xs text-rose-800">
+                          <span className="font-bold">Added:</span> {addedAllergens.join(', ')}
+                        </div>
+                      )}
+                      {removedAllergens.length > 0 && (
+                        <div className="text-xs text-rose-700">
+                          <span className="font-bold">Removed:</span> {removedAllergens.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Ingredient diff table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b-2 border-gray-400 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                          <th className="py-2">Status</th>
+                          <th className="py-2">Ingredient</th>
+                          <th className="py-2 text-right">v{va.version}</th>
+                          <th className="py-2 text-right">v{vb.version}</th>
+                          <th className="py-2 text-right">Δ (g)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {diffRows
+                          .sort((a, b) => {
+                            const order = { changed: 0, added: 1, removed: 2, unchanged: 3 };
+                            return order[a.status] - order[b.status] || a.name.localeCompare(b.name);
+                          })
+                          .map((r, i) => {
+                            const rowBg = r.status === 'added' ? 'bg-emerald-50' :
+                                          r.status === 'removed' ? 'bg-rose-50' :
+                                          r.status === 'changed' ? 'bg-amber-50' : '';
+                            const statusChip = r.status === 'added' ? '➕ added' :
+                                              r.status === 'removed' ? '➖ removed' :
+                                              r.status === 'changed' ? '↕ changed' : '—';
+                            const statusColor = r.status === 'added' ? 'text-emerald-700' :
+                                              r.status === 'removed' ? 'text-rose-700' :
+                                              r.status === 'changed' ? 'text-amber-700' : 'text-gray-400';
+                            return (
+                              <tr key={i} className={`border-b border-gray-200 ${rowBg}`}>
+                                <td className={`py-1.5 text-[10px] font-semibold ${statusColor}`}>{statusChip}</td>
+                                <td className="py-1.5">{r.name}</td>
+                                <td className="py-1.5 text-right font-mono">{r.aQty !== null ? `${r.aQty}${r.unit}` : '—'}</td>
+                                <td className="py-1.5 text-right font-mono">{r.bQty !== null ? `${r.bQty}${r.unit}` : '—'}</td>
+                                <td className={`py-1.5 text-right font-mono ${r.deltaG > 0 ? 'text-emerald-700' : r.deltaG < 0 ? 'text-rose-700' : 'text-gray-400'}`}>
+                                  {r.deltaG > 0 ? '+' : ''}{r.deltaG.toFixed(1)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ─── COMPARISON MODAL (2-3 different formulas side-by-side) ─── */}
+          {showComparison && compareSelectionIds.length >= 2 && (() => {
+            const formulas = compareSelectionIds.map(id => savedFormulations.find(f => f.id === id)!).filter(Boolean);
+            if (formulas.length < 2) return null;
+
+            // Merge all ingredient names across all formulas
+            const allIngNames = Array.from(new Set(formulas.flatMap(f => f.ingredients.map(i => i.name))));
+
+            return (
+              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-auto" onClick={() => setShowComparison(false)}>
+                <div className="bg-white rounded-xl max-w-7xl w-full max-h-[90vh] overflow-auto p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-bold text-gray-800">🔀 Formula Comparison — {formulas.length} formulas</h3>
+                    <button
+                      onClick={() => setShowComparison(false)}
+                      className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  {/* Headers row */}
+                  <div className={`grid gap-4 mb-4`} style={{ gridTemplateColumns: `180px repeat(${formulas.length}, 1fr)` }}>
+                    <div className="font-semibold text-[10px] uppercase tracking-wide text-gray-500">Metric</div>
+                    {formulas.map(f => (
+                      <div key={f.id} className="bg-emerald-50 border border-emerald-300 rounded p-2">
+                        <div className="font-bold text-gray-800 text-sm">{f.name}</div>
+                        <div className="text-[10px] font-mono text-emerald-700">v{f.currentVersion}</div>
+                        <div className="text-[10px] text-gray-500">{f.mode && MODES[f.mode]?.name}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Summary rows */}
+                  {(() => {
+                    const summaries = formulas.map(f => {
+                      const totalG = f.ingredients.reduce((s, i) => s + i.qty * (UNIT_TO_GRAMS[i.unit] || 1), 0);
+                      const totalC = f.ingredients.reduce((s, i) => s + ((i.qty * (UNIT_TO_GRAMS[i.unit] || 1)) / 1000) * (i.costPerKg || 0), 0);
+                      const specs = estimateSpecs(f.ingredients);
+                      const allergens = Array.from(new Set(f.ingredients.flatMap(i => i.allergens))).filter(Boolean);
+                      const rows = f.ingredients.map(i => ({ name: i.name, category: i.foodData?.type === 'industrial' ? (i.foodData.data as IndustrialIngredient).category : '', massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1) }));
+                      const sust = computeFormulationSustainability(rows);
+                      return { totalG, totalC, specs, allergens, sust };
+                    });
+
+                    const renderRow = (label: string, cells: React.ReactNode[]) => (
+                      <div className="grid gap-4 py-2 border-b border-gray-200" style={{ gridTemplateColumns: `180px repeat(${formulas.length}, 1fr)` }}>
+                        <div className="text-xs font-semibold text-gray-600">{label}</div>
+                        {cells.map((c, i) => <div key={i} className="text-sm text-gray-800">{c}</div>)}
+                      </div>
+                    );
+
+                    return (
+                      <div className="mb-6">
+                        {renderRow('Ingredients', summaries.map((s, i) => <span key={i}>{formulas[i].ingredients.length} items</span>))}
+                        {renderRow('Batch size', summaries.map((s, i) => <span key={i} className="font-mono">{(s.totalG / 1000).toFixed(2)} kg</span>))}
+                        {renderRow('Total cost', summaries.map((s, i) => <span key={i} className="font-mono font-semibold text-emerald-700">${s.totalC.toFixed(2)}</span>))}
+                        {renderRow('Cost / kg', summaries.map((s, i) => <span key={i} className="font-mono">${s.totalG > 0 ? (s.totalC / (s.totalG / 1000)).toFixed(2) : '—'}</span>))}
+                        {renderRow('pH', summaries.map((s, i) => <span key={i} className="font-mono">{s.specs.pH?.toFixed(2) || '—'}</span>))}
+                        {renderRow('Water activity', summaries.map((s, i) => <span key={i} className="font-mono">{s.specs.aw?.toFixed(3) || '—'}</span>))}
+                        {renderRow('Classification', summaries.map((s, i) => <span key={i} className="text-xs">{s.specs.productClassification || '—'}</span>))}
+                        {renderRow('Allergens', summaries.map((s, i) => <span key={i} className="text-xs text-rose-700 font-semibold">{s.allergens.length > 0 ? s.allergens.join(', ') : '—'}</span>))}
+                        {renderRow('Sustainability score', summaries.map((s, i) => (
+                          <span key={i} className={`font-mono font-bold ${s.sust.score >= 75 ? 'text-emerald-700' : s.sust.score >= 55 ? 'text-amber-700' : 'text-rose-700'}`}>{s.sust.score}/100</span>
+                        )))}
+                        {renderRow('Organic-available %', summaries.map((s, i) => <span key={i} className="font-mono">{s.sust.organicCoveragePct.toFixed(0)}%</span>))}
+                        {renderRow('Carbon /kg CO₂e', summaries.map((s, i) => <span key={i} className="font-mono">{s.sust.avgCarbonKgCo2ePerUnit.toFixed(1)}</span>))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Per-ingredient table */}
+                  <div className="mt-6">
+                    <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">Ingredients</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b-2 border-gray-400 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                            <th className="py-2 w-[300px]">Ingredient</th>
+                            {formulas.map(f => <th key={f.id} className="py-2 text-right">{f.name}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allIngNames.map(name => {
+                            const qtys = formulas.map(f => {
+                              const ing = f.ingredients.find(i => i.name === name);
+                              return ing ? `${ing.qty}${ing.unit}` : '—';
+                            });
+                            // Highlight rows where formulas differ
+                            const uniqueQtys = new Set(qtys.filter(q => q !== '—'));
+                            const hasDifference = uniqueQtys.size > 1 || qtys.includes('—');
+                            return (
+                              <tr key={name} className={`border-b border-gray-200 ${hasDifference ? 'bg-amber-50' : ''}`}>
+                                <td className="py-1.5">{name}</td>
+                                {qtys.map((q, i) => (
+                                  <td key={i} className={`py-1.5 text-right font-mono ${q === '—' ? 'text-gray-400' : 'text-gray-700'}`}>{q}</td>
+                                ))}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* BUILD TAB */}
+      {activeTab === 'build' && (
+        <div className="max-w-7xl mx-auto px-6 py-8">
+
+          {/* ═══════════════════════════════════════════════════════════════
+              SUPPLEMENT STATUS STRIP — compact at-a-glance health bar for
+              the six analysis engines. Each pill is clickable: scrolls to
+              its card AND forces it expanded. Cards default-collapse when
+              their state is green; default-expand when there are findings.
+              ═══════════════════════════════════════════════════════════════ */}
+          {mode === 'supplements' && ingredients.length > 0 && (() => {
+            const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+            const pmByName = new Map<string, number>();
+            for (const ing of ingredients) {
+              const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+              const pot = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor) ? ing.foodData.data.potencyFactor : 1;
+              pmByName.set(ing.name, g * scale * 1000 * pot);
+            }
+            const safetySum = summarizeFindings(checkSupplementSafety(ingredients, pmByName, suppAudience));
+            const over = computeOverages(ingredients, pmByName, { shelfLifeMonths: suppShelfLifeMonths, storage: suppStorage, amberPackaging: suppAmberPkg, desiccant: suppDesiccant, nitrogenFlush: suppNitrogen, tocopherolAntioxidant: suppTocopherol });
+            const compatSum = summarizeCompatibility(checkCompatibility(ingredients, {
+              deliveryForm: suppDeliveryForm,
+              capsuleShell: suppDeliveryForm === 'softgel' || suppDeliveryForm === 'capsule' ? 'gelatin' : 'none',
+              hasDesiccant: suppDesiccant, hasNitrogenFlush: suppNitrogen, hasAmberPackaging: suppAmberPkg, storage: suppStorage,
+            }));
+            const ndi = analyzeNDI(ingredients.map(i => i.name));
+            const draftFlagCount = analyzeDraftClaim(suppDraftClaim).length;
+            const retailReports = analyzeRetailFit(ingredients.map(i => i.name));
+            const blockedRetailers = retailReports.filter(r => r.status === 'blocked').length;
+            const cautionRetailers = retailReports.filter(r => r.status === 'caution').length;
+
+            // Pill state = {tier, label, id, scrollTo}
+            type PillTier = 'ok' | 'caution' | 'warn' | 'critical';
+            const pill = (id: string, name: string, tier: PillTier, detail: string) => ({ id, name, tier, detail });
+            const pills = [
+              pill('safety', 'Safety',
+                   safetySum.banned + safetySum.critical > 0 ? 'critical'
+                   : safetySum.warning > 0 ? 'warn'
+                   : safetySum.caution > 0 ? 'caution' : 'ok',
+                   safetySum.banned > 0 ? `${safetySum.banned} banned` : safetySum.critical > 0 ? `${safetySum.critical} critical` : safetySum.warning > 0 ? `${safetySum.warning} over UL` : safetySum.caution > 0 ? `${safetySum.caution} caution` : 'All doses safe'),
+              pill('stability', 'Stability',
+                   over.worstLossPct > 50 ? 'critical' : over.worstLossPct > 30 ? 'warn' : over.worstLossPct > 15 ? 'caution' : 'ok',
+                   over.bottleneck ? `${over.worstLossPct.toFixed(0)}% loss — ${over.bottleneck.ingredientName}` : 'No bottleneck'),
+              pill('compat', 'Compatibility',
+                   compatSum.critical > 0 ? 'critical' : compatSum.warning > 0 ? 'warn' : compatSum.caution > 0 ? 'caution' : 'ok',
+                   compatSum.critical + compatSum.warning + compatSum.caution === 0 ? 'No conflicts' : `${compatSum.critical + compatSum.warning + compatSum.caution} issue${compatSum.critical + compatSum.warning + compatSum.caution !== 1 ? 's' : ''}`),
+              pill('ndi', 'NDI',
+                   ndi.required > 0 ? 'critical' : ndi.unknown > 0 ? 'caution' : 'ok',
+                   ndi.required > 0 ? `${ndi.required} NDI required` : ndi.unknown > 0 ? `${ndi.unknown} unknown` : 'All classified'),
+              pill('claims', 'Claims',
+                   draftFlagCount > 0 ? 'warn' : 'ok',
+                   draftFlagCount > 0 ? `${draftFlagCount} issue${draftFlagCount !== 1 ? 's' : ''} in draft` : 'Ready'),
+              pill('retail', 'Retail Fit',
+                   blockedRetailers > 0 ? 'warn' : cautionRetailers > 0 ? 'caution' : 'ok',
+                   blockedRetailers > 0 ? `${blockedRetailers} blocked` : cautionRetailers > 0 ? `${cautionRetailers} caution` : 'All channels ready'),
+            ];
+
+            const pillClass = (tier: PillTier) =>
+              tier === 'critical' ? 'bg-red-50 border-red-400 text-red-900 hover:bg-red-100'
+              : tier === 'warn' ? 'bg-orange-50 border-orange-300 text-orange-900 hover:bg-orange-100'
+              : tier === 'caution' ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100';
+            const pillIcon = (tier: PillTier) =>
+              tier === 'critical' ? '⛔' : tier === 'warn' ? '⚠' : tier === 'caution' ? '◔' : '✓';
+
+            return (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Formula Status</h2>
+                  <button
+                    onClick={() => {
+                      // Expand all by setting all IDs to true
+                      setSuppCardsManuallyToggled({ safety: true, stability: true, compat: true, ndi: true, claims: true, retail: true });
+                    }}
+                    className="text-[10px] uppercase tracking-wide text-gray-500 hover:text-gray-800 font-medium"
+                  >
+                    Expand all
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                  {pills.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        // Force expand the corresponding card + scroll into view
+                        setSuppCardsManuallyToggled(prev => ({ ...prev, [p.id]: true }));
+                        setTimeout(() => {
+                          const el = document.getElementById(`supp-card-${p.id}`);
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 50);
+                      }}
+                      className={`rounded-lg border-2 px-3 py-2 text-left transition ${pillClass(p.tier)}`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs">
+                        <span>{pillIcon(p.tier)}</span>
+                        <span>{p.name}</span>
+                      </div>
+                      <div className="text-[10px] mt-0.5 leading-tight opacity-80">{p.detail}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* LEFT COLUMN */}
+            <div className="space-y-6">
+              {/* Name & Save */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">Formulation Name & Product Type</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Formulation Name</label>
+                    <input type="text" placeholder={mc.examplePlaceholder}
+                      value={formulationName} onChange={(e) => setFormulationName(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Product Type <span className="text-gray-400">(drives packaging suggestions)</span></label>
+                    <select
+                      value={productType}
+                      onChange={(e) => setProductType(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="">— Select a product type —</option>
+                      {PRODUCT_TYPES.map(pt => (
+                        <option key={pt.name} value={pt.name}>{pt.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {currentProductType && (
+                  <p className="text-xs text-gray-500 mb-3 italic">{currentProductType.description}</p>
+                )}
+                {/* Part Number — auto-assigned on first save; manually editable for custom numbering schemes. */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-gray-500">
+                      Part Number
+                      <span className="text-gray-400 ml-2 font-normal">(finished-good SKU)</span>
+                    </label>
+                    {!partNumber && (
+                      <button
+                        onClick={() => setPartNumber(generatePartNumber(mode, savedFormulations))}
+                        className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
+                      >
+                        ⚡ Auto-generate
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={partNumber}
+                    onChange={(e) => setPartNumber(e.target.value)}
+                    placeholder={`Auto-assigns on save (e.g. ${mc.id === 'supplements' ? 'SUP' : mc.id === 'sausage' ? 'SAU' : mc.id === 'baking' ? 'BAK' : mc.id === 'feeds' ? 'FDS' : 'FB'}-${String(new Date().getFullYear()).slice(-2)}-0001)`}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
+                    Stays stable across versions — the semantic version (1.0.0 → 1.0.1) conveys revisions. Override with your own ERP / internal SKU if needed.
+                  </p>
+                </div>
+                <button onClick={saveFormulation} className="w-full md:w-auto px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium">💾 Save formulation</button>
+                {saveMessage && <p className="mt-3 text-emerald-600 font-medium">{saveMessage}</p>}
+              </div>
+
+              {/* Regulatory Compliance */}
+              {complianceFindings.length > 0 && (
+                <div className={`rounded-xl border-2 p-6 ${complianceViolations.length > 0 ? 'bg-red-50 border-red-400' : 'bg-emerald-50 border-emerald-300'}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className={`text-lg font-bold ${complianceViolations.length > 0 ? 'text-red-800' : 'text-emerald-800'}`}>
+                      {complianceViolations.length > 0
+                        ? `🚫 ${complianceViolations.length} Regulatory Violation${complianceViolations.length !== 1 ? 's' : ''}`
+                        : `✓ ${complianceFindings.length} Regulated Ingredient${complianceFindings.length !== 1 ? 's' : ''} — All Within Limits`}
+                    </h2>
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">FDA / USDA-FSIS</span>
+                  </div>
+                  <div className="space-y-2">
+                    {complianceFindings.map((f, i) => (
+                      <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${f.violated ? 'bg-red-100 border border-red-300' : 'bg-white border border-emerald-200'}`}>
+                        <span className={`font-mono font-bold shrink-0 ${f.violated ? 'text-red-700' : 'text-emerald-700'}`}>
+                          {f.violated ? '✗' : '✓'}
+                        </span>
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="font-semibold text-gray-800">{f.limit.shortName}</span>
+                            <span className="text-gray-500">— currently</span>
+                            <span className={`font-mono font-bold ${f.violated ? 'text-red-700' : 'text-emerald-700'}`}>
+                              {formatAmount(f.currentPercent, f.currentPpm)}
+                            </span>
+                            <span className="text-gray-500">vs max</span>
+                            <span className="font-mono font-bold text-gray-700">
+                              {f.limit.maxPercent !== undefined ? `${f.limit.maxPercent}%` : `${f.limit.maxPpm} ppm`}
+                            </span>
+                            <span className="text-gray-500">({f.utilization.toFixed(0)}% of cap)</span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 mt-0.5">
+                            {f.limit.authority} {f.limit.citation} — {f.limit.summary}
+                          </p>
+                          {f.activeSpeciesPpm !== undefined && f.limit.activeName && (
+                            <p className={`text-[10px] mt-0.5 font-semibold ${f.activeViolated ? 'text-red-700' : 'text-emerald-700'}`}>
+                              ↳ Active {f.limit.activeName}: {f.activeSpeciesPpm.toFixed(1)} ppm (max {f.limit.activeMaxPpm} ppm) {f.activeViolated ? '— OVER' : '✓'}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {complianceViolations.length > 0 && (
+                    <p className="text-xs text-red-800 mt-3 font-semibold">
+                      ⚠️ This formulation exceeds one or more US regulatory limits. Reduce the flagged ingredient(s) before producing — non-compliant products are misbranded under federal law.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Cost Summary — unit economics for the formulation (not production batch) */}
+              {ingredients.length > 0 && (
+                <div className="bg-white rounded-xl border border-emerald-200 p-6">
+                  <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+                    <h2 className="text-lg font-semibold text-gray-800">💰 Unit Economics</h2>
+                    <span className="text-[10px] uppercase tracking-wide text-gray-400">For production batch cost, see 🏭 Batch Sheet</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div className="bg-emerald-50 rounded-lg p-3">
+                      <p className="text-xs text-gray-500 mb-1">Per kg</p>
+                      <p className="text-2xl font-bold text-emerald-700">${totalWeightKg > 0 ? (totalCost / totalWeightKg).toFixed(2) : '0.00'}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">fundamental unit cost</p>
+                    </div>
+                    <div className={`rounded-lg p-3 ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-2 border-rose-400' : 'bg-emerald-50'}`}>
+                      <p className="text-xs text-gray-500 mb-1">Per Serving</p>
+                      <p className={`text-2xl font-bold ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? '⚠️' : `$${costPerServing.toFixed(3)}`}
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0
+                          ? <span className="text-rose-600 font-semibold">Serving &gt; batch — check unit</span>
+                          : `${servingSize}${servingUnit} serving`}
+                      </p>
+                    </div>
+                    <div className={`rounded-lg p-3 border-2 ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-rose-400' : 'bg-emerald-50 border-emerald-400'}`}>
+                      <p className="text-xs text-gray-500 mb-1">Per Package</p>
+                      <p className={`text-2xl font-bold ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? '⚠️' : `$${costPerPackage.toFixed(3)}`}
+                      </p>
+                      {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? (
+                        <p className="text-[10px] text-rose-600 mt-0.5 font-semibold">Package &gt; batch — check unit</p>
+                      ) : packagingCostPerUnit > 0 && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">incl. ${packagingCostPerUnit.toFixed(3)} pkg</p>
+                      )}
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <p className="text-xs text-gray-500 mb-1">Formula Total</p>
+                      <p className="text-2xl font-bold text-gray-700">${totalCost.toFixed(2)}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">for {totalWeightKg.toFixed(3)} kg as entered</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-3">
+                    * Estimated. Override per-ingredient below with supplier quotes. Production-batch cost (scalable to any size) lives on the 🏭 Batch Sheet tab.
+                  </p>
+                </div>
+              )}
+
+              {/* ──────────────────────────────────────────────────────────
+                  SUSTAINABILITY & SOURCING PANEL
+                  Auto-inferred from name + category on every ingredient.
+                  ────────────────────────────────────────────────────────── */}
+              {ingredients.length > 0 && (() => {
+                const rows = ingredients.map(ing => {
+                  const massG = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  const category = ing.foodData?.type === 'industrial'
+                    ? (ing.foodData.data as IndustrialIngredient).category
+                    : '';
+                  return { name: ing.name, category, massG };
+                });
+                const sust = computeFormulationSustainability(rows);
+                const organicCompliance = computeOrganicCompliance(rows);
+                const perUnitScale = packageSizeInGrams > 0 && totalBatchGrams > 0
+                  ? packageSizeInGrams / totalBatchGrams
+                  : 0;
+                const carbonPerUnit = sust.avgCarbonKgCo2ePerUnit * (totalBatchGrams / 1000) * perUnitScale;
+                const waterPerUnit = sust.avgWaterLitersPerUnit * (totalBatchGrams / 1000) * perUnitScale;
+
+                // Color band for headline score
+                const scoreColor = sust.score >= 75 ? 'emerald' : sust.score >= 55 ? 'amber' : sust.score >= 35 ? 'orange' : 'rose';
+
+                // Per-ingredient sustainability profile (for the details table)
+                const perIng = rows.map(r => ({ ...r, profile: getSustainabilityProfile(r) }));
+
+                return (
+                  <div className="bg-white rounded-xl border border-emerald-200 p-6">
+                    <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+                      <h2 className="text-lg font-semibold text-gray-800">🌱 Sustainability & Sourcing</h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400">Organic / Non-GMO / Footprint</span>
+                    </div>
+
+                    {/* ───── Headline score ───── */}
+                    <div className={`rounded-xl p-4 mb-4 border-2 bg-${scoreColor}-50 border-${scoreColor}-300`}>
+                      <div className="flex items-baseline justify-between flex-wrap gap-3">
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wide text-gray-600">Formula Sustainability Score</div>
+                          <div className={`text-5xl font-bold text-${scoreColor}-700 leading-none`}>{sust.score}<span className="text-xl text-gray-500">/100</span></div>
+                        </div>
+                        <div className="text-right text-xs text-gray-600 space-y-1">
+                          <div><span className="font-semibold text-gray-800">{sust.organicCoveragePct.toFixed(0)}%</span> organic-available mass</div>
+                          <div><span className="font-semibold text-gray-800">{sust.nonGmoCoveragePct.toFixed(0)}%</span> inherently non-GMO</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ───── Footprint tiles ───── */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Carbon / unit</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">
+                          {carbonPerUnit < 1 ? `${(carbonPerUnit * 1000).toFixed(0)}g` : `${carbonPerUnit.toFixed(2)}kg`}
+                        </div>
+                        <div className="text-[10px] text-gray-400">CO₂e</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Water / unit</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">
+                          {waterPerUnit < 1 ? `${(waterPerUnit * 1000).toFixed(0)}mL` : `${waterPerUnit.toFixed(1)}L`}
+                        </div>
+                        <div className="text-[10px] text-gray-400">blue+green</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">GMO-risk items</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">{sust.highGmoRiskIngredients.length}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {sust.highGmoRiskIngredients.length === 0 ? 'clean' : 'need non-GMO variant'}
+                        </div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Sector flags</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">
+                          {[sust.palmOilPresent && '🌴', sust.seafoodPresent && '🐟', sust.cocoaPresent && '🍫'].filter(Boolean).join(' ') || '—'}
+                        </div>
+                        <div className="text-[10px] text-gray-400">
+                          {(sust.palmOilPresent || sust.seafoodPresent || sust.cocoaPresent) ? 'cert needed' : 'none flagged'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ───── NOP Organic Claim Validator ───── */}
+                    {(() => {
+                      const tier = organicCompliance.claimTier;
+                      const tierColor =
+                        tier === '100-percent-organic' ? 'emerald' :
+                        tier === 'organic' ? 'emerald' :
+                        tier === 'made-with-organic' ? 'amber' :
+                        'gray';
+                      const icon =
+                        tier === '100-percent-organic' ? '💯' :
+                        tier === 'organic' ? '🌱' :
+                        tier === 'made-with-organic' ? '🌿' :
+                        '🚫';
+                      return (
+                        <div className={`mb-4 rounded-lg p-3 border-2 bg-${tierColor}-50 border-${tierColor}-300`}>
+                          <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">{icon}</span>
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-gray-600">USDA NOP Organic Claim</div>
+                                <div className={`text-base font-bold text-${tierColor}-700`}>{organicCompliance.claimLabel}</div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[10px] uppercase tracking-wide text-gray-500">Organic % of eligible mass</div>
+                              <div className={`text-2xl font-bold font-mono text-${tierColor}-700`}>
+                                {organicCompliance.percentOrganic.toFixed(1)}%
+                              </div>
+                              <div className="text-[10px] text-gray-500">
+                                ({(organicCompliance.organicMassG / 1000).toFixed(3)} kg organic / {(organicCompliance.eligibleMassG / 1000).toFixed(3)} kg eligible)
+                              </div>
+                            </div>
+                          </div>
+                          {organicCompliance.thresholdGap > 0 && tier !== 'specific-organic' && (
+                            <div className="text-xs text-gray-700 border-t border-gray-300 pt-2 mt-1">
+                              <span className="font-semibold">Gap to next tier: </span>
+                              <span className="font-mono">+{organicCompliance.thresholdGap.toFixed(1)} pp</span>
+                              <span className="text-gray-500"> to reach {tier === 'organic' ? '100% Organic' : tier === 'made-with-organic' ? 'Organic' : 'Made with Organic'}.</span>
+                            </div>
+                          )}
+                          <details className="text-[10px] text-gray-600 mt-2">
+                            <summary className="cursor-pointer font-semibold hover:text-gray-800">📋 NOP compliance details ({organicCompliance.notes.length} notes)</summary>
+                            <ul className="mt-1 space-y-0.5 pl-3">
+                              {organicCompliance.notes.map((n, i) => (
+                                <li key={i}>• {n}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ───── Recommendations ───── */}
+                    {sust.recommendations.length > 0 && (
+                      <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        <div className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2">💡 Recommendations</div>
+                        <ul className="space-y-1">
+                          {sust.recommendations.map((r, i) => (
+                            <li key={i} className="text-xs text-amber-900 leading-relaxed">• {r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* ───── Organic Conversion Quick Actions ───── */}
+                    {(() => {
+                      // Preview cost of each upgrade tier
+                      const currentTier = organicCompliance.claimTier;
+                      const targets: { tier: OrganicClaimTier; label: string; icon: string; nopSection: string }[] = [
+                        { tier: 'made-with-organic', label: 'Made with Organic (70%+)', icon: '🌿', nopSection: '§ 205.304' },
+                        { tier: 'organic', label: 'Organic (95%+)', icon: '🌱', nopSection: '§ 205.301(b)' },
+                        { tier: '100-percent-organic', label: '100% Organic', icon: '💯', nopSection: '§ 205.301(a)' },
+                      ];
+                      const tierRank: Record<OrganicClaimTier, number> = {
+                        'specific-organic': 0,
+                        'made-with-organic': 1,
+                        'organic': 2,
+                        '100-percent-organic': 3,
+                      };
+                      const availableTargets = targets.filter(t => tierRank[t.tier] > tierRank[currentTier]);
+                      if (availableTargets.length === 0) return null;
+
+                      // Preview each target's cost delta (dry-run, no state update)
+                      const previews = availableTargets.map(target => {
+                        const preview = upgradeToOrganicTier(ingredients, INDUSTRIAL_DB, target.tier);
+                        return { ...target, preview };
+                      });
+
+                      const handleUpgrade = (target: OrganicClaimTier) => {
+                        const result = upgradeToOrganicTier(ingredients, INDUSTRIAL_DB, target);
+                        const targetLabel = targets.find(t => t.tier === target)?.label || target;
+                        if (!result.targetReached) {
+                          alert(`Could not reach "${targetLabel}" with organic-available ingredients only. Converted ${result.conversions.length} ingredient${result.conversions.length !== 1 ? 's' : ''}, reached "${result.reachedTier}" tier. Some ingredients in your formula don't have organic variants (e.g., curing salts, phosphates, synthetic preservatives).`);
+                        }
+                        const summary = result.conversions.map(c => `  ${c.originalName} → ${c.ingredient.name}`).join('\n');
+                        const deltaStr = result.costDeltaTotal >= 0 ? `+$${result.costDeltaTotal.toFixed(2)}` : `−$${Math.abs(result.costDeltaTotal).toFixed(2)}`;
+                        const confirmed = window.confirm(
+                          `Convert ${result.conversions.length} ingredient${result.conversions.length !== 1 ? 's' : ''} to organic?\n\n${summary}\n\nBatch cost change: ${deltaStr}\nFinal tier: ${result.reachedTier}`,
+                        );
+                        if (confirmed) {
+                          setIngredients(result.upgradedIngredients);
+                          recalculate(result.upgradedIngredients);
+                        }
+                      };
+
+                      return (
+                        <div className="mb-4 bg-brand-50 border border-brand-200 rounded-lg p-3" style={{ background: 'var(--color-brand-50)', borderColor: 'var(--color-brand-200)' }}>
+                          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                            <div className="text-xs font-bold text-gray-800 uppercase tracking-wide">🌱 Convert to Organic — one-click upgrade</div>
+                            <div className="text-[10px] text-gray-500">USDA NOP 21 CFR 205 thresholds</div>
+                          </div>
+                          <p className="text-[10px] text-gray-600 mb-3 leading-relaxed">
+                            Converts eligible ingredients to their organic variants (matches existing DB SKU if available, otherwise applies category premium). Ingredients without organic variants (e.g., curing salts, synthetic preservatives) are skipped. You&apos;ll be asked to confirm before changes apply.
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            {previews.map(({ tier, label, icon, nopSection, preview }) => {
+                              const willSucceed = preview.targetReached;
+                              const delta = preview.costDeltaTotal;
+                              const deltaColor = delta > 0 ? 'text-rose-600' : delta < 0 ? 'text-emerald-700' : 'text-gray-600';
+                              const deltaStr = delta >= 0 ? `+$${delta.toFixed(2)}` : `−$${Math.abs(delta).toFixed(2)}`;
+                              return (
+                                <button
+                                  key={tier}
+                                  onClick={() => handleUpgrade(tier)}
+                                  className={`text-left p-3 rounded-lg border-2 transition hover:shadow-md ${willSucceed ? 'bg-white border-emerald-300 hover:border-emerald-500' : 'bg-gray-50 border-gray-300 hover:border-amber-400 cursor-pointer'}`}
+                                >
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <span className="text-lg">{icon}</span>
+                                    <span className="text-xs font-bold text-gray-800">{label}</span>
+                                  </div>
+                                  <div className="text-[10px] text-gray-500 mb-2">{nopSection}</div>
+                                  <div className="flex items-center justify-between text-[11px]">
+                                    <span className="text-gray-600">
+                                      {preview.conversions.length} swap{preview.conversions.length !== 1 ? 's' : ''}
+                                    </span>
+                                    <span className={`font-mono font-semibold ${deltaColor}`}>{deltaStr}/batch</span>
+                                  </div>
+                                  {!willSucceed && (
+                                    <div className="text-[9px] text-amber-700 mt-1 italic">
+                                      Max reach: {preview.reachedTier.replace(/-/g, ' ')}
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ───── Bulk Revert All to Conventional ───── */}
+                    {(() => {
+                      const currentlyOrganicCount = ingredients.filter(i => /\borganic\b/i.test(i.name)).length;
+                      if (currentlyOrganicCount === 0) return null;
+                      const preview = revertAllToConventional(ingredients, INDUSTRIAL_DB);
+                      const delta = preview.costDeltaTotal;
+                      const deltaStr = delta >= 0 ? `+$${delta.toFixed(2)}` : `−$${Math.abs(delta).toFixed(2)}`;
+                      return (
+                        <div className="mb-4 bg-gray-50 border border-gray-300 rounded-lg p-3">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div>
+                              <div className="text-xs font-bold text-gray-700 uppercase tracking-wide">↩ Revert to Conventional</div>
+                              <div className="text-[10px] text-gray-500 mt-0.5">
+                                {currentlyOrganicCount} ingredient{currentlyOrganicCount !== 1 ? 's' : ''} currently organic — revert all in one click.
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const summary = preview.conversions.map(c => `  ${c.originalName} → ${c.ingredient.name}`).join('\n');
+                                if (window.confirm(
+                                  `Revert ${preview.conversions.length} ingredient${preview.conversions.length !== 1 ? 's' : ''} to conventional?\n\n${summary}\n\nBatch cost change: ${deltaStr}`,
+                                )) {
+                                  setIngredients(preview.revertedIngredients);
+                                  recalculate(preview.revertedIngredients);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-white text-gray-700 border border-gray-300 rounded text-xs font-medium hover:bg-gray-100 hover:border-gray-400 transition flex items-center gap-2"
+                            >
+                              <span>↩ Revert all</span>
+                              <span className={`font-mono ${delta < 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{deltaStr}/batch</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ───── Per-ingredient table (expandable) ───── */}
+                    <details className="text-xs">
+                      <summary className="cursor-pointer font-semibold text-gray-700 hover:text-emerald-700 py-1">
+                        📋 Per-ingredient sustainability profile ({perIng.length} rows)
+                      </summary>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-gray-400 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                              <th className="py-1">Ingredient</th>
+                              <th className="py-1 text-center">GMO risk</th>
+                              <th className="py-1 text-center">Organic?</th>
+                              <th className="py-1 text-center">Non-GMO?</th>
+                              <th className="py-1 text-right">kg CO₂e/kg</th>
+                              <th className="py-1">Certs available</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {perIng.map((r, i) => {
+                              const p = r.profile;
+                              const gmoColor =
+                                p.gmoRisk === 'high' ? 'bg-rose-100 text-rose-700' :
+                                p.gmoRisk === 'medium' ? 'bg-amber-100 text-amber-700' :
+                                p.gmoRisk === 'low' ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-gray-100 text-gray-600';
+                              return (
+                                <tr key={i} className="border-b border-gray-100">
+                                  <td className="py-1 text-gray-800">{r.name}</td>
+                                  <td className="py-1 text-center">
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${gmoColor}`}>
+                                      {p.gmoRisk}
+                                    </span>
+                                  </td>
+                                  <td className="py-1 text-center">
+                                    {p.organicAvailable ? (
+                                      <span className="text-emerald-600 font-semibold" title={`+${Math.round((p.organicPricePremium - 1) * 100)}% premium`}>
+                                        ✓ +{Math.round((p.organicPricePremium - 1) * 100)}%
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">—</span>
+                                    )}
+                                  </td>
+                                  <td className="py-1 text-center">
+                                    {p.nonGmoAvailable && p.nonGmoPricePremium > 1.0 ? (
+                                      <span className="text-sky-600 font-semibold">✓ +{Math.round((p.nonGmoPricePremium - 1) * 100)}%</span>
+                                    ) : p.gmoRisk === 'low' || p.gmoRisk === 'none' ? (
+                                      <span className="text-emerald-600 font-semibold" title="Inherently non-GMO">✓ inherent</span>
+                                    ) : (
+                                      <span className="text-gray-400">—</span>
+                                    )}
+                                  </td>
+                                  <td className="py-1 text-right font-mono text-gray-700">{p.carbonKgCo2ePerKg.toFixed(1)}</td>
+                                  <td className="py-1 text-[10px] text-gray-600">
+                                    {p.suggestedCerts.length > 0
+                                      ? p.suggestedCerts.slice(0, 3).map(c => CERT_LABELS[c] || c).join(', ')
+                                      : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+
+                    <p className="text-[10px] text-gray-400 mt-3 italic">
+                      Estimates from published LCA literature (Poore & Nemecek 2018, Mekonnen & Hoekstra water footprint). Not audit-grade — verify with supplier COAs for regulatory or retailer submissions.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  SUPPLEMENT DOSAGE & DELIVERY FORM (supplements mode only)
+                  Lets formulators pick the delivery format (capsule / softgel /
+                  gummy / powder / liquid / etc.), units per serving, and — for
+                  hard-shell capsules — the capsule size, then computes the
+                  required fill weight per unit and its capacity utilization.
+                  This drives the "Serving Size: N Capsules" line on the
+                  Supplement Facts label.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && (() => {
+                // Fill weight per unit in milligrams (serving / unitsPerServing).
+                const fillWeightMg = suppUnitsPerServing > 0
+                  ? (servingSizeInGrams * 1000) / suppUnitsPerServing
+                  : 0;
+                const capsuleCap = CAPSULE_CAPACITY_MG[suppCapsuleSize];
+                const capsuleUsagePct = capsuleCap > 0 ? (fillWeightMg / capsuleCap) * 100 : 0;
+                const isCapsule = suppDeliveryForm === 'capsule' || suppDeliveryForm === 'softgel';
+                // Classify capacity status for color + advice text.
+                //   'unrealistic' → fill > 1.5× #000 (1,500 mg capsule max) means the serving
+                //     size input is almost certainly wrong — a 30g F&B-default serving survived
+                //     the mode switch, for example. Prompt the user to fix the serving size
+                //     rather than bark about capsule capacity.
+                //   'over' → over physically possible fill for the selected capsule size
+                //   'low' → underutilized capsule (< 40%)
+                //   'good' → on target
+                let capStatus: 'good' | 'low' | 'over' | 'unrealistic' = 'good';
+                let capAdvice = '';
+                const LARGEST_CAPSULE_MG = 1370; // size #000
+                if (isCapsule && fillWeightMg > 0) {
+                  if (fillWeightMg > LARGEST_CAPSULE_MG * 1.5) {
+                    capStatus = 'unrealistic';
+                    capAdvice = `Fill weight of ${Math.round(fillWeightMg).toLocaleString()} mg per unit isn't physically possible in any capsule (largest = 1,370 mg). Lower the Serving Size field below — for a 2-capsule serving, a 2 g (2,000 mg) serving size is typical.`;
+                  } else if (capsuleUsagePct > 100) {
+                    capStatus = 'over';
+                    capAdvice = `Over capacity — upsize capsule or split into more units per serving.`;
+                  } else if (capsuleUsagePct < 40) {
+                    capStatus = 'low';
+                    capAdvice = `Low fill — consider a smaller capsule size for cleaner presentation and lower cost.`;
+                  } else {
+                    capAdvice = `On target. Good fill density reduces breakage and powder settling.`;
+                  }
+                }
+                const statusColor = capStatus === 'unrealistic' ? 'text-slate-700 bg-slate-50 border-slate-300'
+                                  : capStatus === 'over' ? 'text-red-700 bg-red-50 border-red-200'
+                                  : capStatus === 'low' ? 'text-amber-700 bg-amber-50 border-amber-200'
+                                  : 'text-emerald-700 bg-emerald-50 border-emerald-200';
+                return (
+                  <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-semibold text-gray-800">💊 Delivery Form & Dosage</h2>
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wide">21 CFR 101.36</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-600 mb-2">Delivery Form</label>
+                        <select
+                          value={suppDeliveryForm}
+                          onChange={(e) => setSuppDeliveryForm(e.target.value as SupplementDeliveryForm)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="capsule">Capsule (hard shell)</option>
+                          <option value="softgel">Softgel (soft gel)</option>
+                          <option value="tablet">Tablet</option>
+                          <option value="chewable">Chewable Tablet</option>
+                          <option value="gummy">Gummy</option>
+                          <option value="lozenge">Lozenge</option>
+                          <option value="powder">Powder (Scoop)</option>
+                          <option value="liquid">Liquid (Dropper / Spray)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-600 mb-2">Units Per Serving</label>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={suppUnitsPerServing}
+                          onChange={(e) => setSuppUnitsPerServing(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      {isCapsule && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-600 mb-2">Capsule Size</label>
+                          <select
+                            value={suppCapsuleSize}
+                            onChange={(e) => setSuppCapsuleSize(e.target.value as CapsuleSize)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="000">#000 — 1370 mg (largest)</option>
+                            <option value="00">#00 — 950 mg</option>
+                            <option value="0">#0 — 680 mg (most common)</option>
+                            <option value="1">#1 — 500 mg</option>
+                            <option value="2">#2 — 355 mg</option>
+                            <option value="3">#3 — 275 mg</option>
+                            <option value="4">#4 — 205 mg</option>
+                            <option value="5">#5 — 130 mg (smallest)</option>
+                          </select>
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-600 mb-2">Intended Audience</label>
+                        <select
+                          value={suppAudience}
+                          onChange={(e) => setSuppAudience(e.target.value as SupplementAudience)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="general">General Adult</option>
+                          <option value="pregnancy">Prenatal / Pregnancy</option>
+                          <option value="pediatric">Pediatric (under 9)</option>
+                          <option value="athletic">Athletic / Sport (NSF Certified for Sport context)</option>
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1 leading-tight">
+                          Tightens dose limits for retinol, iron, caffeine, and melatonin.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Fill weight + capacity utilization — only meaningful for capsules/softgels */}
+                    {isCapsule && fillWeightMg > 0 && (
+                      <div className={`mt-4 border rounded-lg p-4 ${statusColor}`}>
+                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide opacity-70">Fill Weight / unit</div>
+                            <div className="font-bold text-lg">{fillWeightMg.toFixed(0)} mg</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide opacity-70">Capsule capacity</div>
+                            <div className="font-bold text-lg">{capsuleCap} mg</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide opacity-70">Utilization</div>
+                            <div className="font-bold text-lg">{capsuleUsagePct.toFixed(0)}%</div>
+                          </div>
+                          <div className="flex-1 min-w-[200px]">
+                            <div className="text-[10px] uppercase tracking-wide opacity-70">Status</div>
+                            <div className="text-xs font-medium leading-snug mt-0.5">{capAdvice}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {suppDeliveryForm === 'powder' && (
+                      <p className="mt-3 text-xs text-gray-600 leading-snug">
+                        Powder serving — the label will read <span className="font-mono bg-gray-50 px-1">1 Scoop ({servingSize}{servingUnit})</span>.
+                        Use the Serving Size field below to set the gram weight of one scoop.
+                      </p>
+                    )}
+                    {suppDeliveryForm === 'liquid' && (
+                      <p className="mt-3 text-xs text-gray-600 leading-snug">
+                        Liquid serving — label will read <span className="font-mono bg-gray-50 px-1">1 Dropper ({servingSize}{servingUnit})</span>.
+                        Standard glass dropper delivers ≈1 ml per squeeze; tune the Serving Size below.
+                      </p>
+                    )}
+                    {suppDeliveryForm === 'gummy' && (
+                      <p className="mt-3 text-xs text-gray-600 leading-snug">
+                        Gummy formulations are limited on actives density (~100-500 mg per gummy).
+                        Set Serving Size to the gram weight of one gummy × units per serving.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  DOSAGE SAFETY CHECK (supplements mode only)
+                  Tiered warnings — mirrors the regulatory compliance card
+                  pattern used for cure-ppm / sodium benzoate / sorbate etc.
+                  Scans every ingredient against the IOM Tolerable Upper
+                  Intake Levels table and the FDA banned/restricted list,
+                  plus high-risk interaction herbs.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                // Compute per-serving mg for every ingredient so the checker can
+                // compare against UL thresholds. Serving-scale the batch mass.
+                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const perServingMgByName = new Map<string, number>();
+                for (const ing of ingredients) {
+                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
+                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
+                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
+                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+                    ? ing.foodData.data.potencyFactor : 1;
+                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
+                }
+                const findings = checkSupplementSafety(ingredients, perServingMgByName, suppAudience);
+                const summary = summarizeFindings(findings);
+                if (findings.length === 0) return null;
+
+                // Overall card color reflects the worst tier present.
+                const cardColor =
+                  summary.banned > 0 || summary.critical > 0
+                    ? 'bg-red-50 border-red-500'
+                    : summary.warning > 0
+                      ? 'bg-orange-50 border-orange-400'
+                      : summary.caution > 0
+                        ? 'bg-amber-50 border-amber-300'
+                        : summary.interaction > 0
+                          ? 'bg-sky-50 border-sky-300'
+                          : 'bg-emerald-50 border-emerald-300';
+
+                const headerIcon =
+                  summary.banned > 0 ? '🚫'
+                  : summary.critical > 0 ? '⛔'
+                  : summary.warning > 0 ? '⚠️'
+                  : summary.caution > 0 ? '⚠'
+                  : '✓';
+
+                const headerText =
+                  summary.banned > 0
+                    ? `${summary.banned} Banned / Restricted Ingredient${summary.banned !== 1 ? 's' : ''} — Do Not Ship`
+                  : summary.critical > 0
+                    ? `${summary.critical} Critical Dose${summary.critical !== 1 ? 's' : ''} — Hazardous`
+                  : summary.warning > 0
+                    ? `${summary.warning} Dose${summary.warning !== 1 ? 's' : ''} Over Upper Limit — Reformulate`
+                  : summary.caution > 0
+                    ? `${summary.caution} Dose${summary.caution !== 1 ? 's' : ''} Approaching Upper Limit`
+                  : `${findings.length} Dosage Check${findings.length !== 1 ? 's' : ''} — All Within Safe Range`;
+
+                const headerColor =
+                  summary.banned > 0 || summary.critical > 0 ? 'text-red-800'
+                  : summary.warning > 0 ? 'text-orange-800'
+                  : summary.caution > 0 ? 'text-amber-800'
+                  : 'text-emerald-800';
+
+                // Collapsible logic: card expands by default when any findings are
+                // non-OK. User click on the header overrides. Status-strip pills
+                // force-expand the card they correspond to.
+                const defaultExpanded = (summary.banned + summary.critical + summary.warning + summary.caution + summary.interaction) > 0;
+                const manual = suppCardsManuallyToggled['safety'];
+                const expanded = manual !== undefined ? manual : defaultExpanded;
+                return (
+                  <div id="supp-card-safety" className={`rounded-xl border-2 p-6 ${cardColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('safety', expanded)}
+                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className={`text-lg font-bold ${headerColor} flex items-center gap-2`}>
+                        <span className="text-xs opacity-60">{expanded ? '▼' : '▶'}</span>
+                        {headerIcon} {headerText}
+                      </h2>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-wide text-gray-500">IOM / FDA / DSHEA</span>
+                        {suppAudience !== 'general' && (
+                          <span className="text-[10px] uppercase tracking-wide bg-gray-800 text-white px-2 py-0.5 rounded">
+                            {suppAudience === 'pregnancy' ? 'Prenatal rules active' : suppAudience === 'pediatric' ? 'Pediatric rules active' : 'NCAA / Sport rules active'}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    {expanded && (<>
+                    {/* Full-detail rows only for findings that need attention. "ok" findings
+                        get a compact summary line at the bottom so the hazard/mitigation text
+                        doesn't read as a warning when the ingredient is actually within safe range. */}
+                    <div className="space-y-2">
+                      {findings.filter(f => f.tier !== 'ok').map((f, i) => {
+                        const rowColor =
+                          f.tier === 'banned' || f.tier === 'critical' ? 'bg-red-100 border border-red-400'
+                          : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
+                          : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
+                          : 'bg-sky-100 border border-sky-300';
+                        const markColor =
+                          f.tier === 'banned' || f.tier === 'critical' ? 'text-red-700'
+                          : f.tier === 'warning' ? 'text-orange-700'
+                          : f.tier === 'caution' ? 'text-amber-700'
+                          : 'text-sky-700';
+                        const mark =
+                          f.tier === 'banned' ? '🚫'
+                          : f.tier === 'critical' ? '⛔'
+                          : f.tier === 'warning' ? '✗'
+                          : f.tier === 'caution' ? '⚠'
+                          : '⇄';
+                        return (
+                          <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${rowColor}`}>
+                            <span className={`font-mono font-bold shrink-0 ${markColor}`}>{mark}</span>
+                            <div className="flex-1">
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="font-semibold text-gray-800">{f.limitName}</span>
+                                <span className="text-gray-500 text-[11px]">— ingredient:</span>
+                                <span className="font-medium text-gray-700 text-[11px]">{f.ingredientName}</span>
+                                {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
+                                  <>
+                                    <span className="text-gray-500">·</span>
+                                    <span className={`font-mono font-bold ${markColor}`}>
+                                      {f.amountPerServing.toFixed(f.amountPerServing >= 10 ? 0 : 1)}{f.unit}/serving
+                                    </span>
+                                    <span className="text-gray-500">vs UL</span>
+                                    <span className="font-mono font-bold text-gray-700">
+                                      {f.effectiveUL}{f.unit}
+                                    </span>
+                                    <span className="text-gray-500">({f.percentOfUL.toFixed(0)}% of UL)</span>
+                                  </>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-gray-600 mt-0.5 leading-snug">
+                                <span className="font-semibold">{f.authority}</span> {f.citation} — {f.hazard}
+                              </p>
+                              {f.mitigation && (
+                                <p className="text-[10px] text-gray-700 mt-0.5 leading-snug italic">
+                                  → {f.mitigation}
+                                </p>
+                              )}
+                              {f.populationNote && (
+                                <p className="text-[10px] text-red-700 mt-0.5 leading-snug font-semibold">
+                                  {f.populationNote}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Compact safe-range summary — shows which actives were checked and passed. */}
+                    {findings.some(f => f.tier === 'ok') && (
+                      <details className="mt-3 text-xs text-emerald-800">
+                        <summary className="cursor-pointer font-medium">
+                          ✓ {findings.filter(f => f.tier === 'ok').length} active{findings.filter(f => f.tier === 'ok').length !== 1 ? 's' : ''} checked and within safe range (click to expand)
+                        </summary>
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1">
+                          {findings.filter(f => f.tier === 'ok').map((f, i) => (
+                            <div key={i} className="flex items-center gap-2 py-0.5">
+                              <span className="text-emerald-600">✓</span>
+                              <span className="font-medium text-gray-700">{f.limitName}</span>
+                              {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
+                                <span className="text-[11px] text-gray-500 font-mono">
+                                  {f.amountPerServing.toFixed(f.amountPerServing >= 10 ? 0 : 1)}{f.unit} ({f.percentOfUL.toFixed(0)}% of UL)
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Hard-stop language — mirrors the regulatory compliance card */}
+                    {summary.hardStop && (
+                      <div className="mt-4 p-3 rounded-lg bg-red-900 text-white">
+                        <p className="text-sm font-bold mb-1">⛔ HARD STOP — Do Not Ship</p>
+                        <p className="text-xs leading-snug">
+                          This formulation {summary.banned > 0 ? 'contains an FDA-banned or import-restricted ingredient' : 'exceeds one or more Tolerable Upper Intake Levels'}.
+                          Selling a product in this state is misbranding under DSHEA and creates unreasonable
+                          risk of injury — the strict-liability standard under FDA enforcement.
+                          Reduce the flagged ingredient(s) or remove them before any production batch is released.
+                        </p>
+                      </div>
+                    )}
+                    {!summary.hardStop && summary.caution > 0 && (
+                      <p className="mt-3 text-xs text-amber-800 font-medium">
+                        Caution level — one or more actives are within 20% of their UL. Not a violation, but worth scrutiny if your label targets chronic daily use.
+                      </p>
+                    )}
+                    {!summary.hardStop && summary.caution === 0 && summary.interaction > 0 && (
+                      <p className="mt-3 text-xs text-sky-800 font-medium">
+                        No dosage violations — but one or more ingredients carry clinically significant drug-interaction risks. Label should include an interaction warning.
+                      </p>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  STABILITY & OVERAGE (supplements mode only)
+                  Per-ingredient degradation prediction over the target shelf
+                  life, with storage + packaging modifiers. Output: required
+                  formulate-at amounts so the Supplement Facts label claim
+                  stays true through expiry — 21 CFR 101.36(b)(3)(iv).
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const perServingMgByName = new Map<string, number>();
+                for (const ing of ingredients) {
+                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
+                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
+                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
+                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+                    ? ing.foodData.data.potencyFactor : 1;
+                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
+                }
+                const overage = computeOverages(ingredients, perServingMgByName, {
+                  shelfLifeMonths: suppShelfLifeMonths,
+                  storage: suppStorage,
+                  amberPackaging: suppAmberPkg,
+                  desiccant: suppDesiccant,
+                  nitrogenFlush: suppNitrogen,
+                  tocopherolAntioxidant: suppTocopherol,
+                });
+                if (overage.rows.length === 0) return null;
+
+                // Overall worst loss drives the card color.
+                const worst = overage.worstLossPct;
+                const cardColor =
+                  worst > 50 ? 'bg-red-50 border-red-400'
+                  : worst > 30 ? 'bg-orange-50 border-orange-300'
+                  : worst > 15 ? 'bg-amber-50 border-amber-300'
+                  : 'bg-emerald-50 border-emerald-300';
+
+                const stabDefaultExpanded = worst > 15;
+                const stabManual = suppCardsManuallyToggled['stability'];
+                const stabExpanded = stabManual !== undefined ? stabManual : stabDefaultExpanded;
+                return (
+                  <div id="supp-card-stability" className={`rounded-xl border-2 p-6 ${cardColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('stability', stabExpanded)}
+                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{stabExpanded ? '▼' : '▶'}</span>
+                        🧪 Stability & Overage — {suppShelfLifeMonths}mo shelf life
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.36(b)(3)(iv) · USP &lt;1150&gt;</span>
+                    </button>
+                    {stabExpanded && (<>
+                    {/* Condition controls */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Target Shelf Life</label>
+                        <select
+                          value={suppShelfLifeMonths}
+                          onChange={(e) => setSuppShelfLifeMonths(parseInt(e.target.value))}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none"
+                        >
+                          <option value={12}>12 months (1 yr)</option>
+                          <option value={18}>18 months</option>
+                          <option value={24}>24 months (2 yr — industry standard)</option>
+                          <option value={36}>36 months (3 yr — premium)</option>
+                          <option value={60}>60 months (5 yr — pharma)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Storage Condition</label>
+                        <select
+                          value={suppStorage}
+                          onChange={(e) => setSuppStorage(e.target.value as StorageCondition)}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none"
+                        >
+                          <option value="ambient">Ambient (room temperature)</option>
+                          <option value="refrigerated">Refrigerated (2-8°C)</option>
+                          <option value="frozen">Frozen (-20°C)</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-2 items-end text-xs">
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppAmberPkg} onChange={(e) => setSuppAmberPkg(e.target.checked)} className="accent-emerald-600" />
+                          Amber / opaque
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppDesiccant} onChange={(e) => setSuppDesiccant(e.target.checked)} className="accent-emerald-600" />
+                          Desiccant
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppNitrogen} onChange={(e) => setSuppNitrogen(e.target.checked)} className="accent-emerald-600" />
+                          N₂ flush
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppTocopherol} onChange={(e) => setSuppTocopherol(e.target.checked)} className="accent-emerald-600" />
+                          Tocopherol antioxidant
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Bottleneck callout */}
+                    {overage.bottleneck && (
+                      <div className="mb-3 text-sm text-gray-700">
+                        <span className="font-semibold">Stability bottleneck:</span>{' '}
+                        <span className="font-medium">{overage.bottleneck.ingredientName}</span>{' '}
+                        <span className="text-gray-500">({CATEGORY_LABEL[overage.bottleneck.category]})</span>{' '}
+                        <span className="text-gray-500">— </span>
+                        <span className={`font-bold ${overage.bottleneck.lossPct > 30 ? 'text-red-700' : overage.bottleneck.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                          {overage.bottleneck.lossPct.toFixed(0)}% loss projected
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left border-b-2 border-gray-300">
+                            <th className="py-2 pr-2 font-semibold text-gray-600">Ingredient</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600">Category</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Label Claim</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Loss %</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Predicted EOSL</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Formulate At</th>
+                            <th className="py-2 pl-2 font-semibold text-gray-600 text-right">Overage</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overage.rows.map((r, i) => {
+                            const lossColor = r.lossPct > 30 ? 'text-red-700' : r.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700';
+                            return (
+                              <tr key={i} className="border-b border-gray-200">
+                                <td className="py-1.5 pr-2 font-medium text-gray-800">{r.ingredientName}</td>
+                                <td className="py-1.5 px-2 text-gray-500 text-[11px]">{CATEGORY_LABEL[r.category]}</td>
+                                <td className="py-1.5 px-2 text-right font-mono">{formatDose(r.labelClaimMg)}</td>
+                                <td className={`py-1.5 px-2 text-right font-mono font-bold ${lossColor}`}>{r.lossPct.toFixed(0)}%</td>
+                                <td className="py-1.5 px-2 text-right font-mono text-gray-600">{formatDose(r.predictedEOSLMg)}</td>
+                                <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-700">{formatDose(r.requiredFormulateAtMg)}</td>
+                                <td className="py-1.5 pl-2 text-right font-mono text-gray-700">+{r.overagePct.toFixed(0)}%</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Advice */}
+                    {worst > 30 && (
+                      <div className="mt-4 p-3 rounded-lg bg-red-900 text-white">
+                        <p className="text-sm font-bold mb-1">⚠ Stability concern</p>
+                        <p className="text-xs leading-snug">
+                          At least one active is projected to lose more than 30% of label claim over this shelf life.
+                          Options: shorten claimed shelf life, add protective packaging (amber + desiccant + N₂ flush),
+                          reformulate with a more stable ingredient form, or substantially increase the overage.
+                          Real stability data from accelerated + long-term ICH Q1A protocols should validate these predictions before release.
+                        </p>
+                      </div>
+                    )}
+                    {worst > 15 && worst <= 30 && (
+                      <p className="mt-3 text-xs text-amber-800 leading-snug">
+                        Moderate degradation expected. The Formulate-At column shows what to weigh to keep the label claim true through {suppShelfLifeMonths} months.
+                        Real stability data is still required — these are conservative industry estimates, not product-specific.
+                      </p>
+                    )}
+                    {worst <= 15 && (
+                      <p className="mt-3 text-xs text-emerald-800 leading-snug">
+                        Good stability profile for the target shelf life. Still plan to run accelerated (40°C/75% RH) + real-time stability per ICH Q1A to confirm.
+                      </p>
+                    )}
+                    <p className="mt-2 text-[10px] text-gray-500 italic leading-tight">
+                      Degradation rates are industry-conservative estimates derived from USP, CRN, and IFOS literature.
+                      Real stability data from your own accelerated + long-term program should replace these predictions for production.
+                    </p>
+                    </>)}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  INGREDIENT COMPATIBILITY (supplements mode only)
+                  Detects formulation-science incompatibilities — pro-oxidant
+                  pairs, mineral antagonisms, capsule-shell conflicts,
+                  packaging-mismatch issues. Mirrors the safety-card tiering.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const compatFindings = checkCompatibility(ingredients, {
+                  deliveryForm: suppDeliveryForm,
+                  capsuleShell: suppDeliveryForm === 'softgel' ? 'gelatin' : suppDeliveryForm === 'capsule' ? 'gelatin' : 'none',
+                  hasDesiccant: suppDesiccant,
+                  hasNitrogenFlush: suppNitrogen,
+                  hasAmberPackaging: suppAmberPkg,
+                  storage: suppStorage,
+                });
+                const compatSummary = summarizeCompatibility(compatFindings);
+                if (compatFindings.length === 0) return null;
+                const cardColor =
+                  compatSummary.critical > 0 ? 'bg-red-50 border-red-400'
+                  : compatSummary.warning > 0 ? 'bg-orange-50 border-orange-300'
+                  : compatSummary.caution > 0 ? 'bg-amber-50 border-amber-300'
+                  : 'bg-sky-50 border-sky-300';
+                const compatDefaultExpanded = (compatSummary.critical + compatSummary.warning + compatSummary.caution) > 0;
+                const compatManual = suppCardsManuallyToggled['compat'];
+                const compatExpanded = compatManual !== undefined ? compatManual : compatDefaultExpanded;
+                return (
+                  <div id="supp-card-compat" className={`rounded-xl border-2 p-6 ${cardColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('compat', compatExpanded)}
+                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{compatExpanded ? '▼' : '▶'}</span>
+                        🧬 Ingredient Compatibility — {compatFindings.length} finding{compatFindings.length !== 1 ? 's' : ''}
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">USP &lt;1151&gt; · CRN Handbook · formulation science</span>
+                    </button>
+                    {compatExpanded && (
+                    <div className="space-y-2">
+                      {compatFindings.map((f, i) => {
+                        const rowColor =
+                          f.tier === 'critical' ? 'bg-red-100 border border-red-400'
+                          : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
+                          : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
+                          : 'bg-sky-100 border border-sky-300';
+                        const mark = f.tier === 'critical' ? '⛔' : f.tier === 'warning' ? '✗' : f.tier === 'caution' ? '⚠' : 'ℹ';
+                        return (
+                          <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
+                            <div className="flex items-start gap-2">
+                              <span className="font-mono font-bold shrink-0">{mark}</span>
+                              <div className="flex-1">
+                                <div className="font-semibold text-gray-800">{f.title}</div>
+                                <div className="text-[11px] text-gray-600 mt-0.5">
+                                  {f.ingredients.join(' + ')}
+                                </div>
+                                <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.issue}</p>
+                                <p className="text-[11px] text-gray-800 mt-1 leading-snug italic">→ {f.remedy}</p>
+                                {f.citation && <p className="text-[10px] text-gray-500 mt-0.5 italic">{f.citation}</p>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  NDI (NEW DIETARY INGREDIENT) COMPLIANCE (supplements mode)
+                  Classifies each ingredient as grandfathered / notified /
+                  GRAS-food / NDI-required / unknown. Surfaces compliance
+                  risk for post-1994 ingredients without accepted notification.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const ndi = analyzeNDI(ingredients.map(i => i.name));
+                const statusColor = ndi.required > 0 ? 'bg-red-50 border-red-400'
+                  : ndi.unknown > 0 ? 'bg-amber-50 border-amber-300'
+                  : 'bg-emerald-50 border-emerald-300';
+                const ndiDefaultExpanded = ndi.required > 0 || ndi.unknown > 0;
+                const ndiManual = suppCardsManuallyToggled['ndi'];
+                const ndiExpanded = ndiManual !== undefined ? ndiManual : ndiDefaultExpanded;
+                return (
+                  <div id="supp-card-ndi" className={`rounded-xl border-2 p-6 ${statusColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('ndi', ndiExpanded)}
+                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className={`text-lg font-bold ${ndi.required > 0 ? 'text-red-800' : ndi.unknown > 0 ? 'text-amber-800' : 'text-emerald-800'} flex items-center gap-2`}>
+                        <span className="text-xs opacity-60">{ndiExpanded ? '▼' : '▶'}</span>
+                        {ndi.required > 0 ? '⛔ ' : '📋 '}NDI Compliance Check
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">DSHEA §8 · 21 CFR 190.6</span>
+                    </button>
+                    {ndiExpanded && (<>
+                    {/* Summary row */}
+                    <div className="flex flex-wrap gap-3 mb-3 text-xs">
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Pre-1994 ODI: <strong>{ndi.grandfathered}</strong></span>
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-500" /> NDI notified: <strong>{ndi.notified}</strong></span>
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-teal-500" /> GRAS food: <strong>{ndi.grasFood}</strong></span>
+                      {ndi.required > 0 && (
+                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600" /> NDI required: <strong>{ndi.required}</strong></span>
+                      )}
+                      {ndi.unknown > 0 && (
+                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> Unknown: <strong>{ndi.unknown}</strong></span>
+                      )}
+                    </div>
+
+                    {/* Only show problematic findings (required / unknown / notified-with-note) */}
+                    {ndi.findings.filter(f => f.status === 'required' || f.status === 'unknown' || (f.status === 'notified' && f.match?.note)).length > 0 && (
+                      <div className="space-y-2">
+                        {ndi.findings
+                          .filter(f => f.status === 'required' || f.status === 'unknown' || (f.status === 'notified' && f.match?.note))
+                          .map((f, i) => {
+                            const rowColor = f.status === 'required' ? 'bg-red-100 border border-red-400'
+                              : f.status === 'unknown' ? 'bg-amber-100 border border-amber-300'
+                              : 'bg-sky-100 border border-sky-300';
+                            const mark = f.status === 'required' ? '⛔' : f.status === 'unknown' ? '?' : 'ℹ';
+                            return (
+                              <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
+                                <div className="flex items-start gap-2">
+                                  <span className="font-mono font-bold shrink-0">{mark}</span>
+                                  <div className="flex-1">
+                                    <div className="font-semibold text-gray-800">{f.ingredientName}</div>
+                                    <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.advisory}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                    {ndi.required > 0 && (
+                      <div className="mt-3 p-3 rounded-lg bg-red-900 text-white">
+                        <p className="text-sm font-bold mb-1">⛔ NDI Compliance Risk</p>
+                        <p className="text-xs leading-snug">
+                          This formulation contains one or more post-1994 ingredients without a known FDA-accepted NDI notification.
+                          21 USC §350b requires a 75-day pre-market notification before marketing. Without it, the product is misbranded.
+                          Consult FDA&apos;s NDI database and legal counsel before release.
+                        </p>
+                      </div>
+                    )}
+                    {ndi.required === 0 && ndi.unknown === 0 && (
+                      <p className="text-xs text-emerald-700 mt-2">
+                        ✓ All ingredients classified. Verify your specific supplier forms match accepted NDI filings where applicable.
+                      </p>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  CLAIMS VALIDATOR (supplements mode only)
+                  Nutrient-content claims auto-detected from %DV rollup,
+                  defensible structure/function claim library per ingredient,
+                  disease-claim language detector on the draft copy box,
+                  required disclaimers auto-generated.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                // Build %DV table from Supplement Facts data for nutrient content claims
+                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const perServingMgByName = new Map<string, number>();
+                for (const ing of ingredients) {
+                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
+                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
+                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
+                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+                    ? ing.foodData.data.potencyFactor : 1;
+                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
+                }
+                // Reuse the supplement-facts data for vitamin/mineral rows
+                const facts = buildSupplementFacts({
+                  ingredients,
+                  servingSizeInGrams,
+                  totalBatchGrams,
+                  servingsPerContainer,
+                  servingSizeLabel: `${servingSize}${servingUnit}`,
+                  caloriesPerServing: perServing(nutrition.calories),
+                  macroPerServing: {
+                    totalFat: perServing(nutrition.totalFat),
+                    totalCarbs: perServing(nutrition.totalCarbs),
+                    protein: perServing(nutrition.protein),
+                    sodium: perServing(nutrition.sodium),
+                    totalSugars: perServing(nutrition.totalSugars),
+                  },
+                });
+                const contentClaims = detectNutrientContentClaims(
+                  facts.vitaminMineralRows
+                    .filter(r => r.percentDV !== null)
+                    .map(r => ({
+                      nutrient: r.displayName.replace(/\s*\(as[^)]+\)/, '').trim(),
+                      percentDV: r.percentDV ?? 0,
+                    }))
+                );
+                const sfClaims = detectStructureFunctionClaims(ingredients.map(i => i.name));
+                const draftFlags = analyzeDraftClaim(suppDraftClaim);
+                const disclaimers = buildDisclaimers(sfClaims.length > 0, ingredients.map(i => i.name));
+
+                const claimsDefaultExpanded = draftFlags.length > 0 || suppDraftClaim.trim().length > 0;
+                const claimsManual = suppCardsManuallyToggled['claims'];
+                const claimsExpanded = claimsManual !== undefined ? claimsManual : claimsDefaultExpanded;
+                return (
+                  <div id="supp-card-claims" className="bg-white rounded-xl border border-gray-200 p-6">
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('claims', claimsExpanded)}
+                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{claimsExpanded ? '▼' : '▶'}</span>
+                        📝 Claims Validator
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.54 · 101.93 (DSHEA)</span>
+                    </button>
+                    {claimsExpanded && (<>
+
+                    {/* Nutrient content claims (auto) */}
+                    {contentClaims.length > 0 && (
+                      <div className="mb-5">
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Available nutrient-content claims</h3>
+                        <div className="space-y-1.5">
+                          {contentClaims.map((c, i) => (
+                            <div key={i} className="text-xs bg-emerald-50 border border-emerald-200 rounded p-2">
+                              <div className="font-semibold text-emerald-800">{c.claimLabel} · {c.nutrient}</div>
+                              <div className="text-gray-700 mt-0.5 italic">
+                                {c.templates.slice(0, 2).map((t, k) => (
+                                  <span key={k} className="inline-block mr-3">&ldquo;{t}&rdquo;</span>
+                                ))}
+                              </div>
+                              <div className="text-[10px] text-gray-500 mt-0.5">Qualifies at ≥ {c.minPercentDV}% DV per serving</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Structure/function claims (library) */}
+                    {sfClaims.length > 0 && (
+                      <div className="mb-5">
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Defensible structure/function claims</h3>
+                        <div className="space-y-2">
+                          {sfClaims.map((c, i) => (
+                            <details key={i} className="text-xs bg-sky-50 border border-sky-200 rounded p-2" open={i < 3}>
+                              <summary className="cursor-pointer font-semibold text-sky-800">{c.ingredient}</summary>
+                              <ul className="mt-1.5 ml-4 list-disc text-gray-700 space-y-0.5">
+                                {c.claims.map((claim, k) => (
+                                  <li key={k}>&ldquo;{claim}&rdquo;</li>
+                                ))}
+                              </ul>
+                              <div className="text-[10px] text-gray-500 mt-1">
+                                Min dose: <span className="font-mono">{c.minDose}</span> · {c.citation}
+                              </div>
+                              {c.note && <div className="text-[10px] text-amber-700 mt-0.5 italic">{c.note}</div>}
+                            </details>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Draft-claim analyzer */}
+                    <div className="mb-5">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Draft label copy — paste to check for disease-claim language</h3>
+                      <textarea
+                        rows={3}
+                        value={suppDraftClaim}
+                        onChange={(e) => setSuppDraftClaim(e.target.value)}
+                        placeholder="Paste your proposed label language, product description, or marketing copy here to scan for FDA-flagged disease claims, drug claims, and puffery."
+                        className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:outline-none focus:border-emerald-500"
+                      />
+                      {draftFlags.length > 0 && (
+                        <div className="mt-3 space-y-1.5">
+                          {draftFlags.map((f, i) => {
+                            const rowColor = f.tier === 'disease' ? 'bg-red-100 border-red-400 text-red-800'
+                              : f.tier === 'drug-claim' ? 'bg-orange-100 border-orange-300 text-orange-800'
+                              : 'bg-amber-100 border-amber-300 text-amber-800';
+                            return (
+                              <div key={i} className={`text-xs p-2 rounded border ${rowColor}`}>
+                                <div className="font-semibold">&ldquo;{f.match}&rdquo;</div>
+                                <div className="mt-0.5">{f.explanation}</div>
+                                {f.suggestion && <div className="italic mt-0.5">→ {f.suggestion}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {suppDraftClaim.trim() && draftFlags.length === 0 && (
+                        <p className="mt-2 text-xs text-emerald-700">
+                          ✓ No disease-claim or drug-claim language detected. Still have legal counsel review before print.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Required disclaimers */}
+                    {(disclaimers.dsheaDisclaimer || disclaimers.additionalWarnings.length > 0) && (
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Required disclaimers for this formula</h3>
+                        <div className="space-y-2">
+                          {disclaimers.dsheaDisclaimer && (
+                            <div className="text-xs bg-gray-50 border border-gray-200 rounded p-2 italic text-gray-700">
+                              {disclaimers.dsheaDisclaimer}
+                            </div>
+                          )}
+                          {disclaimers.additionalWarnings.map((w, i) => (
+                            <div key={i} className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
+                              <span className="font-bold">⚠ </span>{w}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  RETAIL CHANNEL FIT (supplements mode only)
+                  Scan formulation against each retailer's unacceptable-
+                  ingredient list and score readiness for that channel.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const reports = analyzeRetailFit(ingredients.map(i => i.name));
+                const hasAnyConcerns = reports.some(r => r.status !== 'ready');
+                const retailDefaultExpanded = reports.some(r => r.status === 'blocked');
+                const retailManual = suppCardsManuallyToggled['retail'];
+                const retailExpanded = retailManual !== undefined ? retailManual : retailDefaultExpanded;
+                return (
+                  <div id="supp-card-retail" className="bg-white rounded-xl border border-gray-200 p-6">
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('retail', retailExpanded)}
+                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{retailExpanded ? '▼' : '▶'}</span>
+                        🛒 Retail Channel Fit
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">retailer standards · Prop 65</span>
+                    </button>
+                    {retailExpanded && (<>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {reports.map((r, i) => {
+                        const badge = r.status === 'ready' ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                          : r.status === 'caution' ? 'bg-amber-100 text-amber-700 border-amber-300'
+                          : 'bg-red-100 text-red-700 border-red-300';
+                        const barColor = r.score >= 90 ? 'bg-emerald-500' : r.score >= 70 ? 'bg-amber-500' : 'bg-red-500';
+                        return (
+                          <div key={i} className="border border-gray-200 rounded-lg p-3 flex flex-col">
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                              <div className="flex-1">
+                                <div className="font-semibold text-sm text-gray-800">{r.retailer.name}</div>
+                                <div className="text-[11px] text-gray-500 leading-tight">{r.retailer.blurb}</div>
+                              </div>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 border rounded ${badge} uppercase`}>
+                                {r.status === 'ready' ? '✓ Ready' : r.status === 'caution' ? '⚠ Caution' : '✗ Blocked'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 my-1">
+                              <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                                <div className={`h-full ${barColor}`} style={{ width: `${r.score}%` }} />
+                              </div>
+                              <span className="text-xs font-mono font-bold text-gray-700 w-10 text-right">{r.score}%</span>
+                            </div>
+                            {r.disqualifyingIngredients.length > 0 && (
+                              <div className="text-[11px] text-red-700 mt-1 leading-tight">
+                                <span className="font-semibold">Disqualifies: </span>
+                                {r.disqualifyingIngredients.join(', ')}
+                              </div>
+                            )}
+                            {r.cautionIngredients.length > 0 && (
+                              <div className="text-[11px] text-amber-700 mt-1 leading-tight">
+                                <span className="font-semibold">Watch: </span>
+                                {r.cautionIngredients.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {!hasAnyConcerns && (
+                      <p className="text-xs text-emerald-700 mt-3">
+                        ✓ Formula is ready for every channel checked. Still verify current retailer standards before listing submission.
+                      </p>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
+              {/* Serving & Package */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">Serving & Package Size</h2>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
+                    <div className="flex gap-1">
+                      <input type="number" value={servingSize} onChange={(e) => setServingSize(Math.max(0.1, parseFloat(e.target.value) || 30))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
+                      <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
+                    </div>
+                    {mode === 'supplements' && (() => {
+                      // Bridge between mass-based serving size and count-based label ("2 Capsules").
+                      // The Delivery Form card owns the count and per-unit noun; this card owns
+                      // the mass used for math. Surface the relationship so it's never ambiguous.
+                      const noun = SUPP_FORM_NOUN[suppDeliveryForm];
+                      const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
+                      const countable = ['capsule', 'tablet', 'softgel', 'gummy', 'lozenge', 'chewable'].includes(suppDeliveryForm);
+                      const massMg = servingSize * (UNIT_TO_GRAMS[servingUnit] || 1) * 1000;
+                      const perUnitMg = suppUnitsPerServing > 0 ? massMg / suppUnitsPerServing : 0;
+                      return (
+                        <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                          {countable ? (
+                            <>
+                              Label will read <span className="font-mono">&ldquo;{suppUnitsPerServing} {unitWord}&rdquo;</span> —
+                              each {noun.singular.toLowerCase()} ≈ <span className="font-mono">{perUnitMg.toFixed(0)} mg</span>.
+                              Adjust <span className="italic">Units Per Serving</span> in the Delivery Form card above.
+                            </>
+                          ) : suppDeliveryForm === 'powder' ? (
+                            <>Label will read <span className="font-mono">&ldquo;1 Scoop ({servingSize}{servingUnit})&rdquo;</span>.</>
+                          ) : suppDeliveryForm === 'liquid' ? (
+                            <>Label will read <span className="font-mono">&ldquo;1 Dropper ({servingSize}{servingUnit})&rdquo;</span>.</>
+                          ) : null}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-2">Package Size</label>
+                    <div className="flex gap-1">
+                      <input type="number" value={packageSize} onChange={(e) => setPackageSize(Math.max(0.1, parseFloat(e.target.value) || 300))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
+                      <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-600">Servings/Container</label>
+                      {servingsPerContainerOverride !== null && (
+                        <button
+                          onClick={() => setServingsPerContainerOverride(null)}
+                          className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
+                          title={`Reset to auto (${autoServingsPerContainer})`}
+                        >
+                          ↻ auto
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={servingsPerContainer}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setServingsPerContainerOverride(isNaN(v) || v <= 0 ? null : v);
+                      }}
+                      className={`w-full text-center rounded-lg py-2 text-lg font-bold focus:outline-none focus:border-emerald-500 border ${
+                        servingsPerContainerOverride !== null
+                          ? 'border-emerald-400 text-emerald-700 bg-white'
+                          : 'border-gray-100 bg-gray-50 text-emerald-700'
+                      }`}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
+                      {servingsPerContainerOverride !== null
+                        ? `Overridden. Auto would be ${autoServingsPerContainer}.`
+                        : 'Auto-calculated from package ÷ serving size. Edit to override.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Packaging & Closure — title adapts to the active mode */}
+              <div className={`bg-white rounded-xl border p-6 ${mc.packagingRelevance === 'secondary' ? 'border-gray-200 opacity-90' : 'border-gray-200'}`}>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-800">{mc.packagingSectionTitle}</h2>
+                  <button
+                    onClick={() => setShowPackagingSheet(true)}
+                    className="text-xs px-3 py-1.5 bg-sky-600 text-white rounded hover:bg-sky-700 transition font-medium"
+                    title="Generate a printable Packaging Data Sheet"
+                  >
+                    📄 Data Sheet
+                  </button>
+                </div>
+                {mc.packagingRelevance === 'secondary' && (
+                  <p className="text-xs text-gray-500 mb-3 italic">
+                    Optional for this mode — in {mc.name.toLowerCase()} you&apos;re usually making plated or buffet items, not packaged retail units.
+                  </p>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-600">Container</label>
+                      <button
+                        onClick={() => {
+                          setDraftCustom({
+                            name: customContainer?.name || '',
+                            material: customContainer?.material || '',
+                            capacityVal: customContainer?.capacity?.value ?? 0,
+                            capacityUnit: customContainer?.capacity?.unit || 'ml',
+                            neckFinish: customContainer?.neckFinish || '',
+                            costPerUnit: customContainer?.costPerUnit || 0,
+                            kind: 'container',
+                            unitsPerCase: customContainer?.casePack?.unitsPerCase ?? 0,
+                            casesPerLayer: customContainer?.casePack?.casesPerLayer ?? 0,
+                            layersPerPallet: customContainer?.casePack?.layersPerPallet ?? 0,
+                            palletType: customContainer?.casePack?.palletType || '48x40 GMA',
+                          });
+                          setShowContainerForm(v => !v);
+                        }}
+                        className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
+                      >
+                        {customContainer ? '✎ Edit Custom' : '+ Add Custom'}
+                      </button>
+                    </div>
+                    <select
+                      value={selectedPackaging?.name || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const next = val === (customContainer?.name ?? '\0') && customContainer
+                          ? customContainer
+                          : (PACKAGING_DB.find(p => p.name === val) || null);
+                        setSelectedPackaging(next);
+                        // If switching to a container with integrated closure OR an incompatible neck, clear the closure.
+                        if (next && selectedClosure) {
+                          if (!needsExternalClosure(next) || !isClosureCompatible(next, selectedClosure)) {
+                            setSelectedClosure(null);
+                          }
+                        }
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="">— Select a container —</option>
+                      {customContainer && (
+                        <optgroup label="✎ My Custom Container">
+                          <option value={customContainer.name}>{customContainer.name} — ${customContainer.costPerUnit.toFixed(2)}</option>
+                        </optgroup>
+                      )}
+                      {recommendedContainers.length > 0 && (
+                        <optgroup label={`⭐ Recommended for ${productType}`}>
+                          {recommendedContainers.map(p => (
+                            <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {containerCategories.map(cat => {
+                        const items = containerItems.filter(p => p.category === cat && !recommendedContainerNames.has(p.name));
+                        if (items.length === 0) return null;
+                        return (
+                          <optgroup key={cat} label={cat}>
+                            {items.map(p => (
+                              <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                    </select>
+
+                    {/* Inline form for defining (or editing) a custom container */}
+                    {showContainerForm && (
+                      <div className="mt-2 p-3 border border-emerald-300 bg-emerald-50 rounded-lg space-y-2">
+                        <div className="text-xs font-semibold text-emerald-900">Define custom container</div>
+                        <input
+                          type="text"
+                          placeholder="Name (e.g. Half-Carafe, 4oz Boston Round, Custom Pouch)"
+                          value={draftCustom.name}
+                          onChange={e => setDraftCustom({ ...draftCustom, name: e.target.value })}
+                          className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            placeholder="Material (HDPE, glass, etc.)"
+                            value={draftCustom.material}
+                            onChange={e => setDraftCustom({ ...draftCustom, material: e.target.value })}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Neck / Finish (38-400 CRC, etc.)"
+                            value={draftCustom.neckFinish}
+                            onChange={e => setDraftCustom({ ...draftCustom, neckFinish: e.target.value })}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0}
+                            placeholder="Capacity"
+                            value={draftCustom.capacityVal || ''}
+                            onChange={e => setDraftCustom({ ...draftCustom, capacityVal: parseFloat(e.target.value) || 0 })}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                          />
+                          <select
+                            value={draftCustom.capacityUnit}
+                            onChange={e => setDraftCustom({ ...draftCustom, capacityUnit: e.target.value })}
+                            className="border border-gray-300 rounded px-1 py-1 text-xs bg-white focus:outline-none"
+                          >
+                            {mc.units.map(u => <option key={u}>{u}</option>)}
+                          </select>
+                          <input
+                            type="number"
+                            step={0.001}
+                            min={0}
+                            placeholder="$/unit"
+                            value={draftCustom.costPerUnit || ''}
+                            onChange={e => setDraftCustom({ ...draftCustom, costPerUnit: parseFloat(e.target.value) || 0 })}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        {/* Case pack & pallet config — optional but appears on the Packaging Data Sheet */}
+                        <div className="pt-2 mt-1 border-t border-emerald-200">
+                          <div className="text-[10px] uppercase tracking-wide text-emerald-900 font-semibold mb-1">Case Pack & Pallet (optional)</div>
+                          <div className="grid grid-cols-4 gap-2">
+                            <input
+                              type="number"
+                              min={0}
+                              placeholder="Units / case"
+                              value={draftCustom.unitsPerCase || ''}
+                              onChange={e => setDraftCustom({ ...draftCustom, unitsPerCase: parseInt(e.target.value) || 0 })}
+                              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                            />
+                            <input
+                              type="number"
+                              min={0}
+                              placeholder="Cases / layer"
+                              value={draftCustom.casesPerLayer || ''}
+                              onChange={e => setDraftCustom({ ...draftCustom, casesPerLayer: parseInt(e.target.value) || 0 })}
+                              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                            />
+                            <input
+                              type="number"
+                              min={0}
+                              placeholder="Layers / pallet"
+                              value={draftCustom.layersPerPallet || ''}
+                              onChange={e => setDraftCustom({ ...draftCustom, layersPerPallet: parseInt(e.target.value) || 0 })}
+                              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                            />
+                            <select
+                              value={draftCustom.palletType}
+                              onChange={e => setDraftCustom({ ...draftCustom, palletType: e.target.value })}
+                              className="border border-gray-300 rounded px-1 py-1 text-xs bg-white focus:outline-none"
+                            >
+                              <option value="48x40 GMA">48×40 GMA</option>
+                              <option value="42x48 Beverage">42×48 Beverage</option>
+                              <option value="48x48 Square">48×48 Square</option>
+                              <option value="Euro 48x32">Euro 48×32</option>
+                              <option value="Custom">Custom</option>
+                            </select>
+                          </div>
+                          {draftCustom.unitsPerCase > 0 && draftCustom.casesPerLayer > 0 && draftCustom.layersPerPallet > 0 && (
+                            <p className="text-[10px] text-emerald-900 mt-1 leading-tight">
+                              Ti-Hi: <span className="font-mono">{draftCustom.casesPerLayer}×{draftCustom.layersPerPallet}</span> ·
+                              Cases/pallet: <span className="font-mono font-bold">{draftCustom.casesPerLayer * draftCustom.layersPerPallet}</span> ·
+                              Units/pallet: <span className="font-mono font-bold">{(draftCustom.unitsPerCase * draftCustom.casesPerLayer * draftCustom.layersPerPallet).toLocaleString()}</span>
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={() => {
+                              if (!draftCustom.name.trim()) return;
+                              // Re-use the existing custom container's part number if editing,
+                              // otherwise mint a fresh one from the monotonic counter.
+                              const pnMatch = customContainer?.notes.match(/Part #: (FWP-CUS-\d+)/);
+                              const pn = pnMatch?.[1] ?? getCustomPackagingPartNumber(customPackagingSeq);
+                              if (!pnMatch) setCustomPackagingSeq(n => n + 1);
+                              const hasCasePack = draftCustom.unitsPerCase > 0 || draftCustom.casesPerLayer > 0 || draftCustom.layersPerPallet > 0;
+                              const newItem: PackagingItem = {
+                                name: draftCustom.name.trim(),
+                                category: 'Custom',
+                                material: draftCustom.material || 'User-defined',
+                                capacity: draftCustom.capacityVal > 0 ? { value: draftCustom.capacityVal, unit: draftCustom.capacityUnit } : undefined,
+                                neckFinish: draftCustom.neckFinish || undefined,
+                                suppliers: ['Custom / user-defined'],
+                                costPerUnit: draftCustom.costPerUnit,
+                                notes: `Part #: ${pn}. Custom container defined by user. Not from the packaging database.`,
+                                casePack: hasCasePack ? {
+                                  unitsPerCase: draftCustom.unitsPerCase,
+                                  casesPerLayer: draftCustom.casesPerLayer || undefined,
+                                  layersPerPallet: draftCustom.layersPerPallet || undefined,
+                                  palletType: draftCustom.palletType,
+                                  tiHi: draftCustom.casesPerLayer > 0 && draftCustom.layersPerPallet > 0
+                                    ? `${draftCustom.casesPerLayer}×${draftCustom.layersPerPallet}` : undefined,
+                                } : undefined,
+                              };
+                              setCustomContainer(newItem);
+                              setSelectedPackaging(newItem);
+                              setShowContainerForm(false);
+                            }}
+                            className="flex-1 px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700"
+                          >
+                            Save custom container
+                          </button>
+                          {customContainer && (
+                            <button
+                              onClick={() => {
+                                if (selectedPackaging === customContainer) setSelectedPackaging(null);
+                                setCustomContainer(null);
+                                setShowContainerForm(false);
+                              }}
+                              className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-50"
+                            >
+                              Delete
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setShowContainerForm(false)}
+                            className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded text-xs hover:bg-gray-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {selectedPackaging && (
+                      <div className="mt-2 p-2 bg-emerald-50 border border-emerald-100 rounded text-xs">
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <span className="font-semibold text-emerald-800">${selectedPackaging.costPerUnit.toFixed(3)}/unit</span>
+                          <span className="text-gray-600">• {selectedPackaging.material}</span>
+                          {selectedPackaging.capacity && selectedPackaging.capacity.value > 0 && <span className="text-gray-600">• {selectedPackaging.capacity.value}{selectedPackaging.capacity.unit}</span>}
+                          {selectedPackaging.neckFinish && <span className="text-gray-600">• {selectedPackaging.neckFinish}</span>}
+                        </div>
+                        <p className="text-gray-500 mt-1">🏭 {selectedPackaging.suppliers.slice(0, 3).join(' • ')}</p>
+                        {selectedPackaging.application && selectedPackaging.application.length > 0 && (
+                          <p className="text-gray-500 mt-0.5">Fit: {selectedPackaging.application.join(', ')}</p>
+                        )}
+                        <p className="text-gray-400 mt-0.5 italic">{selectedPackaging.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-600">Closure / Dispenser</label>
+                      <button
+                        onClick={() => {
+                          setDraftCustom({
+                            name: customClosure?.name || '',
+                            material: customClosure?.material || '',
+                            capacityVal: customClosure?.capacity?.value ?? 0,
+                            capacityUnit: customClosure?.capacity?.unit || 'ml',
+                            neckFinish: customClosure?.neckFinish || '',
+                            costPerUnit: customClosure?.costPerUnit || 0,
+                            kind: 'closure',
+                            unitsPerCase: 0, casesPerLayer: 0, layersPerPallet: 0, palletType: '48x40 GMA',
+                          });
+                          setShowClosureForm(v => !v);
+                        }}
+                        className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
+                      >
+                        {customClosure ? '✎ Edit Custom' : '+ Add Custom'}
+                      </button>
+                    </div>
+                    {selectedPackaging && !needsExternalClosure(selectedPackaging) ? (
+                      <div className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-500">
+                        <span className="font-medium text-gray-700">✓ Integrated closure</span>
+                        <p className="text-xs text-gray-500 mt-1">
+                          This container ships with its own closure ({selectedPackaging.neckFinish || 'built-in'}). No separate cap needed.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          value={selectedClosure?.name || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const next = val === (customClosure?.name ?? '\0') && customClosure
+                              ? customClosure
+                              : (PACKAGING_DB.find(p => p.name === val) || null);
+                            setSelectedClosure(next);
+                          }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="">— Select a closure —</option>
+                          {customClosure && (
+                            <optgroup label="✎ My Custom Closure">
+                              <option value={customClosure.name}>{customClosure.name} — ${customClosure.costPerUnit.toFixed(2)}</option>
+                            </optgroup>
+                          )}
+                          {selectedPackaging ? (
+                            <>
+                              {/* Compatible closures (matching neck finish) first */}
+                              {(() => {
+                                const compatible = closureItems.filter(c => isClosureCompatible(selectedPackaging, c));
+                                const incompatible = closureItems.filter(c => !isClosureCompatible(selectedPackaging, c));
+                                const code = extractNeckCode(selectedPackaging.neckFinish);
+                                return (
+                                  <>
+                                    {compatible.length > 0 ? (
+                                      <optgroup label={`✓ Compatible with ${code || selectedPackaging.neckFinish}`}>
+                                        {compatible.map(p => (
+                                          <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                        ))}
+                                      </optgroup>
+                                    ) : (
+                                      <optgroup label={`⚠️ No matching closure in DB for ${code || selectedPackaging.neckFinish || 'this finish'}`}>
+                                        <option value="" disabled>(Contact supplier for a closure that fits this neck)</option>
+                                      </optgroup>
+                                    )}
+                                    {incompatible.length > 0 && (
+                                      <optgroup label="⚠︎ Other closures (won't fit this container)">
+                                        {incompatible.map(p => (
+                                          <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </>
+                          ) : (
+                            /* No container picked yet — show product-type recommendations (if any) first, then all grouped by category */
+                            <>
+                              {recommendedClosures.length > 0 && (
+                                <optgroup label={`⭐ Recommended for ${productType}`}>
+                                  {recommendedClosures.map(p => (
+                                    <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {closureCategories.map(cat => {
+                                const items = closureItems.filter(p => p.category === cat && !recommendedClosureNames.has(p.name));
+                                if (items.length === 0) return null;
+                                return (
+                                  <optgroup key={cat} label={cat}>
+                                    {items.map(p => (
+                                      <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                    ))}
+                                  </optgroup>
+                                );
+                              })}
+                            </>
+                          )}
+                        </select>
+                        {selectedClosure && (
+                          <div className={`mt-2 p-2 border rounded text-xs ${
+                            selectedPackaging && !isClosureCompatible(selectedPackaging, selectedClosure)
+                              ? 'bg-amber-50 border-amber-200'
+                              : 'bg-emerald-50 border-emerald-100'
+                          }`}>
+                            {selectedPackaging && !isClosureCompatible(selectedPackaging, selectedClosure) && (
+                              <p className="text-amber-800 font-semibold mb-1">
+                                ⚠️ Neck mismatch: container is {extractNeckCode(selectedPackaging.neckFinish) || selectedPackaging.neckFinish}, closure is {extractNeckCode(selectedClosure.neckFinish) || selectedClosure.neckFinish}. Won&apos;t physically fit.
+                              </p>
+                            )}
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <span className="font-semibold text-emerald-800">${selectedClosure.costPerUnit.toFixed(3)}/unit</span>
+                              <span className="text-gray-600">• {selectedClosure.material}</span>
+                              {selectedClosure.neckFinish && <span className="text-gray-600">• {selectedClosure.neckFinish}</span>}
+                            </div>
+                            <p className="text-gray-500 mt-1">🏭 {selectedClosure.suppliers.slice(0, 3).join(' • ')}</p>
+                            <p className="text-gray-400 mt-0.5 italic">{selectedClosure.notes}</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Inline form for defining (or editing) a custom closure */}
+                    {showClosureForm && (
+                      <div className="mt-2 p-3 border border-emerald-300 bg-emerald-50 rounded-lg space-y-2">
+                        <div className="text-xs font-semibold text-emerald-900">Define custom closure / dispenser</div>
+                        <input
+                          type="text"
+                          placeholder="Name (e.g. Custom CRC Cap, Bamboo Lid, Wax Seal)"
+                          value={draftCustom.name}
+                          onChange={e => setDraftCustom({ ...draftCustom, name: e.target.value })}
+                          className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            placeholder="Material (PP, aluminum, cork, etc.)"
+                            value={draftCustom.material}
+                            onChange={e => setDraftCustom({ ...draftCustom, material: e.target.value })}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Neck / Fits finish (38-400, etc.)"
+                            value={draftCustom.neckFinish}
+                            onChange={e => setDraftCustom({ ...draftCustom, neckFinish: e.target.value })}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <input
+                          type="number"
+                          step={0.001}
+                          min={0}
+                          placeholder="$/unit"
+                          value={draftCustom.costPerUnit || ''}
+                          onChange={e => setDraftCustom({ ...draftCustom, costPerUnit: parseFloat(e.target.value) || 0 })}
+                          className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                        />
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={() => {
+                              if (!draftCustom.name.trim()) return;
+                              const pnMatch = customClosure?.notes.match(/Part #: (FWP-CUS-\d+)/);
+                              const pn = pnMatch?.[1] ?? getCustomPackagingPartNumber(customPackagingSeq);
+                              if (!pnMatch) setCustomPackagingSeq(n => n + 1);
+                              const newItem: PackagingItem = {
+                                name: draftCustom.name.trim(),
+                                category: 'Custom',
+                                material: draftCustom.material || 'User-defined',
+                                neckFinish: draftCustom.neckFinish || undefined,
+                                suppliers: ['Custom / user-defined'],
+                                costPerUnit: draftCustom.costPerUnit,
+                                notes: `Part #: ${pn}. Custom closure defined by user. Not from the packaging database.`,
+                              };
+                              setCustomClosure(newItem);
+                              setSelectedClosure(newItem);
+                              setShowClosureForm(false);
+                            }}
+                            className="flex-1 px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700"
+                          >
+                            Save custom closure
+                          </button>
+                          {customClosure && (
+                            <button
+                              onClick={() => {
+                                if (selectedClosure === customClosure) setSelectedClosure(null);
+                                setCustomClosure(null);
+                                setShowClosureForm(false);
+                              }}
+                              className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-50"
+                            >
+                              Delete
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setShowClosureForm(false)}
+                            className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded text-xs hover:bg-gray-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {(selectedPackaging || selectedClosure) && (
+                  <div className="mt-3 p-3 bg-gray-50 rounded flex items-center justify-between text-sm">
+                    <div>
+                      <span className="text-gray-500">Packaging cost:</span>{' '}
+                      <span className="font-bold text-gray-800">${packagingCostPerUnit.toFixed(3)} per unit</span>
+                      {selectedPackaging && selectedClosure && (
+                        <span className="text-gray-400 text-xs ml-2">
+                          (${selectedPackaging.costPerUnit.toFixed(3)} container + ${selectedClosure.costPerUnit.toFixed(3)} closure)
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setSelectedPackaging(null); setSelectedClosure(null); }}
+                      className="text-xs text-gray-400 hover:text-red-500 transition"
+                      title="Clear packaging selection"
+                    >
+                      ✕ Clear
+                    </button>
+                  </div>
+                )}
+
+                {/* ══════════ PACKAGING SUSTAINABILITY PANEL ══════════ */}
+                {selectedPackaging && (() => {
+                  const containerProf = getPackagingSustainability(selectedPackaging);
+                  const closureProf = selectedClosure ? getPackagingSustainability(selectedClosure) : null;
+                  const combinedScore = closureProf
+                    ? Math.round((containerProf.score * 0.75) + (closureProf.score * 0.25))
+                    : containerProf.score;
+                  const combinedRating =
+                    combinedScore >= 75 ? 'Excellent' :
+                    combinedScore >= 55 ? 'Good' :
+                    combinedScore >= 35 ? 'Fair' :
+                    'Poor';
+                  const combinedCarbon = (containerProf.materialCarbonKgCo2e) + (closureProf?.materialCarbonKgCo2e || 0);
+                  const scoreColor = combinedScore >= 75 ? 'emerald' : combinedScore >= 55 ? 'amber' : combinedScore >= 35 ? 'orange' : 'rose';
+
+                  const recyclabilityBadge = (rec: string) => {
+                    const map: Record<string, string> = {
+                      'widely-recyclable': '♻️ Widely Recyclable',
+                      'compostable': '🌱 Compostable',
+                      'check-locally': '🔍 Check Locally',
+                      'store-drop-off': '🛒 Store Drop-Off',
+                      'industrial-only': '🏭 Industrial Only',
+                      'not-recyclable': '🗑️ Landfill-Bound',
+                    };
+                    return map[rec] || rec;
+                  };
+
+                  return (
+                    <div className={`mt-3 mb-2 rounded-lg border-2 p-3 bg-${scoreColor}-50 border-${scoreColor}-300`}>
+                      <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">📦</span>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-gray-600 font-bold">Packaging Sustainability</div>
+                            <div className={`text-sm font-bold text-${scoreColor}-800`}>{combinedRating} — {combinedScore}/100</div>
+                          </div>
+                        </div>
+                        <div className="text-right text-[10px] text-gray-600">
+                          <div>🌿 {combinedCarbon.toFixed(3)} kg CO₂e/unit</div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                        {/* Container card */}
+                        <div className="bg-white/80 rounded p-2 border border-gray-200">
+                          <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-1">Container</div>
+                          <div className="font-semibold text-gray-800 text-[11px] leading-tight">{selectedPackaging.name}</div>
+                          <div className="flex flex-wrap gap-1 mt-1.5 text-[9px]">
+                            <span className="px-1.5 py-0.5 bg-gray-100 rounded">{containerProf.pcrContentPct}% PCR</span>
+                            <span className="px-1.5 py-0.5 bg-gray-100 rounded">{recyclabilityBadge(containerProf.recyclability)}</span>
+                            <span className="px-1.5 py-0.5 bg-gray-100 rounded font-mono">{containerProf.materialCarbonKgCo2e.toFixed(2)} kg CO₂e</span>
+                            {containerProf.fscCertified && <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">🌲 FSC-avail.</span>}
+                          </div>
+                        </div>
+
+                        {/* Closure card (if present) */}
+                        {closureProf && selectedClosure && (
+                          <div className="bg-white/80 rounded p-2 border border-gray-200">
+                            <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-1">Closure</div>
+                            <div className="font-semibold text-gray-800 text-[11px] leading-tight">{selectedClosure.name}</div>
+                            <div className="flex flex-wrap gap-1 mt-1.5 text-[9px]">
+                              <span className="px-1.5 py-0.5 bg-gray-100 rounded">{closureProf.pcrContentPct}% PCR</span>
+                              <span className="px-1.5 py-0.5 bg-gray-100 rounded">{recyclabilityBadge(closureProf.recyclability)}</span>
+                              <span className="px-1.5 py-0.5 bg-gray-100 rounded font-mono">{closureProf.materialCarbonKgCo2e.toFixed(2)} kg CO₂e</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Biggest concern / recommendation */}
+                      {(containerProf.notes.length > 0 || (closureProf && closureProf.notes.length > 0)) && (
+                        <details className="mt-2 text-[10px]">
+                          <summary className="cursor-pointer font-semibold text-gray-700 hover:text-gray-900">📋 Recommendations ({containerProf.notes.length + (closureProf?.notes.length || 0)})</summary>
+                          <ul className="mt-1 space-y-0.5 pl-3">
+                            {containerProf.notes.map((n, i) => <li key={`c${i}`}>• {n}</li>)}
+                            {closureProf?.notes.map((n, i) => <li key={`cl${i}`}>• {n}</li>)}
+                          </ul>
+                        </details>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                <p className="text-xs text-gray-400 mt-2">💡 Packaging cost rolls into &ldquo;Per Package&rdquo; in the Cost Summary above. Curated across {containerCategories.length + closureCategories.length} container &amp; closure categories.</p>
+              </div>
+
+              {/* Bulk Paste Panel */}
+              {showPaste && (
+                <div className="bg-white rounded-xl border-2 border-emerald-300 p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-lg font-semibold text-gray-800">📋 Bulk Paste Formula</h2>
+                    <button
+                      onClick={() => { setShowPaste(false); setPasteText(''); setParsedRows([]); }}
+                      className="text-gray-400 hover:text-red-500 text-sm"
+                    >
+                      ✕ Close
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Paste a formula from Excel, a spec sheet, a markdown table, or plain text. One ingredient per line. Supports <code className="bg-gray-100 px-1 rounded">|</code> pipe, tab, or comma separators — or just &ldquo;Soybean Oil 700g&rdquo; style.
+                  </p>
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    placeholder={"Paste your formula here. Example:\n\n| Ingredient | Qty |\n|---|---|\n| Soybean Oil (RBD) | 700 g |\n| Water | 95 g |\n| Distilled White Vinegar | 80 g |\n| Dijon Mustard | 60 g |\n| Egg Yolk Powder | 20 g |\n| Lemon Juice Concentrate | 15 g |\n| Sugar | 15 g |\n| Salt | 10 g |\n| Natural Flavors | 5 g |"}
+                    className="w-full h-40 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => setParsedRows(parsePastedFormula(pasteText, INDUSTRIAL_DB))}
+                      disabled={!pasteText.trim()}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50 transition"
+                    >
+                      🔍 Preview matches
+                    </button>
+                    <button
+                      onClick={() => { setPasteText(''); setParsedRows([]); }}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  {parsedRows.length > 0 && (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <p className="text-sm font-medium text-gray-700">
+                          Parsed {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''}
+                          {' '}<span className="text-emerald-600">({parsedRows.filter(r => r.matchedItem).length} matched)</span>
+                          {parsedRows.some(r => !r.matchedItem) && <span className="text-red-500"> • {parsedRows.filter(r => !r.matchedItem).length} unmatched</span>}
+                        </p>
+                        <button
+                          onClick={applyParsedRows}
+                          disabled={!parsedRows.some(r => r.accepted && r.matchedItem)}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50 transition font-medium"
+                        >
+                          {replaceOnPaste && ingredients.length > 0 ? '⟳ Replace with' : '+ Add'} {parsedRows.filter(r => r.accepted && r.matchedItem).length} ingredient{parsedRows.filter(r => r.accepted && r.matchedItem).length !== 1 ? 's' : ''}
+                        </button>
+                      </div>
+                      {ingredients.length > 0 && (
+                        <label className="flex items-start gap-2 text-xs text-gray-700 bg-amber-50 border border-amber-200 rounded p-2 mb-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={replaceOnPaste}
+                            onChange={e => setReplaceOnPaste(e.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="font-semibold">Replace the current formulation</span> ({ingredients.length} ingredient{ingredients.length !== 1 ? 's' : ''}).
+                            Uncheck to append instead.
+                            <span className="block text-gray-500 mt-0.5">
+                              Note: Product Type, Packaging, and Formulation Name stay unchanged — update them separately if switching to a different product.
+                            </span>
+                          </span>
+                        </label>
+                      )}
+                      <div className="space-y-1 max-h-72 overflow-y-auto">
+                        {parsedRows.map((r, idx) => (
+                          <div key={idx} className={`flex items-start gap-2 p-2 rounded text-xs ${r.matchedItem ? 'bg-emerald-50 border border-emerald-100' : 'bg-red-50 border border-red-100'}`}>
+                            <input
+                              type="checkbox"
+                              checked={r.accepted}
+                              disabled={!r.matchedItem}
+                              onChange={(e) => {
+                                const next = [...parsedRows];
+                                next[idx] = { ...next[idx], accepted: e.target.checked };
+                                setParsedRows(next);
+                              }}
+                              className="mt-0.5"
+                            />
+                            <div className="flex-1">
+                              {r.matchedItem ? (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-emerald-200 text-emerald-900 rounded font-medium">✓ Matched</span>
+                                    <span className="font-semibold text-gray-800">{r.matchedItem.name}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} {r.parsedUnit}</span>
+                                    <span className="text-gray-400">• {r.matchedItem.category}</span>
+                                  </div>
+                                  <p className="text-gray-500 mt-0.5">
+                                    Pasted: &ldquo;{r.parsedName}&rdquo; • Supplier: {r.matchedItem.suppliers[0]}
+                                  </p>
+                                  {r.volumeNote && (
+                                    <p className="text-amber-700 mt-0.5">⚖️ {r.volumeNote}</p>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-red-200 text-red-900 rounded font-medium">✗ No match</span>
+                                    <span className="font-semibold text-gray-800">{r.parsedName}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} {r.parsedUnit}</span>
+                                  </div>
+                                  {r.volumeNote && (
+                                    <p className="text-amber-700 mt-0.5">⚖️ {r.volumeNote}</p>
+                                  )}
+                                  <p className="text-gray-500 mt-0.5">Add this one manually via the search below (it may be in USDA).</p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Add Ingredient */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-800">➕ Add Ingredient</h2>
+                  {!showPaste && (
+                    <button
+                      onClick={() => setShowPaste(true)}
+                      className="text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition flex items-center gap-1"
+                      title="Paste a full formula at once"
+                    >
+                      📋 Bulk Paste
+                    </button>
+                  )}
+                </div>
+                {selectedFood && (
+                  <div className="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm flex items-center gap-3">
+                    <span className="font-medium text-emerald-700">✅ {selectedFood.type === 'industrial' ? '📦 Industrial DB' : '🌐 USDA'}</span>
+                    {selectedFood.costPerKg > 0 && <span className="text-gray-500">~${selectedFood.costPerKg}/kg</span>}
+                    {selectedFood.supplier && <span className="text-gray-500">• {selectedFood.supplier}</span>}
+                  </div>
+                )}
+                <div className="flex gap-2" ref={dropdownRef}>
+                  <div className="flex-1 relative">
+                    <input type="text" placeholder="Search ingredients by name, supplier, or function..."
+                      value={newIngredient} onChange={(e) => searchIngredients(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addIngredient()}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-10 focus:outline-none focus:border-emerald-500" />
+                    {searching && <div className="absolute right-10 top-3 text-gray-400 text-sm">Searching...</div>}
+                    {(newIngredient || newQty || selectedFood) && !searching && (
+                      <button
+                        type="button"
+                        onClick={() => { setNewIngredient(''); setNewQty(''); setSelectedFood(null); setShowDropdown(false); setSearchResults([]); }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-gray-100 transition"
+                        title="Clear search"
+                        aria-label="Clear search"
+                      >
+                        ✕
+                      </button>
+                    )}
+                    {showDropdown && searchResults.length > 0 && (
+                      <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1 max-h-72 overflow-y-auto">
+                        {searchResults.map((item, idx) => {
+                          const isInd = isIndustrial(item);
+                          return (
+                            <button key={idx} onClick={() => selectIngredient(item)}
+                              className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-gray-100 last:border-0 transition">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: isInd ? '#d1fae5' : '#e0f2fe', color: isInd ? '#065f46' : '#0369a1' }}>
+                                  {isInd ? '📦 Industrial' : '🌐 USDA'}
+                                </span>
+                                <span className="font-medium text-gray-800 text-sm">{isInd ? (item as IndustrialIngredient).name : (item as FoodResult).description}</span>
+                              </div>
+                              {isInd && <div className="text-xs text-gray-500 mt-0.5">~${(item as IndustrialIngredient).costPerKg}/kg • {(item as IndustrialIngredient).suppliers[0]}</div>}
+                              {!isInd && (item as FoodResult).brandName && <div className="text-xs text-gray-500 mt-0.5">{(item as FoodResult).brandName}</div>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <input type="number" placeholder="Qty" value={newQty} onChange={(e) => setNewQty(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addIngredient()} className="w-20 text-center border border-gray-300 rounded-lg px-2 py-3 focus:outline-none focus:border-emerald-500" />
+                  <select value={newUnit} onChange={(e) => setNewUnit(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-3 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
+                  <button onClick={addIngredient} className="px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium whitespace-nowrap">Add</button>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">💡 Industrial DB first, then USDA fallback. Or browse the 📦 Ingredient DB tab.</p>
+              </div>
+
+              {/* Ingredient List */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                  <h2 className="text-lg font-semibold text-gray-800">Current Formulation</h2>
+                  <div className="flex items-center gap-2">
+                    {ingredients.some(i => VOLUME_UNITS.has(i.unit)) && (
+                      <button
+                        onClick={convertVolumesToGrams}
+                        className="text-xs px-3 py-1.5 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 transition font-medium"
+                        title="Convert volume measurements (cups, tsp, tbsp, gal, etc.) to grams using each ingredient's density"
+                      >
+                        🔄 Normalize volumes → grams
+                      </button>
+                    )}
+                    {ingredients.length > 0 && (
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Clear all ${ingredients.length} ingredient${ingredients.length !== 1 ? 's' : ''}? This preserves the Product Type, Packaging, and Formulation Name.`)) {
+                            clearFormulation();
+                          }
+                        }}
+                        className="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium"
+                        title="Clear all ingredients from this formulation"
+                      >
+                        🗑️ Clear
+                      </button>
+                    )}
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">{ingredients.length} ingredients</span>
+                  </div>
+                </div>
+                {ingredients.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">Add ingredients above to get started</div>
+                ) : (
+                  <div className="space-y-3">
+                    {ingredients.map((ing, index) => {
+                      const grams = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                      const weightPct = totalBatchGrams > 0 ? (grams / totalBatchGrams) * 100 : 0;
+                      const isVolume = VOLUME_UNITS.has(ing.unit);
+                      const finding = complianceFindings.find(f => f.ingredientName === ing.name);
+                      // Compare current sub-ingredients to DB default to show "modified" indicator
+                      const dbDefaultSubs: string[] = ing.foodData?.type === 'industrial'
+                        ? (ing.foodData?.data?.subIngredients || [])
+                        : [];
+                      const currentSubs = ing.subIngredients || [];
+                      const subsModified =
+                        dbDefaultSubs.length !== currentSubs.length ||
+                        dbDefaultSubs.some((s, i) => s !== currentSubs[i]);
+                      const hasDbDefault = ing.foodData?.type === 'industrial' && dbDefaultSubs.length > 0;
+                      const rowBorder = finding?.violated
+                        ? 'bg-red-50 border-red-300'
+                        : finding
+                          ? 'bg-amber-50 border-amber-200'
+                          : isVolume
+                            ? 'bg-amber-50 border-amber-200'
+                            : 'bg-gray-50 border-gray-100';
+                      return (
+                        <div key={index} className={`border rounded-lg p-3 group ${rowBorder}`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <input type="text" value={ing.name || ''} onChange={(e) => updateName(index, e.target.value)} className="flex-1 bg-transparent border-0 focus:outline-none font-medium text-gray-800 text-sm" />
+                            <input type="number" value={ing.qty || ''} onChange={(e) => updateQuantity(index, e.target.value)} className="w-20 text-center bg-white border border-gray-300 rounded px-1 py-1 text-sm focus:outline-none" />
+                            <span className={`text-xs ${isVolume ? 'text-amber-700 font-semibold' : 'text-gray-500'}`}>{ing.unit}</span>
+                            <span className="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs font-mono text-gray-600" title="Percent of total batch weight">
+                              {weightPct.toFixed(1)}%
+                            </span>
+                            <button onClick={() => removeIngredient(index)} className="text-red-400 opacity-0 group-hover:opacity-100 transition text-sm hover:text-red-600">✕</button>
+                          </div>
+                          {isVolume && (
+                            <p className="text-xs text-amber-700 mb-1.5">
+                              ⚖️ Volume unit — click <span className="font-semibold">Normalize volumes → grams</span> above to convert to density-correct mass (currently computed as if water).
+                            </p>
+                          )}
+                          {finding && (
+                            <div className={`text-xs mb-1.5 px-2 py-1 rounded border ${finding.violated ? 'bg-red-100 border-red-300 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                              <span className="font-semibold">
+                                {finding.violated ? '🚫 OVER LEGAL LIMIT' : '✓ within limit'}
+                              </span>
+                              {' — '}
+                              <span className="font-mono">{formatAmount(finding.currentPercent, finding.currentPpm)}</span>
+                              {' / '}
+                              <span className="font-mono">{finding.limit.maxPercent !== undefined ? `${finding.limit.maxPercent}%` : `${finding.limit.maxPpm} ppm`} max</span>
+                              {' ('}{finding.utilization.toFixed(0)}% of cap{')'}
+                              <div className="text-[10px] text-gray-600 mt-0.5 font-normal">
+                                {finding.limit.authority} {finding.limit.citation} — {finding.limit.summary}
+                              </div>
+                              {finding.activeSpeciesPpm !== undefined && finding.limit.activeName && (
+                                <div className={`text-[10px] mt-0.5 font-semibold ${finding.activeViolated ? 'text-red-800' : 'text-emerald-700'}`}>
+                                  Active {finding.limit.activeName}: {finding.activeSpeciesPpm.toFixed(1)} ppm (max {finding.limit.activeMaxPpm} ppm)
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2 flex-wrap">
+                            <span>💰 $/kg:</span>
+                            <input type="number" value={ing.costPerKg || ''} onChange={(e) => updateCost(index, e.target.value)} placeholder="0.00" className="w-20 bg-white border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-emerald-400" />
+                            <span className="text-emerald-600 font-medium">${(grams / 1000 * (ing.costPerKg || 0)).toFixed(3)} total</span>
+                            <span className="text-gray-400">• {grams.toFixed(1)} g</span>
+                            {ing.supplier && <span className="text-gray-400">• {ing.supplier}</span>}
+                            {/* ─── Raw Material Spec Sheet button ─── */}
+                            <button
+                              onClick={() => setSpecSheetIngredientIndex(index)}
+                              title="Generate supplier-facing spec sheet for this ingredient"
+                              className="px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded text-[10px] font-semibold hover:bg-sky-100 transition"
+                            >
+                              📋 Spec Sheet
+                            </button>
+                            {/* ─── Make Organic / Revert to Conventional button ─── */}
+                            {(() => {
+                              if (/\borganic\b/i.test(ing.name)) {
+                                const revertPreview = convertIngredientToConventional(ing, INDUSTRIAL_DB, '');
+                                if (!revertPreview) {
+                                  return <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-semibold">🌱 Organic</span>;
+                                }
+                                const deltaStr = revertPreview.costDeltaPerKg <= 0
+                                  ? `−$${Math.abs(revertPreview.costDeltaPerKg).toFixed(2)}/kg`
+                                  : `+$${revertPreview.costDeltaPerKg.toFixed(2)}/kg`;
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-semibold">🌱 Organic</span>
+                                    <button
+                                      onClick={() => {
+                                        const confirmMsg = revertPreview.source === 'db-match'
+                                          ? `Revert "${ing.name}"\n→ "${revertPreview.ingredient.name}"\n\nPrice ${deltaStr} (actual conventional SKU from DB).`
+                                          : `Revert "${ing.name}" to conventional (${deltaStr}).\n\n${revertPreview.note}`;
+                                        if (window.confirm(confirmMsg)) {
+                                          const updated = [...ingredients];
+                                          updated[index] = revertPreview.ingredient;
+                                          setIngredients(updated);
+                                          recalculate(updated);
+                                        }
+                                      }}
+                                      title={`Revert to conventional • ${revertPreview.note}`}
+                                      className="px-2 py-0.5 bg-gray-100 text-gray-700 border border-gray-300 rounded text-[10px] font-medium hover:bg-gray-200 transition"
+                                    >
+                                      ↩ Revert ({deltaStr})
+                                    </button>
+                                  </div>
+                                );
+                              }
+                              const cat = ing.foodData?.type === 'industrial'
+                                ? (ing.foodData.data as IndustrialIngredient).category
+                                : '';
+                              const profile = getSustainabilityProfile({ name: ing.name, category: cat });
+                              if (!profile.organicAvailable) return null;
+                              const preview = convertIngredientToOrganic(ing, INDUSTRIAL_DB, cat);
+                              if (!preview) return null;
+                              const deltaStr = preview.costDeltaPerKg >= 0
+                                ? `+$${preview.costDeltaPerKg.toFixed(2)}/kg`
+                                : `−$${Math.abs(preview.costDeltaPerKg).toFixed(2)}/kg`;
+                              return (
+                                <button
+                                  onClick={() => {
+                                    const confirmMsg = preview.source === 'db-match'
+                                      ? `Swap "${ing.name}"\n→ "${preview.ingredient.name}"\n\nPrice ${deltaStr} (actual SKU match from DB).`
+                                      : `Convert "${ing.name}" to its organic variant at +${Math.round((profile.organicPricePremium - 1) * 100)}% premium (${deltaStr}).\n\n${preview.note}`;
+                                    if (window.confirm(confirmMsg)) {
+                                      const updated = [...ingredients];
+                                      updated[index] = preview.ingredient;
+                                      setIngredients(updated);
+                                      recalculate(updated);
+                                    }
+                                  }}
+                                  title={`Convert to organic variant • ${preview.note}`}
+                                  className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-semibold hover:bg-emerald-100 transition"
+                                >
+                                  🌱 Make Organic ({deltaStr})
+                                </button>
+                              );
+                            })()}
+                          </div>
+                          {ing.allergens?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-2">{ing.allergens.map(a => <span key={a} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">⚠️ {a}</span>)}</div>
+                          )}
+                          {/* Sub-ingredient statement — editable override for specific brands */}
+                          <div className="mt-2 pt-2 border-t border-gray-200">
+                            <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                              <label className="text-[10px] uppercase tracking-wide font-semibold text-gray-600">
+                                Sub-Ingredient Statement
+                                {subsModified && hasDbDefault && (
+                                  <span className="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-medium normal-case tracking-normal">modified from DB</span>
+                                )}
+                                {!hasDbDefault && ing.foodData && (
+                                  <span className="ml-1 px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-[9px] font-medium normal-case tracking-normal">USDA / custom</span>
+                                )}
+                              </label>
+                              {subsModified && hasDbDefault && (
+                                <button
+                                  onClick={() => resetSubIngredients(index)}
+                                  className="text-[10px] text-gray-500 hover:text-emerald-700 transition font-medium"
+                                  title="Restore sub-ingredients to the database default for this SKU"
+                                >
+                                  ↺ Reset to DB default
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              type="text"
+                              value={ing.subIngredients?.join(', ') || ''}
+                              onChange={(e) => updateSubIngredients(index, e.target.value)}
+                              placeholder="Comma-separated sub-ingredients — e.g., 'Tomato Concentrate, Distilled Vinegar, HFCS, Salt'"
+                              className="w-full text-xs bg-white border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-emerald-500"
+                            />
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              Drives the FDA ingredient statement. Override if your branded product&apos;s COA shows different sub-ingredients.
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN - FDA Label */}
+            <div className="space-y-6">
+              <div id="printable-label" className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2 print:hidden">
+                  <h2 className="text-lg font-semibold text-gray-800">
+                    {mc.labelMode === 'aafco' ? 'AAFCO Guaranteed Analysis'
+                      : mc.labelMode === 'supplement-facts' ? 'Supplement Facts Panel'
+                      : mc.labelMode === 'bakers' ? 'FDA Nutrition Facts + Baker\'s %'
+                      : 'FDA Nutrition Facts Label'}
+                  </h2>
+                  <button
+                    onClick={printLabel}
+                    disabled={ingredients.length === 0}
+                    className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition font-medium"
+                    title="Print the label panel or save it as a PDF"
+                  >
+                    📄 Save as PDF
+                  </button>
+                </div>
+                {/* Print-only header with formulation context */}
+                <div className="hidden print:block mb-4 pb-3 border-b-2 border-gray-800">
+                  <h1 className="text-xl font-bold text-gray-900">{formulationName || 'Formulation Label'}</h1>
+                  {productType && <p className="text-xs text-gray-600 mt-0.5">{productType}</p>}
+                  <p className="text-[10px] text-gray-500 mt-0.5">Generated {new Date().toLocaleDateString()} • Formulation Wizard</p>
+                </div>
+
+                {/* AAFCO Guaranteed Analysis panel (feeds mode) */}
+                {mc.labelMode === 'aafco' && (
+                  <div className="border-2 border-gray-800 p-4 max-w-sm mx-auto font-sans text-black">
+                    <div className="text-2xl font-bold text-center border-b-2 border-gray-800 pb-2 mb-2">Guaranteed Analysis</div>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        <tr className="border-b border-gray-400"><td className="py-1">Crude Protein (Min)</td><td className="py-1 text-right font-bold">{totalBatchGrams > 0 ? (nutrition.protein / totalBatchGrams * 100).toFixed(1) : '—'}%</td></tr>
+                        <tr className="border-b border-gray-400"><td className="py-1">Crude Fat (Min)</td><td className="py-1 text-right font-bold">{totalBatchGrams > 0 ? (nutrition.totalFat / totalBatchGrams * 100).toFixed(1) : '—'}%</td></tr>
+                        <tr className="border-b border-gray-400"><td className="py-1">Crude Fiber (Max)</td><td className="py-1 text-right font-bold">{totalBatchGrams > 0 ? (nutrition.dietaryFiber / totalBatchGrams * 100).toFixed(1) : '—'}%</td></tr>
+                        <tr className="border-b border-gray-400"><td className="py-1">Moisture (Max)</td><td className="py-1 text-right font-bold">{specs.moisture > 0 ? specs.moisture.toFixed(1) : '—'}%</td></tr>
+                        <tr className="border-b border-gray-400"><td className="py-1">Ash (Max)</td><td className="py-1 text-right font-bold text-gray-400">— (enter from lab)</td></tr>
+                      </tbody>
+                    </table>
+                    <div className="mt-3 text-[10px] leading-tight">
+                      <p><span className="font-semibold">Ingredients:</span> {ingredientStatement || '—'}</p>
+                      <p className="mt-2"><span className="font-semibold">Feeding Directions:</span> Feed as sole diet per species/life-stage requirements. Provide clean fresh water at all times. Store in a cool, dry place.</p>
+                      <p className="mt-2 italic">Manufactured by: [Establishment Name] · [City, State ZIP]</p>
+                    </div>
+                    <p className="text-[9px] mt-2 leading-tight text-gray-600 italic">
+                      AAFCO-formatted label. Verify state Commercial Feed Act registration before distribution.
+                    </p>
+                  </div>
+                )}
+
+                {/* Supplement Facts panel — 21 CFR 101.36
+                    Structured rendering via lib/supplementLabeling:
+                    • Macros (only if present): Total Fat / Carb / Sugars / Protein / Sodium
+                    • Vitamins & Minerals: with established DV, shown with %DV
+                    • Other Actives (herbals, aminos, mushrooms, etc.): with "†"
+                    • Other Ingredients: excipients only, in descending weight order */}
+                {mc.labelMode === 'supplement-facts' && (() => {
+                  // Build a human-readable serving size for the label:
+                  //  • Capsule / Tablet / Softgel / Gummy / Lozenge / Chewable → "N Capsules"
+                  //  • Powder → "1 Scoop (30 g)"
+                  //  • Liquid → "1 Dropper (1 ml)"
+                  const noun = SUPP_FORM_NOUN[suppDeliveryForm];
+                  const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
+                  const countable = ['capsule', 'tablet', 'softgel', 'gummy', 'lozenge', 'chewable'].includes(suppDeliveryForm);
+                  const servingSizeLabel = countable
+                    ? `${suppUnitsPerServing} ${unitWord}`
+                    : `${suppUnitsPerServing} ${unitWord} (${servingSize}${servingUnit})`;
+                  const facts = buildSupplementFacts({
+                    ingredients,
+                    servingSizeInGrams,
+                    totalBatchGrams,
+                    servingsPerContainer,
+                    servingSizeLabel,
+                    caloriesPerServing: perServing(nutrition.calories),
+                    macroPerServing: {
+                      totalFat: perServing(nutrition.totalFat),
+                      totalCarbs: perServing(nutrition.totalCarbs),
+                      protein: perServing(nutrition.protein),
+                      sodium: perServing(nutrition.sodium),
+                      totalSugars: perServing(nutrition.totalSugars),
+                    },
+                  });
+                  return (
+                    <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans text-black">
+                      <div className="text-3xl font-extrabold leading-none border-b-4 border-black pb-1 mb-1">Supplement Facts</div>
+                      <div className="text-xs border-b border-black pb-1 mb-1">Serving Size: {facts.servingSize}</div>
+                      <div className="text-xs border-b-8 border-black pb-1 mb-1">Servings Per Container: {facts.servingsPerContainer}</div>
+                      <div className="flex justify-between border-b-2 border-black py-0.5 text-[10px] font-bold uppercase">
+                        <div>Amount Per Serving</div>
+                        <div>% Daily Value</div>
+                      </div>
+
+                      {/* Calories (only if ≥5 per 21 CFR 101.36) */}
+                      {facts.caloriesPerServing !== null && (
+                        <div className="border-b border-black py-1 flex justify-between text-sm">
+                          <div className="font-bold">Calories</div>
+                          <div className="font-bold">{fdaRoundCalories(facts.caloriesPerServing)}</div>
+                        </div>
+                      )}
+
+                      {/* Macronutrient rows (conditionally rendered when ≥ labeling threshold) */}
+                      {facts.macroRows.map((row, i) => (
+                        <div key={`macro-${i}`} className="border-b border-black py-1 flex justify-between text-sm">
+                          <div>
+                            <span className="font-bold">{row.displayName}</span>{' '}
+                            {formatSupplementAmount(row.amount, row.unit)}{row.unit}
+                          </div>
+                          <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
+                        </div>
+                      ))}
+
+                      {/* Vitamins & Minerals section */}
+                      {facts.vitaminMineralRows.length > 0 && (
+                        <>
+                          {facts.vitaminMineralRows.map((row, i) => (
+                            <div key={`vm-${i}`} className="border-b border-black py-1 flex justify-between text-[11px] leading-tight">
+                              <div>
+                                <span className="font-bold">{row.displayName}</span>{' '}
+                                {formatSupplementAmount(row.amount, row.unit)} {row.unit}
+                              </div>
+                              <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      {/* Other Actives section — herbals, aminos, mushrooms, specialty (shown with †) */}
+                      {facts.otherActivesRows.length > 0 && (
+                        <>
+                          <div className="border-b-2 border-black mt-1" />
+                          {facts.otherActivesRows.map((row, i) => (
+                            <div key={`oa-${i}`} className="border-b border-black py-1 flex justify-between text-[11px] leading-tight">
+                              <div>
+                                <span className="font-bold">{row.displayName}</span>{' '}
+                                {formatSupplementAmount(row.amount, row.unit)} {row.unit}
+                              </div>
+                              <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      <div className="border-b-8 border-black" />
+
+                      {/* "Other Ingredients" — excipients only, in descending-weight order (ingredient statement) */}
+                      <p className="text-[10px] mt-2 leading-tight">
+                        <span className="font-bold">Other Ingredients:</span>{' '}
+                        {facts.otherIngredientsStatement || '—'}
+                      </p>
+
+                      {allergenStatement.length > 0 && (
+                        <p className="text-[10px] mt-2 leading-tight font-bold">Contains: {allergenStatement.join(', ')}</p>
+                      )}
+
+                      {facts.needsDaggerFootnote && (
+                        <p className="text-[10px] mt-2 leading-tight italic border-t border-black pt-2">
+                          † Daily Value (DV) not established.
+                        </p>
+                      )}
+
+                      <p className="text-[9px] mt-2 leading-tight border-t-2 border-black pt-2 italic">
+                        * These statements have not been evaluated by the Food and Drug Administration. This product is not intended to diagnose, treat, cure, or prevent any disease.
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* FDA Nutrition Facts panel — all modes except AAFCO and Supplement Facts */}
+                {mc.labelMode !== 'aafco' && mc.labelMode !== 'supplement-facts' && (
+                <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans">
+                  <div className="text-5xl font-extrabold leading-none border-b-4 border-black pb-1 mb-1">Nutrition Facts</div>
+                  <div className="text-sm border-b border-black pb-1 mb-1">{servingsPerContainer} servings per container</div>
+                  <div className="flex justify-between items-end border-b-8 border-black pb-1 mb-1">
+                    <div className="text-sm font-bold">Serving size</div>
+                    <div className="text-2xl font-extrabold">{servingSize}{servingUnit}</div>
+                  </div>
+                  <div className="flex justify-between border-b border-black py-1">
+                    <div className="text-xs font-bold">Amount per serving</div>
+                  </div>
+                  <div className="flex justify-between items-end border-b-4 border-black pb-1">
+                    <div className="text-4xl font-extrabold">Calories</div>
+                    <div className="text-5xl font-extrabold">{fdaRoundCalories(perServing(nutrition.calories))}</div>
+                  </div>
+                  <div className="text-right text-xs border-b border-black py-1 font-bold">% Daily Value*</div>
+                  {/* FDA 21 CFR 101.9 rounded nutrient lines. roundFn applied to amount; percent DV via fdaRoundPercentDV. */}
+                  {([
+                    { label: 'Total Fat', val: nutrition.totalFat, unit: 'g', dv: 78, roundFn: fdaRoundFat, bold: true, indent: false },
+                    { label: 'Saturated Fat', val: nutrition.saturatedFat, unit: 'g', dv: 20, roundFn: fdaRoundFat, bold: false, indent: true },
+                    { label: 'Trans Fat', val: nutrition.transFat, unit: 'g', dv: 0, roundFn: fdaRoundFat, bold: false, indent: true },
+                    { label: 'Cholesterol', val: nutrition.cholesterol, unit: 'mg', dv: 300, roundFn: fdaRoundCholesterol, bold: true, indent: false },
+                    { label: 'Sodium', val: nutrition.sodium, unit: 'mg', dv: 2300, roundFn: fdaRoundSodium, bold: true, indent: false },
+                    { label: 'Total Carbohydrate', val: nutrition.totalCarbs, unit: 'g', dv: 275, roundFn: fdaRoundGrams, bold: true, indent: false },
+                    { label: 'Dietary Fiber', val: nutrition.dietaryFiber, unit: 'g', dv: 28, roundFn: fdaRoundGrams, bold: false, indent: true },
+                    { label: 'Total Sugars', val: nutrition.totalSugars, unit: 'g', dv: 0, roundFn: fdaRoundGrams, bold: false, indent: true },
+                    { label: 'Protein', val: nutrition.protein, unit: 'g', dv: 0, roundFn: fdaRoundGrams, bold: true, indent: false },
+                  ]).map(({ label, val, unit, dv, roundFn, bold, indent }) => {
+                    const amt = perServing(val);
+                    return (
+                      <div key={label} className={`border-b border-black py-1 flex justify-between text-sm ${indent ? 'pl-4' : ''}`}>
+                        <div><span className={bold ? 'font-bold' : ''}>{label}</span> {roundFn(amt)}{unit}</div>
+                        {dv > 0 && <div className="font-bold">{fdaRoundPercentDV(rawPct(val, dv))}%</div>}
+                      </div>
+                    );
+                  })}
+                  <div className="border-b-8 border-black" />
+                  {([
+                    { label: 'Vitamin D', val: nutrition.vitaminD, unit: 'mcg', dv: 20, roundFn: fdaRoundVitaminD },
+                    { label: 'Calcium', val: nutrition.calcium, unit: 'mg', dv: 1300, roundFn: fdaRoundCalcium },
+                    { label: 'Iron', val: nutrition.iron, unit: 'mg', dv: 18, roundFn: fdaRoundIron },
+                    { label: 'Potassium', val: nutrition.potassium, unit: 'mg', dv: 4700, roundFn: fdaRoundPotassium },
+                  ] as const).map(({ label, val, unit, dv, roundFn }) => {
+                    const amt = perServing(val);
+                    return (
+                      <div key={label} className="border-b border-black py-1 flex justify-between text-sm">
+                        <div>{label} {roundFn(amt)}{unit}</div>
+                        <div className="font-bold">{fdaRoundPercentDV(rawPct(val, dv))}%</div>
+                      </div>
+                    );
+                  })}
+                  <div className="text-xs mt-2 leading-tight">*The % Daily Value tells you how much a nutrient in a serving contributes to a daily diet. 2,000 calories a day is used for general nutrition advice.</div>
+                </div>
+                )}
+
+                {/* Baker's Percentage panel — additional view for baking mode */}
+                {mc.labelMode === 'bakers' && (() => {
+                  const isFlourIng = (i: typeof ingredients[number]) => {
+                    const cat = i.foodData?.type === 'industrial' ? i.foodData?.data?.category : '';
+                    return cat === 'Flours & Grains' || /\bflour\b/i.test(i.name) || /\bmeal\b/i.test(i.name);
+                  };
+                  const flourIngs = ingredients.filter(isFlourIng);
+                  const totalFlourG = flourIngs.reduce((s, i) => s + i.qty * (UNIT_TO_GRAMS[i.unit] || 1), 0);
+                  return (
+                    <div className="mt-5 pt-4 border-t border-gray-200">
+                      <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">Baker&apos;s Percentages</h3>
+                      <p className="text-[10px] text-gray-500 mb-2">
+                        Flour total = 100% (baker&apos;s convention). All other ingredients expressed as % of total flour weight.
+                        Hydration = (Total Water-Containing Liquids / Flour) × 100%.
+                      </p>
+                      {totalFlourG === 0 ? (
+                        <p className="text-xs text-amber-700 italic bg-amber-50 border border-amber-200 p-2 rounded">
+                          No flour detected. Add an ingredient from the &quot;Flours &amp; Grains&quot; category (or with &quot;flour&quot; / &quot;meal&quot; in the name) to compute Baker&apos;s %.
+                        </p>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-gray-400 text-left">
+                              <th className="py-1">Ingredient</th>
+                              <th className="py-1 text-right">Mass</th>
+                              <th className="py-1 text-right">Baker&apos;s %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ingredients.map((ing, i) => {
+                              const massG = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                              const bakersPct = (massG / totalFlourG) * 100;
+                              const isFlour = isFlourIng(ing);
+                              return (
+                                <tr key={i} className={`border-b border-gray-200 ${isFlour ? 'bg-emerald-50 font-semibold' : ''}`}>
+                                  <td className="py-1">{ing.name}{isFlour && <span className="ml-1 text-[9px] text-emerald-700">◉ flour</span>}</td>
+                                  <td className="py-1 text-right font-mono">{massG.toFixed(1)}g</td>
+                                  <td className="py-1 text-right font-mono">{bakersPct.toFixed(1)}%</td>
+                                </tr>
+                              );
+                            })}
+                            <tr className="border-t-2 border-gray-700 font-bold bg-gray-50">
+                              <td className="py-1">Total Flour (reference)</td>
+                              <td className="py-1 text-right font-mono">{totalFlourG.toFixed(1)}g</td>
+                              <td className="py-1 text-right font-mono">100.0%</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      )}
+
+                      {/* ══════════ HYDRATION TOOL ══════════ */}
+                      {totalFlourG > 0 && (() => {
+                        // Water-contribution factor by ingredient name/category.
+                        // Bakers' hydration convention counts water-containing liquids
+                        // as their water fraction, not as whole-weight.
+                        const waterFactor = (ing: typeof ingredients[number]): number => {
+                          const n = ing.name.toLowerCase();
+                          const cat = ing.foodData?.type === 'industrial' ? ing.foodData?.data?.category : '';
+                          // Exclude flours (they're the denominator, not the numerator)
+                          if (isFlourIng(ing)) return 0;
+                          // Pure water / ice (100%)
+                          if (/^water(\s|\(|,|$)/i.test(ing.name) || /^ice(\s|\(|,|$)/i.test(ing.name)) return 1.0;
+                          if (cat === 'Water & Ice') return 1.0;
+                          // Milk / buttermilk / cream / yogurt
+                          if (/buttermilk/.test(n)) return 0.90;
+                          if (/yogurt|yoghurt/.test(n)) return 0.85;
+                          if (/heavy cream|whipping cream/.test(n)) return 0.58;
+                          if (/half.and.half|half & half/.test(n)) return 0.81;
+                          if (/evaporated milk/.test(n)) return 0.74;
+                          if (/sweetened condensed/.test(n)) return 0.27;
+                          if (/skim milk|nonfat milk|2% milk|1% milk|low.?fat milk/.test(n)) return 0.89;
+                          if (/oat milk|almond milk|soy milk|coconut milk|plant.?based milk|rice milk|cashew milk/.test(n)) return 0.88;
+                          if (/\bmilk(\s|,|$)/.test(n) && !/milk powder|dry milk|dried milk/.test(n)) return 0.88;
+                          // Eggs
+                          if (/egg white/.test(n)) return 0.88;
+                          if (/egg yolk/.test(n) && !/powder|dried/.test(n)) return 0.52;
+                          if (/\begg/.test(n) && !/powder|dried|shell/.test(n)) return 0.75;
+                          // Butter / cream cheese — most bakers count butter water at 16% as "free water"
+                          if (/unsalted butter|salted butter|european.style butter|cultured butter/.test(n)) return 0.16;
+                          if (/cream cheese/.test(n)) return 0.55;
+                          if (/mascarpone/.test(n)) return 0.45;
+                          if (/ricotta/.test(n)) return 0.72;
+                          if (/cottage cheese/.test(n)) return 0.79;
+                          // Juices — count as water for hydration purposes
+                          if (cat === 'Juices' || /juice/.test(n)) return 0.88;
+                          if (/rose water|orange blossom water/.test(n)) return 0.99;
+                          // Sourdough starter / preferments / levain
+                          if (/sourdough starter|levain|preferment|poolish|biga/.test(n)) return 0.50; // ~100% hydration starter → 50% water
+                          // Fresh yeast
+                          if (/fresh yeast|compressed yeast|cake yeast/.test(n)) return 0.70;
+                          // Honey, molasses, syrups — bakers usually don't count their small water content
+                          // Oils — not water
+                          return 0;
+                        };
+
+                        type HydRow = { name: string; massG: number; factor: number; waterG: number };
+                        const rows: HydRow[] = ingredients
+                          .map(ing => {
+                            const massG = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                            const factor = waterFactor(ing);
+                            return { name: ing.name, massG, factor, waterG: massG * factor };
+                          })
+                          .filter(r => r.waterG > 0);
+
+                        const pureWaterG = rows
+                          .filter(r => r.factor === 1.0)
+                          .reduce((s, r) => s + r.waterG, 0);
+                        const totalWaterG = rows.reduce((s, r) => s + r.waterG, 0);
+                        const trueHydration = (totalWaterG / totalFlourG) * 100;
+                        const waterOnlyHydration = (pureWaterG / totalFlourG) * 100;
+
+                        // Classification bands
+                        let band = '';
+                        let bandColor = '';
+                        if (trueHydration < 50) { band = 'Low hydration (bagel / firm dough)'; bandColor = 'text-amber-700 bg-amber-50 border-amber-200'; }
+                        else if (trueHydration < 60) { band = 'Lean / stiff dough'; bandColor = 'text-sky-700 bg-sky-50 border-sky-200'; }
+                        else if (trueHydration < 68) { band = 'Standard bread / sandwich loaf'; bandColor = 'text-emerald-700 bg-emerald-50 border-emerald-200'; }
+                        else if (trueHydration < 75) { band = 'Moderate hydration (baguette / boule)'; bandColor = 'text-emerald-700 bg-emerald-50 border-emerald-200'; }
+                        else if (trueHydration < 85) { band = 'High hydration (ciabatta / rustic)'; bandColor = 'text-blue-700 bg-blue-50 border-blue-200'; }
+                        else if (trueHydration < 95) { band = 'Very high (focaccia / pan-de-cristal)'; bandColor = 'text-violet-700 bg-violet-50 border-violet-200'; }
+                        else { band = 'Extreme hydration (slap-and-fold territory)'; bandColor = 'text-rose-700 bg-rose-50 border-rose-200'; }
+
+                        return (
+                          <div className="mt-5 pt-4 border-t border-gray-200">
+                            <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">💧 Hydration Tool</h3>
+                            <p className="text-[10px] text-gray-500 mb-2">
+                              Hydration % = (total water in liquids) / flour × 100. Counts water at 100%, milk ~88%, eggs ~75%, buttermilk 90%, butter water 16%, sourdough starter 50% (assumed 100% hydration).
+                            </p>
+
+                            <div className={`flex items-baseline justify-between border rounded-lg px-3 py-2 mb-2 ${bandColor}`}>
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide opacity-75">True Hydration</div>
+                                <div className="text-2xl font-bold font-mono">{trueHydration.toFixed(1)}%</div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-[10px] uppercase tracking-wide opacity-75">Water-only</div>
+                                <div className="text-lg font-semibold font-mono">{waterOnlyHydration.toFixed(1)}%</div>
+                              </div>
+                            </div>
+                            <div className={`text-xs font-semibold px-3 py-1.5 rounded border ${bandColor} mb-3`}>
+                              {band}
+                            </div>
+
+                            {rows.length > 0 ? (
+                              <table className="w-full text-xs mb-2">
+                                <thead>
+                                  <tr className="border-b border-gray-400 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                                    <th className="py-1">Liquid</th>
+                                    <th className="py-1 text-right">Mass</th>
+                                    <th className="py-1 text-right">Water %</th>
+                                    <th className="py-1 text-right">Water g</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rows.map((r, i) => (
+                                    <tr key={i} className="border-b border-gray-200">
+                                      <td className="py-1">{r.name}</td>
+                                      <td className="py-1 text-right font-mono">{r.massG.toFixed(1)}g</td>
+                                      <td className="py-1 text-right font-mono">{(r.factor * 100).toFixed(0)}%</td>
+                                      <td className="py-1 text-right font-mono">{r.waterG.toFixed(1)}g</td>
+                                    </tr>
+                                  ))}
+                                  <tr className="border-t-2 border-gray-700 font-bold bg-gray-50">
+                                    <td className="py-1">Total water contribution</td>
+                                    <td></td>
+                                    <td></td>
+                                    <td className="py-1 text-right font-mono">{totalWaterG.toFixed(1)}g</td>
+                                  </tr>
+                                  <tr className="font-bold bg-gray-50">
+                                    <td className="py-1">÷ Total flour</td>
+                                    <td></td>
+                                    <td></td>
+                                    <td className="py-1 text-right font-mono">{totalFlourG.toFixed(1)}g</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            ) : (
+                              <p className="text-xs text-amber-700 italic bg-amber-50 border border-amber-200 p-2 rounded mb-2">
+                                No water-containing liquids detected. Add water, milk, eggs, or starter to compute hydration.
+                              </p>
+                            )}
+
+                            <div className="text-[10px] text-gray-500 leading-relaxed bg-gray-50 rounded border border-gray-200 p-2">
+                              <strong className="text-gray-700">Target ranges by product:</strong><br />
+                              • Bagel / Pretzel dough: 50–58% &nbsp; • Brioche / Sandwich loaf: 55–65% (enriched)<br />
+                              • Baguette / Boule / Pain de Campagne: 65–72% &nbsp; • Whole wheat bread: 70–80%<br />
+                              • Ciabatta / Rustic Italian: 75–85% &nbsp; • Focaccia / Pan de Cristal: 85–95%+<br />
+                              • Pizza (NY): 60–65% &nbsp; • Pizza (Neapolitan): 58–62% &nbsp; • Pizza (Al Taglio/RS): 75–85%
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
+
+                {/* ══════════ NUTRITION CLAIM VALIDATOR (21 CFR 101.54/101.56) ══════════ */}
+                {mc.labelMode !== 'aafco' && mc.labelMode !== 'supplement-facts' && ingredients.length > 0 && (
+                  <div className="mt-5 pt-4 border-t border-gray-200 print:hidden">
+                    <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">🏷️ Nutrition Claim Validator</h3>
+                    <p className="text-[10px] text-gray-500 mb-3">FDA 21 CFR 101.54 / 101.56 — validate claims before they hit a label.</p>
+
+                    {/* Claim input */}
+                    <div className="mb-3">
+                      <div className="flex gap-2 flex-wrap">
+                        <input
+                          type="text"
+                          value={claimInput}
+                          onChange={e => setClaimInput(e.target.value)}
+                          placeholder='Type a claim: "Good Source of Protein", "Low Sodium", "Sugar Free"...'
+                          className="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
+                        />
+                        {claimInput && (
+                          <button onClick={() => setClaimInput('')} className="px-3 py-2 bg-gray-100 text-gray-600 rounded text-xs hover:bg-gray-200">Clear</button>
+                        )}
+                      </div>
+                      {claimInput && (() => {
+                        const result = validateClaim(claimInput, nutrition, servingSizeInGrams);
+                        const barColor = result.allowed ? 'emerald' : 'rose';
+                        return (
+                          <div className={`mt-2 p-3 rounded-lg border-2 bg-${barColor}-50 border-${barColor}-300 text-xs`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`font-bold ${result.allowed ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                {result.allowed ? '✓ Claim SUPPORTED' : '✗ Claim NOT SUPPORTED'}
+                              </span>
+                              <span className="text-[10px] text-gray-500 font-mono">{result.citation}</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px] mt-2">
+                              <div className="bg-white/70 px-2 py-1 rounded">
+                                <div className="text-gray-500 uppercase tracking-wide font-semibold">Threshold</div>
+                                <div className="text-gray-800">{result.threshold}</div>
+                              </div>
+                              <div className="bg-white/70 px-2 py-1 rounded">
+                                <div className="text-gray-500 uppercase tracking-wide font-semibold">Your formula</div>
+                                <div className="text-gray-800 font-mono">{result.actual}</div>
+                              </div>
+                            </div>
+                            {result.suggestion && (
+                              <p className="text-[10px] mt-2 italic text-gray-700 leading-relaxed">💡 {result.suggestion}</p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Available claims suggestions */}
+                    {(() => {
+                      const available = suggestAvailableClaims(nutrition, servingSizeInGrams);
+                      if (available.length === 0) {
+                        return (
+                          <p className="text-[10px] text-gray-500 italic">No auto-qualifying nutrition claims detected for this formula yet.</p>
+                        );
+                      }
+                      const strengthColor = (s: string) =>
+                        s === 'high' ? 'emerald-100 text-emerald-800 border-emerald-300' :
+                        s === 'good' ? 'sky-100 text-sky-800 border-sky-300' :
+                        s === 'free' ? 'violet-100 text-violet-800 border-violet-300' :
+                        'amber-100 text-amber-800 border-amber-300';
+                      return (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1.5">✓ Claims your formula currently supports ({available.length})</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {available.map((c, i) => (
+                              <button
+                                key={i}
+                                onClick={() => setClaimInput(c.claim)}
+                                className={`px-2 py-1 rounded border text-[10px] font-semibold ${strengthColor(c.strength)} hover:shadow-sm transition`}
+                                title={`Click to validate: ${c.citation}`}
+                              >
+                                {c.claim}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[9px] text-gray-400 mt-2 italic">Click any chip to inspect its FDA citation and thresholds. Keep records of your reference products for any &ldquo;reduced&rdquo; or &ldquo;light&rdquo; claim.</p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Ingredient Statement — directly beneath the nutrition panel */}
+                <div className="mt-5 pt-4 border-t border-gray-200">
+                  <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">Ingredients</h3>
+                  <p className="text-[10px] text-gray-500 mb-2">FDA-compliant • Descending by weight • Sub-ingredients in parens</p>
+                  {ingredientStatement ? (
+                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-gray-800 text-xs leading-relaxed">{ingredientStatement}</div>
+                  ) : (
+                    <div className="text-center py-3 text-gray-400 text-xs italic">Ingredient statement appears here as you add ingredients.</div>
+                  )}
+                </div>
+
+                {/* Allergen Statement — immediately after ingredient statement, per FDA convention */}
+                <div className="mt-4">
+                  <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">⚠️ Allergen Statement</h3>
+                  <p className="text-[10px] text-gray-500 mb-2">FDA Top 9 allergens — auto-detected from ingredients</p>
+                  {allergenStatement.length > 0 ? (
+                    <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
+                      <p className="text-red-800 font-semibold text-sm">Contains: {allergenStatement.join(', ')}</p>
+                      <p className="text-red-600 text-[10px] mt-1">Always verify allergens with supplier COA before labeling.</p>
+                    </div>
+                  ) : (
+                    <div className="text-center py-3 text-gray-400 text-xs italic">No major allergens detected yet.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Spec Analysis Panel */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-800">🔬 Food Science Spec Analysis</h2>
+                  <span className="text-xs text-gray-400">estimates — verify in lab</span>
+                </div>
+                {ingredients.length === 0 ? (
+                  <div className="text-center py-6 text-gray-400 text-sm italic">Specs appear here as you add ingredients</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <SpecTile
+                        label="pH"
+                        value={specs.pH > 0 ? specs.pH.toFixed(2) : '—'}
+                        hint={specs.pH > 0 ? (specs.pH <= 4.0 ? 'High-acid' : specs.pH <= 4.6 ? 'Acidified / Acid' : 'Low-acid') : '—'}
+                        color={specs.pH <= 4.0 ? 'emerald' : specs.pH <= 4.6 ? 'amber' : 'red'}
+                      />
+                      <SpecTile
+                        label="Water Activity (a_w)"
+                        value={specs.aw > 0 ? specs.aw.toFixed(3) : '—'}
+                        hint={specs.aw > 0 ? (specs.aw <= 0.85 ? 'Shelf-stable by a_w' : specs.aw <= 0.91 ? 'Intermediate moisture' : 'High moisture') : '—'}
+                        color={specs.aw <= 0.85 ? 'emerald' : specs.aw <= 0.91 ? 'amber' : 'gray'}
+                      />
+                      <SpecTile
+                        label="Brix (soluble solids)"
+                        value={specs.brix > 0 ? `${specs.brix.toFixed(1)}°` : '—'}
+                        hint={specs.brix > 0 ? (specs.brix >= 65 ? 'Jam/preserve range' : specs.brix >= 30 ? 'High sugar' : specs.brix >= 10 ? 'Moderate' : 'Low') : '—'}
+                        color="emerald"
+                      />
+                      <SpecTile
+                        label="Moisture %"
+                        value={specs.moisture > 0 ? `${specs.moisture.toFixed(1)}%` : '—'}
+                        hint={`${specs.moisture > 70 ? 'High-moisture' : specs.moisture > 25 ? 'Intermediate' : 'Low-moisture'}`}
+                        color="emerald"
+                      />
+                      <SpecTile
+                        label="Bostwick (cm/30s)"
+                        value={`${specs.bostwickCmPer30s.toFixed(1)} cm`}
+                        hint={specs.bostwickClass}
+                        color="emerald"
+                      />
+                      <SpecTile
+                        label="Brookfield (cP est.)"
+                        value={specs.brookfieldCp < 1000 ? specs.brookfieldCp.toFixed(0) : `${(specs.brookfieldCp / 1000).toFixed(0)}k`}
+                        hint={specs.brookfieldClass}
+                        color="emerald"
+                      />
+                      <SpecTile
+                        label="Acetic Acid %"
+                        value={specs.aceticAcid > 0 ? `${specs.aceticAcid.toFixed(2)}%` : '—'}
+                        hint={specs.aceticAcid > 0 ? 'From vinegars / acid' : '—'}
+                        color="emerald"
+                      />
+                      <SpecTile
+                        label="Acetic / Moisture"
+                        value={specs.aceticMoistureRatio > 0 ? `${specs.aceticMoistureRatio.toFixed(2)}%` : '—'}
+                        hint={specs.aceticMoistureRatio >= 0.5 ? '✓ ≥ 0.5% (acidified target)' : specs.aceticMoistureRatio > 0 ? 'Below 0.5% target' : '—'}
+                        color={specs.aceticMoistureRatio >= 0.5 ? 'emerald' : specs.aceticMoistureRatio > 0 ? 'amber' : 'gray'}
+                      />
+                      <SpecTile
+                        label="Low-Acid Components"
+                        value={`${specs.lowAcidComponentPct.toFixed(1)}%`}
+                        hint={
+                          specs.lowAcidComponentPct >= 10
+                            ? '≥ 10% → filing required if pH ≤ 4.6'
+                            : specs.lowAcidComponentPct >= 5
+                              ? '5–10% → gray zone'
+                              : '< 5% → naturally acid OK'
+                        }
+                        color={
+                          specs.lowAcidComponentPct >= 10
+                            ? 'red'
+                            : specs.lowAcidComponentPct >= 5
+                              ? 'amber'
+                              : 'emerald'
+                        }
+                      />
+                    </div>
+
+                    {/* ══════════ REAL-TIME 21 CFR CLASSIFICATION PANEL ══════════ */}
+                    {/* Shows where the formula sits on the 4 regulatory pathways, with
+                        live progress bars toward the critical thresholds. Crossing
+                        5% LAC (acid → acidified) and 4.6 pH (acidified ↔ LACF) are
+                        filing-requirement flips, so they must be viscerally obvious. */}
+                    {specs.productClassification !== '—' && (() => {
+                      const cls = specs.productClassification;
+                      const lac = specs.lowAcidComponentPct;
+                      const pH = specs.pH;
+                      const aw = specs.aw;
+
+                      // Headline color & icon by classification
+                      const conf = {
+                        'acid':                 { color: 'emerald', icon: '🍋', label: 'ACID FOOD',               filing: 'No FDA filing',                      cfr: '21 CFR 114.3(b)(1)' },
+                        'acidified':            { color: 'amber',   icon: '🧪', label: 'ACIDIFIED FOOD',          filing: 'FDA Form 2541a REQUIRED',            cfr: '21 CFR 114' },
+                        'acidified-in-process': { color: 'amber',   icon: '⚗️', label: 'ACIDIFIED (IN PROCESS)',   filing: 'Add more acid → then 2541a',         cfr: '21 CFR 114' },
+                        'lacf':                 { color: 'rose',    icon: '🚨', label: 'LOW-ACID CANNED FOOD',     filing: 'FDA Form 2541a REQUIRED + Retort',   cfr: '21 CFR 113' },
+                        'shelf-stable-dry':     { color: 'emerald', icon: '🌾', label: 'SHELF-STABLE (DRY)',       filing: 'No FDA filing',                      cfr: '21 CFR 117' },
+                      }[cls];
+
+                      // Distance-to-threshold math — shows how close to the next classification flip
+                      // LAC threshold at 5% (acid → acidified) and 10% (lacf → acidified-in-process)
+                      const lacToFivePct = 5 - lac;
+                      const lacToTenPct = 10 - lac;
+                      const phToAcidified = pH - 4.6;  // positive = room to acid, negative = over
+                      const awToShelfStable = aw - 0.85;
+
+                      return (
+                        <div className={`mt-4 rounded-lg border-2 p-4 bg-${conf.color}-50 border-${conf.color}-300`}>
+                          {/* Headline */}
+                          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">{conf.icon}</span>
+                              <div>
+                                <div className={`font-bold text-${conf.color}-800 text-sm tracking-wide`}>{conf.label}</div>
+                                <div className="text-[10px] text-gray-600 font-mono">{conf.cfr}</div>
+                              </div>
+                            </div>
+                            <div className={`px-3 py-1 rounded-full bg-white border border-${conf.color}-300 text-xs font-bold text-${conf.color}-700`}>
+                              {conf.filing}
+                            </div>
+                          </div>
+
+                          {/* Threshold progress bars — pH (4.6), LAC (5% / 10%), aw (0.85) */}
+                          <div className="space-y-2 text-xs">
+                            {/* pH progress bar (0 → 7, marker at 4.6) */}
+                            {pH > 0 && (
+                              <div>
+                                <div className="flex justify-between items-center mb-0.5">
+                                  <span className="font-semibold text-gray-700">pH threshold 4.6</span>
+                                  <span className={`font-mono font-bold ${pH <= 4.6 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                    {pH.toFixed(2)} {pH <= 4.6 ? `(${phToAcidified.toFixed(2)} below)` : `(+${(pH - 4.6).toFixed(2)} over)`}
+                                  </span>
+                                </div>
+                                <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: `${(4.6 / 7) * 100}%` }} />
+                                  <div className="absolute inset-y-0 left-[65.7%] w-0.5 bg-gray-800" title="pH 4.6 threshold" />
+                                  <div
+                                    className={`absolute inset-y-0 w-1 rounded-full ${pH <= 4.6 ? 'bg-emerald-700' : 'bg-rose-700'}`}
+                                    style={{ left: `calc(${Math.min(100, (pH / 7) * 100)}% - 2px)` }}
+                                    title={`Current pH: ${pH.toFixed(2)}`}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Low-Acid Component progress bar (0 → 15%, markers at 5% and 10%) */}
+                            <div>
+                              <div className="flex justify-between items-center mb-0.5">
+                                <span className="font-semibold text-gray-700">Low-acid components (5% filing threshold)</span>
+                                <span className={`font-mono font-bold ${
+                                  lac < 5 ? 'text-emerald-700'
+                                  : lac < 10 ? 'text-amber-700'
+                                  : 'text-rose-600'
+                                }`}>
+                                  {lac.toFixed(2)}% {lac < 5 ? `(${lacToFivePct.toFixed(2)}% margin)` : lac < 10 ? `(over 5%, ${lacToTenPct.toFixed(2)}% to 10%)` : '(over 10%)'}
+                                </span>
+                              </div>
+                              <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: '33.33%' }} />
+                                <div className="absolute inset-y-0 bg-amber-400" style={{ left: '33.33%', width: '33.33%' }} />
+                                <div className="absolute inset-y-0 bg-rose-400" style={{ left: '66.66%', width: '33.34%' }} />
+                                <div className="absolute inset-y-0 left-[33.33%] w-0.5 bg-gray-800" title="5% threshold (acidified)" />
+                                <div className="absolute inset-y-0 left-[66.66%] w-0.5 bg-gray-800" title="10% threshold (acidified-in-process)" />
+                                <div
+                                  className={`absolute inset-y-[-2px] w-1.5 rounded-full border-2 border-white ${
+                                    lac < 5 ? 'bg-emerald-800' : lac < 10 ? 'bg-amber-800' : 'bg-rose-800'
+                                  }`}
+                                  style={{ left: `calc(${Math.min(100, (lac / 15) * 100)}% - 3px)` }}
+                                  title={`Current LAC: ${lac.toFixed(2)}%`}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[9px] text-gray-500 mt-0.5 px-1">
+                                <span>0%</span>
+                                <span className="font-bold text-gray-700">5% (acidified)</span>
+                                <span className="font-bold text-gray-700">10%</span>
+                                <span>15%</span>
+                              </div>
+                            </div>
+
+                            {/* aw progress bar — only show if aw is a decision factor */}
+                            {aw > 0 && pH > 4.6 && (
+                              <div>
+                                <div className="flex justify-between items-center mb-0.5">
+                                  <span className="font-semibold text-gray-700">Water activity 0.85 threshold</span>
+                                  <span className={`font-mono font-bold ${aw <= 0.85 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                    {aw.toFixed(3)} {aw <= 0.85 ? '(shelf-stable by aw)' : `(+${awToShelfStable.toFixed(3)} over, requires retort)`}
+                                  </span>
+                                </div>
+                                <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: '85%' }} />
+                                  <div className="absolute inset-y-0 left-[85%] w-0.5 bg-gray-800" title="0.85 threshold" />
+                                  <div
+                                    className={`absolute inset-y-0 w-1 rounded-full ${aw <= 0.85 ? 'bg-emerald-700' : 'bg-rose-700'}`}
+                                    style={{ left: `calc(${Math.min(100, aw * 100)}% - 2px)` }}
+                                    title={`Current aw: ${aw.toFixed(3)}`}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Explainer text specific to current classification */}
+                          <p className="text-[10px] text-gray-700 mt-3 leading-relaxed italic">
+                            {cls === 'acid' && `Naturally acid food. Low-acid components (${lac.toFixed(1)}%) under the 5% FDA threshold. Hot-fill + GMP only — no scheduled process filing.`}
+                            {cls === 'acidified' && `Low-acid base (${lac.toFixed(1)}%) acidified to pH ${pH.toFixed(2)}. THIS IS A REGULATED PATHWAY. Scheduled Process + Process Authority review mandatory before first commercial batch (21 CFR 114).`}
+                            {cls === 'acidified-in-process' && `Acidulant is present and ${lac.toFixed(1)}% low-acid base detected, but finished pH ${pH.toFixed(2)} is above 4.6. Add more acid until equilibrium pH ≤ 4.6 — target ≤ 4.2 for safety margin. Once acidified, 21 CFR 114 filing required.`}
+                            {cls === 'lacf' && `Low-acid canned food. pH ${pH.toFixed(2)} > 4.6 AND aw ${aw.toFixed(3)} > 0.85. Requires retort to commercial sterility (F₀ typ. ≥ 6 min) and scheduled process filing under 21 CFR 113. This is the highest-risk FDA process category — C. botulinum control is non-negotiable.`}
+                            {cls === 'shelf-stable-dry' && `Shelf-stable by water activity (aw ${aw.toFixed(3)} ≤ 0.85). No FDA scheduled process filing. Follow 21 CFR 117 Preventive Controls + low-moisture environmental Salmonella program.`}
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-semibold text-gray-700">Regulatory classification:</span>
+                        <span className="text-emerald-700 font-medium">{specs.regulatoryClass}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-500">
+                        <span>Spec coverage:</span>
+                        <span>{(specs.coverage * 100).toFixed(0)}% of mass has spec data</span>
+                      </div>
+                      {specs.coverage < 0.7 && (
+                        <p className="text-amber-600 mt-1">⚠️ Less than 70% of mass has spec data. Estimates may be less accurate — add more industrial-DB ingredients or verify in lab.</p>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-3">
+                      Estimates based on ingredient composition. Use for formulation scoping; final product specs require lab verification (pH meter, Brix refractometer, a_w meter, Bostwick consistometer, Brookfield viscometer).
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Suggested HACCP Program */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <h2 className="text-lg font-semibold text-gray-800">🛡️ Suggested HACCP Program</h2>
+                  <span className="text-xs text-gray-400">Auto-classified from product type + specs</span>
+                </div>
+
+                {/* ─── SPEC / TAG SAFETY MISMATCH BANNER ─── */}
+                {haccpMismatch && (
+                  <div className={`mb-4 rounded-lg p-4 border-2 ${
+                    haccpMismatch.severity === 'critical'
+                      ? 'bg-rose-50 border-rose-400'
+                      : 'bg-amber-50 border-amber-400'
+                  }`}>
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl shrink-0">
+                        {haccpMismatch.severity === 'critical' ? '🚨' : '⚠️'}
+                      </span>
+                      <div className="flex-1 text-sm">
+                        <div className={`font-bold ${haccpMismatch.severity === 'critical' ? 'text-rose-800' : 'text-amber-800'}`}>
+                          {haccpMismatch.severity === 'critical' ? 'Safety-critical mismatch — HACCP reclassified' : 'Caution — borderline spec'}
+                        </div>
+                        <div className={`font-semibold mt-1 ${haccpMismatch.severity === 'critical' ? 'text-rose-900' : 'text-amber-900'}`}>
+                          {haccpMismatch.title}
+                        </div>
+                        <p className={`mt-1 leading-relaxed ${haccpMismatch.severity === 'critical' ? 'text-rose-800' : 'text-amber-800'}`}>
+                          {haccpMismatch.message}
+                        </p>
+                        <div className="mt-2 text-xs grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="bg-white/70 rounded px-2 py-1">
+                            <div className="text-[10px] uppercase tracking-wide text-gray-500">Your formula</div>
+                            <div className="font-mono font-semibold text-gray-800">{haccpMismatch.actualSpec}</div>
+                          </div>
+                          <div className="bg-white/70 rounded px-2 py-1">
+                            <div className="text-[10px] uppercase tracking-wide text-gray-500">Required for product-type label</div>
+                            <div className="font-mono font-semibold text-gray-800">{haccpMismatch.expectedSpec}</div>
+                          </div>
+                        </div>
+                        {haccpMismatch.overrideCategoryId && suggestedHaccp && (
+                          <p className="mt-2 text-[11px] italic text-gray-700">
+                            HACCP below has been reclassified to <strong>{suggestedHaccp.name}</strong> to match the actual formula profile. Filing requirements and CCPs updated accordingly.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!suggestedHaccp ? (
+                  <div className="text-center py-6 text-gray-400 text-sm italic">
+                    Select a Product Type and add ingredients — we&apos;ll recommend an appropriate HACCP category based on the tags and estimated pH / a_w.
+                  </div>
+                ) : (
+                  <>
+                    {/* Filing requirement banner — most consequential info, shown up top */}
+                    <div className={`p-3 rounded-lg mb-3 border-2 ${
+                      filingReq.urgency === 'critical' ? 'bg-red-50 border-red-300' :
+                      filingReq.urgency === 'recommended' ? 'bg-amber-50 border-amber-300' :
+                      'bg-emerald-50 border-emerald-300'
+                    }`}>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <span className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Scheduled Process Filing</span>
+                          <div className={`text-base font-bold ${
+                            filingReq.urgency === 'critical' ? 'text-red-800' :
+                            filingReq.urgency === 'recommended' ? 'text-amber-800' :
+                            'text-emerald-800'
+                          }`}>
+                            {filingReq.required ? `⚠️ REQUIRED → ${filingReq.formName}` : `✓ ${filingReq.formName}`}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('filing')}
+                          className="text-xs px-3 py-1.5 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium"
+                        >
+                          Open 📋 Filing →
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-700 mt-1.5">{filingReq.reason}</p>
+                    </div>
+
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg mb-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <h3 className="font-bold text-emerald-800">{suggestedHaccp.name}</h3>
+                        <span className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold">{suggestedHaccp.framework}</span>
+                      </div>
+                      <p className="text-xs text-gray-700 mt-1">{suggestedHaccp.description}</p>
+                    </div>
+
+                    {/* Hazards summary */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                      <div className="p-2 bg-red-50 border border-red-200 rounded text-xs">
+                        <div className="font-bold text-red-800 mb-1">🧬 Biological</div>
+                        <ul className="text-red-900 space-y-0.5 list-disc ml-4">
+                          {suggestedHaccp.hazards.biological.slice(0, 3).map((h, i) => <li key={i}>{h}</li>)}
+                        </ul>
+                      </div>
+                      <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                        <div className="font-bold text-amber-800 mb-1">⚗️ Chemical</div>
+                        <ul className="text-amber-900 space-y-0.5 list-disc ml-4">
+                          {suggestedHaccp.hazards.chemical.slice(0, 3).map((h, i) => <li key={i}>{h}</li>)}
+                        </ul>
+                      </div>
+                      <div className="p-2 bg-gray-50 border border-gray-200 rounded text-xs">
+                        <div className="font-bold text-gray-800 mb-1">🔩 Physical</div>
+                        <ul className="text-gray-800 space-y-0.5 list-disc ml-4">
+                          {suggestedHaccp.hazards.physical.slice(0, 3).map((h, i) => <li key={i}>{h}</li>)}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {/* CCPs (always visible, compact) */}
+                    <div className="mb-3">
+                      <h4 className="text-sm font-bold text-gray-800 mb-2">Critical Control Points ({suggestedHaccp.ccps.length})</h4>
+                      <div className="space-y-2">
+                        {suggestedHaccp.ccps.map(ccp => (
+                          <div key={ccp.number} className="border border-gray-200 rounded p-2 bg-white text-xs">
+                            <div className="flex items-start gap-2">
+                              <span className="font-mono font-bold bg-emerald-700 text-white px-2 py-0.5 rounded shrink-0">CCP {ccp.number}</span>
+                              <div className="flex-1">
+                                <div className="font-semibold text-gray-800">{ccp.name}</div>
+                                <div className="text-emerald-700 font-medium mt-1">Limit: <span className="font-mono">{ccp.criticalLimit}</span></div>
+                                {showFullHaccp && (
+                                  <div className="mt-2 space-y-1 text-gray-600">
+                                    <div><span className="font-semibold text-gray-700">Monitor:</span> {ccp.monitoring}</div>
+                                    <div><span className="font-semibold text-gray-700">Corrective Action:</span> {ccp.correctiveAction}</div>
+                                    <div><span className="font-semibold text-gray-700">Verification:</span> {ccp.verification}</div>
+                                    <div><span className="font-semibold text-gray-700">Record:</span> {ccp.record}</div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setShowFullHaccp(!showFullHaccp)}
+                      className="text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition font-medium"
+                    >
+                      {showFullHaccp ? '▲ Hide CCP details' : '▼ Show monitoring, corrective actions, verification & records'}
+                    </button>
+
+                    {showFullHaccp && (
+                      <>
+                        <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                          <h4 className="text-sm font-bold text-gray-800 mb-1">Prerequisite Programs</h4>
+                          <ul className="text-xs text-gray-700 list-disc ml-5 space-y-0.5">
+                            {suggestedHaccp.prerequisitePrograms.map((p, i) => <li key={i}>{p}</li>)}
+                          </ul>
+                        </div>
+                        <div className="mt-3 text-[10px] text-gray-500">
+                          <span className="font-semibold">References:</span> {suggestedHaccp.references.join(' • ')}
+                        </div>
+                      </>
+                    )}
+
+                    <p className="text-xs text-gray-400 mt-3">
+                      ⚠️ This is a STARTER TEMPLATE. Every production facility must develop and validate its own HACCP plan with a qualified PCQI or certified Process Authority. Critical limits, monitoring frequency, and corrective actions must be validated for your specific product and equipment.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          COST TOOL TAB
+          Phase 1: Per-ingredient supplier-quote math, packaging roll-up,
+                   freight model (FOB vs delivered), MOQ flag.
+          Phase 2: Margin calculator — target SRP / wholesale / margin with
+                   distance-to-target gauge.
+          Phase 3: Commodity-spike sensitivity (single global %).
+          Phase 4: Lower-cost substitution suggestions from same category.
+          ══════════════════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════════════════
+          PACKAGING DATA SHEET MODAL (on-demand — open via button)
+          Auto-assembles container + closure + auxiliary items into a
+          supplier-facing, print-ready specification document. Mirrors the
+          raw-material spec sheet in structure and print CSS.
+          ══════════════════════════════════════════════════════════════════ */}
+      {showPackagingSheet && (() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const container = selectedPackaging;
+        const closure = selectedClosure;
+        const containerProf = container ? getPackagingSustainability(container) : null;
+        const closureProf = closure ? getPackagingSustainability(closure) : null;
+        const totalCost = (container?.costPerUnit || 0) + (closure?.costPerUnit || 0);
+        const hasContent = container || closure;
+        const neckMatch = container && closure ? isClosureCompatible(container, closure) : null;
+        // Resolve a PackagingItem to its part number — custom items store it inline
+        // in the notes field (FWP-CUS-XXXX); stock items are hashed deterministically.
+        const partNumberOf = (p: PackagingItem): string => {
+          const m = p.notes?.match(/Part #: (FWP-[A-Z0-9-]+)/);
+          if (m) return m[1];
+          return getPackagingPartNumber(p.name, p.category);
+        };
+
+        return (
+          <div
+            className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 overflow-auto print:bg-transparent print:p-0 print:static print:overflow-visible"
+            onClick={() => setShowPackagingSheet(false)}
+          >
+            <div
+              className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl print:max-h-none print:shadow-none print:rounded-none print:overflow-visible"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Modal header (hidden on print) */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-200 print:hidden bg-gray-50">
+                <h2 className="text-lg font-bold text-gray-800">📄 Packaging Data Sheet</h2>
+                <div className="flex gap-2">
+                  <button onClick={() => window.print()} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
+                  <button onClick={() => setShowPackagingSheet(false)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200">Close</button>
+                </div>
+              </div>
+
+              {/* Printable content */}
+              <div className="p-8 print:p-4">
+                {/* Letterhead */}
+                <div className="border-b-2 border-gray-800 pb-4 mb-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h1 className="text-3xl font-semibold text-emerald-700 tracking-tight leading-none">
+                        formulation<span className="text-gray-500 font-light tracking-[0.3em] ml-2 text-lg uppercase">wizard</span>
+                      </h1>
+                      <p className="text-xs text-gray-500 mt-1.5 italic">Packaging Specification Sheet — Supplier & Plant-Facing Document</p>
+                    </div>
+                    <div className="text-right text-xs">
+                      <div><span className="text-gray-500">Issued:</span> <span className="font-bold">{today}</span></div>
+                      <div><span className="text-gray-500">Formulation:</span> <span className="font-bold">{formulationName || 'Untitled'}</span></div>
+                      {partNumber && <div><span className="text-gray-500">Part #:</span> <span className="font-bold font-mono">{partNumber}</span></div>}
+                      <div><span className="text-gray-500">Mode:</span> <span className="font-bold">{mc.name}</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                {!hasContent && (
+                  <p className="text-center text-sm text-gray-500 italic py-8">
+                    No packaging selected. Choose a container and/or closure on the Build tab to generate the data sheet.
+                  </p>
+                )}
+
+                {/* ═══════ CONTAINER SECTION ═══════ */}
+                {container && (
+                  <section className="mb-6">
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">1. Primary Container</h2>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        <tr><td className="py-1 font-semibold text-gray-700 w-48">Part Number</td><td className="py-1 font-mono font-bold text-emerald-700">{partNumberOf(container)}</td></tr>
+                        <tr><td className="py-1 font-semibold text-gray-700">Name</td><td className="py-1 text-gray-900">{container.name}</td></tr>
+                        <tr><td className="py-1 font-semibold text-gray-700">Category</td><td className="py-1">{container.category}</td></tr>
+                        <tr><td className="py-1 font-semibold text-gray-700">Material</td><td className="py-1">{container.material}</td></tr>
+                        {container.capacity && container.capacity.value > 0 && (
+                          <tr><td className="py-1 font-semibold text-gray-700">Capacity</td><td className="py-1 font-mono">{container.capacity.value} {container.capacity.unit}</td></tr>
+                        )}
+                        {container.neckFinish && (
+                          <tr><td className="py-1 font-semibold text-gray-700">Neck / Finish</td><td className="py-1 font-mono">{container.neckFinish}</td></tr>
+                        )}
+                        {container.color && <tr><td className="py-1 font-semibold text-gray-700">Color</td><td className="py-1">{container.color}</td></tr>}
+                        {container.minimumOrder && <tr><td className="py-1 font-semibold text-gray-700">MOQ</td><td className="py-1">{container.minimumOrder}</td></tr>}
+                        <tr><td className="py-1 font-semibold text-gray-700">Cost per Unit</td><td className="py-1 font-mono font-bold text-emerald-700">${container.costPerUnit.toFixed(3)}</td></tr>
+                        {container.application && container.application.length > 0 && (
+                          <tr><td className="py-1 font-semibold text-gray-700">Application</td><td className="py-1">{container.application.join(' • ')}</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                    {container.suppliers.length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-xs font-semibold text-gray-700 mb-1">Approved Suppliers</div>
+                        <ul className="text-xs text-gray-700 list-disc ml-5">
+                          {container.suppliers.map((s, i) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {container.notes && (
+                      <p className="mt-2 text-xs text-gray-600 italic">{container.notes}</p>
+                    )}
+                  </section>
+                )}
+
+                {/* ═══════ CLOSURE SECTION ═══════ */}
+                {closure && (
+                  <section className="mb-6">
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">2. Closure / Dispenser</h2>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        <tr><td className="py-1 font-semibold text-gray-700 w-48">Part Number</td><td className="py-1 font-mono font-bold text-emerald-700">{partNumberOf(closure)}</td></tr>
+                        <tr><td className="py-1 font-semibold text-gray-700">Name</td><td className="py-1 text-gray-900">{closure.name}</td></tr>
+                        <tr><td className="py-1 font-semibold text-gray-700">Category</td><td className="py-1">{closure.category}</td></tr>
+                        <tr><td className="py-1 font-semibold text-gray-700">Material</td><td className="py-1">{closure.material}</td></tr>
+                        {closure.neckFinish && (
+                          <tr><td className="py-1 font-semibold text-gray-700">Fits Neck</td><td className="py-1 font-mono">{closure.neckFinish}</td></tr>
+                        )}
+                        {closure.minimumOrder && <tr><td className="py-1 font-semibold text-gray-700">MOQ</td><td className="py-1">{closure.minimumOrder}</td></tr>}
+                        <tr><td className="py-1 font-semibold text-gray-700">Cost per Unit</td><td className="py-1 font-mono font-bold text-emerald-700">${closure.costPerUnit.toFixed(3)}</td></tr>
+                      </tbody>
+                    </table>
+                    {closure.suppliers.length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-xs font-semibold text-gray-700 mb-1">Approved Suppliers</div>
+                        <ul className="text-xs text-gray-700 list-disc ml-5">
+                          {closure.suppliers.map((s, i) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {closure.notes && (
+                      <p className="mt-2 text-xs text-gray-600 italic">{closure.notes}</p>
+                    )}
+                  </section>
+                )}
+
+                {/* ═══════ COMPATIBILITY VERIFICATION ═══════ */}
+                {container && closure && (
+                  <section className="mb-6">
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">3. Compatibility Verification</h2>
+                    <div className={`text-sm p-3 rounded border ${neckMatch ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
+                      <div className="font-semibold mb-1">
+                        {neckMatch ? '✓ Neck Match Verified' : '⚠ Neck Mismatch — Will Not Seal'}
+                      </div>
+                      <div className="text-xs">
+                        Container neck: <span className="font-mono">{extractNeckCode(container.neckFinish) || container.neckFinish || 'unspecified'}</span>
+                        {' · '}
+                        Closure finish: <span className="font-mono">{extractNeckCode(closure.neckFinish) || closure.neckFinish || 'unspecified'}</span>
+                      </div>
+                      {!neckMatch && (
+                        <div className="text-xs mt-1 italic">
+                          This combination will not mechanically seal. Do not proceed to production — select a compatible closure or reissue this sheet with corrected packaging.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )}
+
+                {/* ═══════ SUSTAINABILITY PROFILE ═══════ */}
+                {(containerProf || closureProf) && (
+                  <section className="mb-6">
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">4. Sustainability Profile</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      {containerProf && (
+                        <div className="border border-gray-200 rounded p-3">
+                          <div className="font-semibold text-gray-700 mb-1">Container</div>
+                          <div className="text-xs space-y-0.5">
+                            <div>Score: <span className="font-bold">{containerProf.score}/100</span> ({containerProf.rating})</div>
+                            <div>Recyclability: <span className="font-medium">{containerProf.recyclability}</span></div>
+                            {containerProf.pcrContentPct !== undefined && <div>PCR Content: <span className="font-mono">{containerProf.pcrContentPct}%</span></div>}
+                            {containerProf.materialCarbonKgCo2e !== undefined && <div>CO₂e: <span className="font-mono">{containerProf.materialCarbonKgCo2e.toFixed(3)} kg/unit</span></div>}
+                          </div>
+                        </div>
+                      )}
+                      {closureProf && (
+                        <div className="border border-gray-200 rounded p-3">
+                          <div className="font-semibold text-gray-700 mb-1">Closure</div>
+                          <div className="text-xs space-y-0.5">
+                            <div>Score: <span className="font-bold">{closureProf.score}/100</span> ({closureProf.rating})</div>
+                            <div>Recyclability: <span className="font-medium">{closureProf.recyclability}</span></div>
+                            {closureProf.pcrContentPct !== undefined && <div>PCR Content: <span className="font-mono">{closureProf.pcrContentPct}%</span></div>}
+                            {closureProf.materialCarbonKgCo2e !== undefined && <div>CO₂e: <span className="font-mono">{closureProf.materialCarbonKgCo2e.toFixed(3)} kg/unit</span></div>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )}
+
+                {/* ═══════ REGULATORY NOTES ═══════ */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">5. Regulatory & Compliance Notes</h2>
+                  <ul className="text-xs text-gray-700 space-y-1 ml-5 list-disc">
+                    {mode === 'supplements' && closure && /crc|child.resistant/i.test(closure.name + closure.notes) && (
+                      <li>Closure is child-resistant per ASTM D3475 / 16 CFR 1700.20 — required for oral dietary supplements containing iron or any ingredient requiring CR packaging.</li>
+                    )}
+                    {mode === 'supplements' && container && /amber|opaque/i.test(container.color || '') && (
+                      <li>Amber / opaque container appropriate for light-sensitive actives (Vitamin A, D, B12, riboflavin, folate, fish oil).</li>
+                    )}
+                    {container && /\bhdpe\b|\bpet\b|\bpp\b|\bglass\b/i.test(container.material) && (
+                      <li>Food-contact material compliant with 21 CFR 174-178 (FCN / indirect food additive regulations).</li>
+                    )}
+                    {mode === 'sausage' && container && /casing/i.test(container.category) && (
+                      <li>Casing material compliant with 9 CFR 318.4 (USDA-FSIS approved for meat products).</li>
+                    )}
+                    <li>All materials must have Letter of Guarantee / food-contact statement on file from supplier prior to receipt.</li>
+                    <li>Incoming packaging inspected per QA SOP — integrity, dimensions, finish continuity, cleanliness.</li>
+                    {mode === 'supplements' && (
+                      <li>Induction seal (when specified) serves as tamper-evident feature per 21 CFR 111 requirements.</li>
+                    )}
+                  </ul>
+                </section>
+
+                {/* ═══════ COST ROLLUP ═══════ */}
+                {/* ═══════ CASE PACK & PALLET CONFIGURATION ═══════ */}
+                {(container?.casePack || closure?.casePack) && (
+                  <section className="mb-6">
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">6. Case Pack & Pallet Configuration</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {(container?.casePack ? [{ label: 'Container', item: container }] : []).concat(
+                        closure?.casePack ? [{ label: 'Closure', item: closure }] : []
+                      ).map(({ label, item }, i) => {
+                        const cp = item.casePack!;
+                        const casesPerPallet = (cp.casesPerLayer ?? 0) * (cp.layersPerPallet ?? 0) || undefined;
+                        const unitsPerPallet = casesPerPallet ? casesPerPallet * cp.unitsPerCase : undefined;
+                        return (
+                          <div key={i} className="border border-gray-200 rounded p-3">
+                            <div className="font-semibold text-gray-700 mb-2 text-sm">{label}: {item.name}</div>
+                            <table className="w-full text-xs">
+                              <tbody>
+                                {cp.caseType && <tr><td className="py-0.5 text-gray-500 w-32">Case Type</td><td className="py-0.5">{cp.caseType}</td></tr>}
+                                <tr><td className="py-0.5 text-gray-500">Units / Case</td><td className="py-0.5 font-mono font-bold">{cp.unitsPerCase}</td></tr>
+                                {cp.caseDimensions && (
+                                  <tr><td className="py-0.5 text-gray-500">Case Dimensions</td><td className="py-0.5 font-mono">{cp.caseDimensions.length} × {cp.caseDimensions.width} × {cp.caseDimensions.height} {cp.caseDimensions.unit}</td></tr>
+                                )}
+                                {cp.caseWeight && (
+                                  <tr><td className="py-0.5 text-gray-500">Case Weight</td><td className="py-0.5 font-mono">{cp.caseWeight.value} {cp.caseWeight.unit}</td></tr>
+                                )}
+                                {cp.palletType && <tr><td className="py-0.5 text-gray-500">Pallet Type</td><td className="py-0.5">{cp.palletType}</td></tr>}
+                                {cp.casesPerLayer !== undefined && <tr><td className="py-0.5 text-gray-500">Cases / Layer</td><td className="py-0.5 font-mono">{cp.casesPerLayer}</td></tr>}
+                                {cp.layersPerPallet !== undefined && <tr><td className="py-0.5 text-gray-500">Layers / Pallet</td><td className="py-0.5 font-mono">{cp.layersPerPallet}</td></tr>}
+                                {cp.tiHi && <tr><td className="py-0.5 text-gray-500">Ti-Hi</td><td className="py-0.5 font-mono font-bold">{cp.tiHi}</td></tr>}
+                                {casesPerPallet && <tr className="border-t border-gray-200"><td className="pt-1 text-gray-700 font-semibold">Cases / Pallet</td><td className="pt-1 font-mono font-bold text-emerald-700">{casesPerPallet}</td></tr>}
+                                {unitsPerPallet && <tr><td className="py-0.5 text-gray-700 font-semibold">Units / Pallet</td><td className="py-0.5 font-mono font-bold text-emerald-700">{unitsPerPallet.toLocaleString()}</td></tr>}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-gray-500 italic mt-2 leading-tight">
+                      Pallet quantities assume full-height GMA stacking. Truckload capacity: ~26 pallets per 53&apos; trailer (floor-loaded),
+                      ~28 pallets if double-stacked. LTL shipments priced per pallet or per linear foot — confirm with carrier.
+                    </p>
+                  </section>
+                )}
+
+                {hasContent && (
+                  <section className="mb-6">
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">7. Cost Roll-up</h2>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {container && (
+                          <tr><td className="py-1 text-gray-700">Container</td><td className="py-1 text-right font-mono">${container.costPerUnit.toFixed(3)}</td></tr>
+                        )}
+                        {closure && (
+                          <tr><td className="py-1 text-gray-700">Closure</td><td className="py-1 text-right font-mono">${closure.costPerUnit.toFixed(3)}</td></tr>
+                        )}
+                        <tr className="border-t border-gray-300"><td className="py-2 font-bold">Total Packaging / Unit</td><td className="py-2 text-right font-mono font-bold text-emerald-700">${totalCost.toFixed(3)}</td></tr>
+                      </tbody>
+                    </table>
+                  </section>
+                )}
+
+                {/* Footer */}
+                <div className="mt-8 pt-4 border-t border-gray-300 text-[10px] text-gray-500 italic leading-relaxed">
+                  Generated by Formulation Wizard on {today}. This specification is for planning purposes. Final packaging acceptance
+                  requires supplier Letter of Guarantee, food-contact compliance documentation, and incoming QA inspection.
+                  Neck-finish compatibility has been verified programmatically but a sample fit test is recommended before first production run.
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          RAW MATERIAL SPEC SHEET MODAL (global — available from any tab)
+          ══════════════════════════════════════════════════════════════════ */}
+      {specSheetIngredientIndex !== null && ingredients[specSheetIngredientIndex] && (() => {
+        const ing = ingredients[specSheetIngredientIndex];
+        const isIndustrial = ing.foodData?.type === 'industrial';
+        const dbData = isIndustrial && ing.foodData ? (ing.foodData.data as IndustrialIngredient) : null;
+        const spec = estimateSpecs([ing]);
+        const profile = getSustainabilityProfile({ name: ing.name, category: dbData?.category || '' });
+        const today = new Date().toISOString().slice(0, 10);
+
+        return (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 overflow-auto print:bg-transparent print:p-0 print:static print:overflow-visible" onClick={() => setSpecSheetIngredientIndex(null)}>
+            <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl print:max-h-none print:shadow-none print:rounded-none print:overflow-visible" onClick={e => e.stopPropagation()}>
+              {/* Modal header (hidden on print) */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-200 print:hidden bg-gray-50">
+                <h2 className="text-lg font-bold text-gray-800">📋 Raw Material Spec Sheet</h2>
+                <div className="flex gap-2">
+                  <button onClick={() => window.print()} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
+                  <button onClick={() => setSpecSheetIngredientIndex(null)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200">Close</button>
+                </div>
+              </div>
+
+              {/* Printable content */}
+              <div className="p-8 print:p-4">
+                {/* Letterhead */}
+                <div className="border-b-2 border-gray-800 pb-4 mb-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h1 className="text-3xl font-semibold text-emerald-700 tracking-tight leading-none">
+                        formulation<span className="text-gray-500 font-light tracking-[0.3em] ml-2 text-lg uppercase">wizard</span>
+                      </h1>
+                      <p className="text-xs text-gray-500 mt-1.5 italic">Raw Material Specification Sheet — Supplier-Facing Document</p>
+                    </div>
+                    <div className="text-right text-xs">
+                      <div><span className="text-gray-500">Issued:</span> <span className="font-bold">{today}</span></div>
+                      <div><span className="text-gray-500">Formulation:</span> <span className="font-bold">{formulationName || 'Untitled'}</span></div>
+                      {partNumber && <div><span className="text-gray-500">Formula Part #:</span> <span className="font-bold font-mono">{partNumber}</span></div>}
+                      <div><span className="text-gray-500">Mode:</span> <span className="font-bold">{mc.name}</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ingredient identity */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">1. Ingredient Identity</h2>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr><td className="py-1 font-semibold text-gray-700 w-48">Part Number</td><td className="py-1 font-mono font-bold text-emerald-700">{getIngredientPartNumber(ing.name, dbData?.category)}</td></tr>
+                      <tr><td className="py-1 font-semibold text-gray-700">Ingredient Name</td><td className="py-1 text-gray-900">{ing.name}</td></tr>
+                      {dbData?.category && <tr><td className="py-1 font-semibold text-gray-700">Category</td><td className="py-1">{dbData.category}</td></tr>}
+                      {ing.subIngredients.length > 0 && (
+                        <tr>
+                          <td className="py-1 font-semibold text-gray-700 align-top">Sub-Ingredients</td>
+                          <td className="py-1">{ing.subIngredients.join(', ')}</td>
+                        </tr>
+                      )}
+                      {ing.allergens.length > 0 && (
+                        <tr>
+                          <td className="py-1 font-semibold text-rose-700">Allergens</td>
+                          <td className="py-1 text-rose-700 font-semibold">{ing.allergens.join(', ')}</td>
+                        </tr>
+                      )}
+                      {dbData?.notes && <tr><td className="py-1 font-semibold text-gray-700 align-top">Notes</td><td className="py-1 italic text-gray-600">{dbData.notes}</td></tr>}
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Required Specifications */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">2. Required Specifications (Target)</h2>
+                  <table className="w-full text-sm border border-gray-200">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500">
+                        <th className="py-2 px-3">Parameter</th>
+                        <th className="py-2 px-3">Target / Range</th>
+                        <th className="py-2 px-3">Test Method</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {spec.pH > 0 && (
+                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">pH</td><td className="py-1.5 px-3 font-mono">{spec.pH.toFixed(2)} ± 0.2</td><td className="py-1.5 px-3 text-gray-600">pH meter, 2-point calibrated</td></tr>
+                      )}
+                      {spec.aw > 0 && (
+                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Water Activity (aw)</td><td className="py-1.5 px-3 font-mono">{spec.aw.toFixed(3)} ± 0.02</td><td className="py-1.5 px-3 text-gray-600">Decagon aw meter or equivalent</td></tr>
+                      )}
+                      {spec.moisture > 0 && (
+                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Moisture</td><td className="py-1.5 px-3 font-mono">{spec.moisture.toFixed(1)}% ± 1.0</td><td className="py-1.5 px-3 text-gray-600">Loss on drying @ 105°C or Karl Fischer</td></tr>
+                      )}
+                      {spec.brix > 0 && (
+                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Brix</td><td className="py-1.5 px-3 font-mono">{spec.brix.toFixed(1)}° ± 0.5</td><td className="py-1.5 px-3 text-gray-600">Digital refractometer @ 20°C</td></tr>
+                      )}
+                      {dbData?.nutrition?.protein !== undefined && dbData.nutrition.protein > 0 && (
+                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Protein (typical)</td><td className="py-1.5 px-3 font-mono">{dbData.nutrition.protein}% per 100g</td><td className="py-1.5 px-3 text-gray-600">Kjeldahl N × 6.25 (or 5.7 for wheat)</td></tr>
+                      )}
+                      {dbData?.nutrition?.sodium !== undefined && dbData.nutrition.sodium > 0 && (
+                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Sodium</td><td className="py-1.5 px-3 font-mono">{dbData.nutrition.sodium} mg/100g</td><td className="py-1.5 px-3 text-gray-600">ICP-OES or AOAC 984.27</td></tr>
+                      )}
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Heavy Metals (Pb, As, Cd, Hg)</td><td className="py-1.5 px-3 font-mono">Meet USP &lt;232&gt; / FDA action limits</td><td className="py-1.5 px-3 text-gray-600">ICP-MS, per USP &lt;233&gt;</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Pesticide Residues</td><td className="py-1.5 px-3 font-mono">≤ FDA/EPA tolerances</td><td className="py-1.5 px-3 text-gray-600">Multi-residue LC-MS/MS + GC-MS/MS</td></tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Microbiological Criteria */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">3. Microbiological Criteria</h2>
+                  <table className="w-full text-sm border border-gray-200">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500">
+                        <th className="py-2 px-3">Organism</th>
+                        <th className="py-2 px-3">Limit</th>
+                        <th className="py-2 px-3">Method</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Total Aerobic Plate Count</td><td className="py-1.5 px-3 font-mono">≤ 10,000 CFU/g</td><td className="py-1.5 px-3 text-gray-600">AOAC 990.12 / FDA BAM Ch. 3</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Yeast &amp; Mold</td><td className="py-1.5 px-3 font-mono">≤ 1,000 CFU/g</td><td className="py-1.5 px-3 text-gray-600">FDA BAM Ch. 18</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Coliforms</td><td className="py-1.5 px-3 font-mono">≤ 100 CFU/g</td><td className="py-1.5 px-3 text-gray-600">FDA BAM Ch. 4</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium"><em>E. coli</em></td><td className="py-1.5 px-3 font-mono">&lt; 10 CFU/g (absent preferred)</td><td className="py-1.5 px-3 text-gray-600">FDA BAM Ch. 4</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium"><em>Salmonella</em> spp.</td><td className="py-1.5 px-3 font-mono">Absent in 25g</td><td className="py-1.5 px-3 text-gray-600">FDA BAM Ch. 5</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium"><em>Listeria monocytogenes</em></td><td className="py-1.5 px-3 font-mono">Absent in 25g (RTE/refrigerated)</td><td className="py-1.5 px-3 text-gray-600">FDA BAM Ch. 10</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium"><em>Staphylococcus aureus</em></td><td className="py-1.5 px-3 font-mono">≤ 100 CFU/g</td><td className="py-1.5 px-3 text-gray-600">FDA BAM Ch. 12</td></tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Certification Requirements */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">4. Certification Requirements</h2>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {profile.organicAvailable && /\borganic\b/i.test(ing.name) && (
+                      <span className="px-2 py-1 bg-emerald-50 border border-emerald-300 rounded">USDA Organic (NOP)</span>
+                    )}
+                    {profile.nonGmoAvailable && (
+                      <span className="px-2 py-1 bg-sky-50 border border-sky-300 rounded">Non-GMO Project Verified (if labeled)</span>
+                    )}
+                    {profile.suggestedCerts.includes('rspo-segregated') && (
+                      <span className="px-2 py-1 bg-amber-50 border border-amber-300 rounded">RSPO Segregated (palm-derived)</span>
+                    )}
+                    {profile.suggestedCerts.includes('msc') && (
+                      <span className="px-2 py-1 bg-sky-50 border border-sky-300 rounded">MSC Certified (wild-caught)</span>
+                    )}
+                    {profile.suggestedCerts.includes('rainforest-alliance') && (
+                      <span className="px-2 py-1 bg-emerald-50 border border-emerald-300 rounded">Rainforest Alliance / UTZ</span>
+                    )}
+                    {profile.suggestedCerts.includes('fair-trade-usa') && (
+                      <span className="px-2 py-1 bg-amber-50 border border-amber-300 rounded">Fair Trade USA / International</span>
+                    )}
+                    <span className="px-2 py-1 bg-gray-50 border border-gray-300 rounded">Kosher (U / OU preferred)</span>
+                    <span className="px-2 py-1 bg-gray-50 border border-gray-300 rounded">Halal (IFANCA or equivalent)</span>
+                    <span className="px-2 py-1 bg-gray-50 border border-gray-300 rounded">FSSC 22000 / SQF / BRC (facility)</span>
+                  </div>
+                </section>
+
+                {/* Documentation Required */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">5. Documentation Required with Each Lot</h2>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
+                    <li>Certificate of Analysis (COA) with lot number, manufacture date, values vs. spec</li>
+                    <li>Allergen Statement / Letter of Guarantee</li>
+                    <li>Country of Origin statement</li>
+                    <li>Kosher / Halal / Organic / Non-GMO certificates (current, unexpired)</li>
+                    <li>Food Safety Audit certificate (SQF / BRC / FSSC 22000)</li>
+                    <li>GMO / PGM status statement</li>
+                    <li>Bioengineered Food Disclosure status (per USDA 7 CFR 66)</li>
+                  </ul>
+                </section>
+
+                {/* Commercial Terms */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">6. Commercial Terms (Target)</h2>
+                  <table className="w-full text-sm border border-gray-200">
+                    <tbody>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium w-48">Target Cost</td><td className="py-1.5 px-3 font-mono">${(ing.costPerKg || 0).toFixed(2)}/kg (delivered)</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Minimum Order Quantity</td><td className="py-1.5 px-3">To be agreed — target 1 pallet / 1,000 kg typical</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Lead Time</td><td className="py-1.5 px-3">≤ 2 weeks from order release</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Shelf Life at Receipt</td><td className="py-1.5 px-3">≥ 75% of labeled shelf life remaining</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Payment Terms</td><td className="py-1.5 px-3">Net 30, terms negotiable</td></tr>
+                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Preferred Suppliers (in order)</td><td className="py-1.5 px-3 text-[11px]">{(dbData?.suppliers || []).join(' / ') || '—'}</td></tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Incoming Inspection Protocol */}
+                <section className="mb-6">
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">7. Incoming QA Inspection</h2>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
+                    <li>COA review against spec — reject any lot with out-of-spec parameter without pre-arranged deviation approval</li>
+                    <li>Visual inspection for damage, contamination, infestation</li>
+                    <li>Temperature check (refrigerated / frozen materials)</li>
+                    <li>Seal integrity + tamper evidence</li>
+                    <li>Weight verification — ± 1% of manifest</li>
+                    <li>Lot number recorded in incoming log; COA retained ≥ 2 years per 21 CFR 117.315</li>
+                    <li>Retention sample pulled + held to 6 months past use-by</li>
+                  </ul>
+                </section>
+
+                {/* Signatures */}
+                <section className="mt-8 pt-4 border-t-2 border-gray-800">
+                  <div className="grid grid-cols-2 gap-8 text-sm">
+                    <div>
+                      <div className="font-semibold text-gray-700 mb-4">Buyer (Purchaser)</div>
+                      <div className="border-b border-gray-400 h-10"></div>
+                      <div className="text-[10px] text-gray-500 mt-1">Name / Title / Date</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-700 mb-4">Supplier (Manufacturer)</div>
+                      <div className="border-b border-gray-400 h-10"></div>
+                      <div className="text-[10px] text-gray-500 mt-1">Name / Title / Date</div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-500 italic mt-6 text-center">
+                    This document references FDA 21 CFR 117 (Preventive Controls for Human Food), 21 CFR 111 (Dietary Supplement cGMP),
+                    and USP chapters &lt;232&gt; and &lt;233&gt; where applicable. Specifications are targets — finalize and sign before first shipment.
+                  </p>
+                </section>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {activeTab === 'cost' && (
+        <div className="max-w-6xl mx-auto px-6 py-8">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">💰 Formulation Cost Tool</h2>
+                <p className="text-gray-500 text-sm mt-1">{formulationName || 'Untitled formulation'} • {mc.name}</p>
+              </div>
+              <div className="text-xs text-gray-400">Cost/kg values flow from DB → override per-ingredient on the 🔬 Build tab</div>
+            </div>
+          </div>
+
+          {ingredients.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm italic">
+              Add ingredients on the 🔬 Build tab first. The cost tool breaks down ingredient, packaging, freight, labor, and overhead per retail unit.
+            </div>
+          ) : (() => {
+            // ───── Core cost math (respects freight model + commodity spike) ─────
+            const spikeMult = 1 + (commoditySpikePct / 100);
+            const rawIngredientCost = totalCost * spikeMult;
+            const totalBatchKg = totalBatchGrams / 1000;
+            const freightAdder = freightModel === 'fob' ? totalBatchKg * freightPerKg : 0;
+            const deliveredIngredientCost = rawIngredientCost + freightAdder;
+
+            const unitsPerBatch = packageSizeInGrams > 0
+              ? Math.floor(totalBatchGrams / packageSizeInGrams)
+              : 0;
+
+            // Per-unit roll-up (allocate batch-wide cost by weight share of the package)
+            const weightShare = totalBatchGrams > 0 ? packageSizeInGrams / totalBatchGrams : 0;
+            const ingredientCostPerUnit = deliveredIngredientCost * weightShare;
+            const packagingCostPerUnit = (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0);
+            const directCostPerUnit = ingredientCostPerUnit + packagingCostPerUnit + laborPerUnit;
+            const overheadPerUnit = directCostPerUnit * (overheadPct / 100);
+            const fullyLoadedCOGS = directCostPerUnit + overheadPerUnit;
+
+            // ───── Margin math ─────
+            const wholesalePrice = targetSRP * wholesaleFactor;
+            const costCeiling = wholesalePrice * (1 - targetMarginPct / 100);
+            const actualMarginPct = wholesalePrice > 0
+              ? ((wholesalePrice - fullyLoadedCOGS) / wholesalePrice) * 100
+              : 0;
+            const marginDelta = actualMarginPct - targetMarginPct;
+            const costDelta = costCeiling - fullyLoadedCOGS;
+            const onTarget = marginDelta >= 0;
+
+            // ───── Per-ingredient breakdown ─────
+            type CostRow = {
+              idx: number;
+              name: string;
+              category: string;
+              massG: number;
+              costPerKg: number;
+              lineCost: number;
+              sharePct: number;
+              supplier: string;
+              moq: string;
+              suggestions: IndustrialIngredient[];
+              isOverride: boolean;
+            };
+
+            const sortedForSuggestions = (name: string, cat: string, currentCostPerKg: number): IndustrialIngredient[] => {
+              if (!cat || currentCostPerKg <= 0) return [];
+              return INDUSTRIAL_DB
+                .filter(i => i.category === cat
+                  && i.name !== name
+                  && (i.costPerKg || 0) > 0
+                  && (i.costPerKg || 0) < currentCostPerKg)
+                .sort((a, b) => (a.costPerKg || 0) - (b.costPerKg || 0))
+                .slice(0, 3);
+            };
+
+            const rows: CostRow[] = ingredients.map((ing, idx) => {
+              const massG = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+              const massKg = massG / 1000;
+              const effectiveCostPerKg = (ing.costPerKg || 0) * spikeMult;
+              const lineCost = massKg * effectiveCostPerKg;
+              const cat = ing.foodData?.type === 'industrial'
+                ? (ing.foodData.data as IndustrialIngredient).category
+                : '';
+              const supplier = ing.supplier || (ing.foodData?.type === 'industrial'
+                ? ((ing.foodData.data as IndustrialIngredient).suppliers || [])[0] || ''
+                : '');
+              // DB-stated cost as the reference; anything different ⇒ override
+              const dbCost = ing.foodData?.type === 'industrial'
+                ? ((ing.foodData.data as IndustrialIngredient).costPerKg || 0)
+                : 0;
+              const isOverride = dbCost > 0 && Math.abs((ing.costPerKg || 0) - dbCost) > 0.001;
+              // MOQ heuristic — most industrial ingredients ship in ≥ 20 kg cases
+              const moq = massKg < 0.5 ? 'pilot' : massKg < 20 ? 'below typical MOQ' : 'ok';
+              return {
+                idx,
+                name: ing.name,
+                category: cat,
+                massG,
+                costPerKg: effectiveCostPerKg,
+                lineCost,
+                sharePct: rawIngredientCost > 0 ? (lineCost / rawIngredientCost) * 100 : 0,
+                supplier,
+                moq,
+                suggestions: sortedForSuggestions(ing.name, cat, effectiveCostPerKg),
+                isOverride,
+              };
+            }).sort((a, b) => b.lineCost - a.lineCost);
+
+            const fmt = (n: number) => n >= 10 ? n.toFixed(2) : n.toFixed(3);
+
+            const unitSanityViolation = packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0;
+
+            return (
+              <>
+                {unitSanityViolation && (
+                  <div className="bg-rose-50 border-2 border-rose-400 rounded-xl p-4 mb-6">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">⚠️</span>
+                      <div className="flex-1 text-sm">
+                        <p className="font-bold text-rose-800">Unit mismatch detected — all per-unit cost figures below are unreliable.</p>
+                        <p className="text-rose-700 mt-1">
+                          Your package size ({packageSize}{packageUnit} = {packageSizeInGrams.toFixed(0)}g) is larger than your entire batch ({totalBatchGrams.toFixed(0)}g).
+                          This almost always means the unit dropdown is set incorrectly on the 🔬 Build tab (e.g. &apos;oz&apos; where &apos;g&apos; was intended, or &apos;lb&apos; where &apos;oz&apos; was intended).
+                        </p>
+                        <p className="text-rose-700 mt-1 font-semibold">Fix the package size / unit on the Build tab before relying on any number on this page.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {/* ───── Headline KPIs ───── */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white rounded-xl border border-gray-200 p-4">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / unit</div>
+                    <div className="text-2xl font-bold text-emerald-700 mt-1">${fmt(ingredientCostPerUnit)}</div>
+                    <div className="text-[10px] text-gray-400 mt-1">weight-allocated share</div>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-200 p-4">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500">Packaging $ / unit</div>
+                    <div className="text-2xl font-bold text-emerald-700 mt-1">${fmt(packagingCostPerUnit)}</div>
+                    <div className="text-[10px] text-gray-400 mt-1">container + closure</div>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-200 p-4">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500">Fully-loaded COGS</div>
+                    <div className="text-2xl font-bold text-emerald-700 mt-1">${fmt(fullyLoadedCOGS)}</div>
+                    <div className="text-[10px] text-gray-400 mt-1">+ labor + overhead</div>
+                  </div>
+                  <div className={`rounded-xl border p-4 ${onTarget ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                    <div className="text-[10px] uppercase tracking-wide text-gray-600">Gross Margin</div>
+                    <div className={`text-2xl font-bold mt-1 ${onTarget ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {wholesalePrice > 0 ? `${actualMarginPct.toFixed(1)}%` : '—'}
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-1">
+                      {onTarget ? `+${marginDelta.toFixed(1)} pts vs target` : `${marginDelta.toFixed(1)} pts vs target`}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                  {/* ───── Pricing / Margin Calculator ───── */}
+                  <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <h3 className="text-base font-semibold text-gray-800 mb-4">🎯 Margin Calculator</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Target SRP (retail, $)</label>
+                        <input type="number" step="0.01" value={targetSRP}
+                          onChange={e => setTargetSRP(Math.max(0, parseFloat(e.target.value) || 0))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Wholesale factor</label>
+                        <input type="number" step="0.01" value={wholesaleFactor}
+                          onChange={e => setWholesaleFactor(Math.max(0.1, Math.min(1, parseFloat(e.target.value) || 0.5)))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                        <p className="text-[10px] text-gray-400 mt-0.5">0.50 = typical grocery (50% markup)</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Target gross margin %</label>
+                        <input type="number" step="1" value={targetMarginPct}
+                          onChange={e => setTargetMarginPct(Math.max(0, Math.min(90, parseFloat(e.target.value) || 0)))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Wholesale $ (computed)</label>
+                        <div className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-mono text-gray-700">
+                          ${wholesalePrice.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                          <div className="text-[10px] uppercase tracking-wide text-gray-500">Cost ceiling</div>
+                          <div className="font-bold font-mono text-gray-800">${fmt(costCeiling)}</div>
+                          <div className="text-[10px] text-gray-400">max COGS/unit for {targetMarginPct}% margin</div>
+                        </div>
+                        <div className={`rounded-lg p-3 border ${onTarget ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                          <div className="text-[10px] uppercase tracking-wide text-gray-600">Distance to target</div>
+                          <div className={`font-bold font-mono ${onTarget ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {onTarget ? '+' : ''}${fmt(costDelta)}
+                          </div>
+                          <div className="text-[10px] text-gray-500">{onTarget ? 'headroom' : 'over budget'} / unit</div>
+                        </div>
+                      </div>
+
+                      {/* Progress bar to target */}
+                      {costCeiling > 0 && (
+                        <div className="mt-3">
+                          <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                            <span>$0</span>
+                            <span>Ceiling ${costCeiling.toFixed(2)}</span>
+                          </div>
+                          <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className={`absolute inset-y-0 left-0 ${onTarget ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                              style={{ width: `${Math.min(100, (fullyLoadedCOGS / costCeiling) * 100)}%` }} />
+                          </div>
+                          <div className="text-[10px] text-gray-500 mt-1 text-right">
+                            {((fullyLoadedCOGS / costCeiling) * 100).toFixed(0)}% of ceiling consumed
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ───── Inputs: freight, labor, overhead, sensitivity ───── */}
+                  <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <h3 className="text-base font-semibold text-gray-800 mb-4">⚙️ Cost Inputs</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Freight model</label>
+                        <div className="flex gap-2">
+                          <button onClick={() => setFreightModel('delivered')}
+                            className={`flex-1 px-3 py-2 rounded-lg text-sm border ${freightModel === 'delivered' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-400'}`}>
+                            Delivered (DDP)
+                          </button>
+                          <button onClick={() => setFreightModel('fob')}
+                            className={`flex-1 px-3 py-2 rounded-lg text-sm border ${freightModel === 'fob' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-400'}`}>
+                            FOB origin + freight
+                          </button>
+                        </div>
+                      </div>
+                      {freightModel === 'fob' && (
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Freight $ / kg</label>
+                          <input type="number" step="0.01" value={freightPerKg}
+                            onChange={e => setFreightPerKg(Math.max(0, parseFloat(e.target.value) || 0))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                          <p className="text-[10px] text-gray-400 mt-0.5">Typical LTL $0.10–$0.40/kg. Reefer or air freight, more.</p>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Labor $ / unit</label>
+                          <input type="number" step="0.01" value={laborPerUnit}
+                            onChange={e => setLaborPerUnit(Math.max(0, parseFloat(e.target.value) || 0))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Overhead %</label>
+                          <input type="number" step="1" value={overheadPct}
+                            onChange={e => setOverheadPct(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">
+                          📈 Commodity spike sensitivity: <span className={`font-bold ${commoditySpikePct === 0 ? 'text-gray-600' : commoditySpikePct > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{commoditySpikePct > 0 ? '+' : ''}{commoditySpikePct}%</span>
+                        </label>
+                        <input type="range" min={-30} max={100} step={5} value={commoditySpikePct}
+                          onChange={e => setCommoditySpikePct(parseInt(e.target.value))}
+                          className="w-full" />
+                        <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                          <span>-30%</span><span>baseline</span><span>+100%</span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-1">
+                          What-if modeling: applies a global $/kg multiplier to every ingredient. Use to stress-test margin against commodity volatility.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ───── Per-ingredient breakdown ───── */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+                  <div className="flex items-baseline justify-between mb-3">
+                    <h3 className="text-base font-semibold text-gray-800">📊 Per-Ingredient Cost Breakdown</h3>
+                    <div className="text-xs text-gray-500">
+                      Batch total: <span className="font-mono font-bold text-emerald-700">${rawIngredientCost.toFixed(2)}</span>
+                      {freightAdder > 0 && <> + <span className="font-mono text-amber-600">${freightAdder.toFixed(2)} freight</span></>}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-300 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                          <th className="py-2">Ingredient</th>
+                          <th className="py-2 text-right">Mass</th>
+                          <th className="py-2 text-right">$/kg</th>
+                          <th className="py-2 text-right">Line $</th>
+                          <th className="py-2 text-right">% cost</th>
+                          <th className="py-2">Supplier</th>
+                          <th className="py-2 text-center">MOQ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(r => (
+                          <tr key={r.idx} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="py-2">
+                              <div className="font-medium text-gray-800">{r.name}</div>
+                              {r.category && <div className="text-[10px] text-gray-400">{r.category}</div>}
+                              {r.suggestions.length > 0 && (
+                                <details className="mt-1">
+                                  <summary className="text-[10px] text-blue-600 cursor-pointer hover:underline">
+                                    💡 {r.suggestions.length} lower-cost sub{r.suggestions.length > 1 ? 's' : ''}
+                                  </summary>
+                                  <div className="mt-1 pl-2 border-l-2 border-blue-200 space-y-1">
+                                    {r.suggestions.map(s => {
+                                      const savings = r.costPerKg - (s.costPerKg || 0);
+                                      const savingsPct = r.costPerKg > 0 ? (savings / r.costPerKg) * 100 : 0;
+                                      return (
+                                        <div key={s.name} className="text-[10px]">
+                                          <span className="font-medium text-gray-700">{s.name}</span>
+                                          {' — '}
+                                          <span className="font-mono">${(s.costPerKg || 0).toFixed(2)}/kg</span>
+                                          {' '}
+                                          <span className="text-emerald-700 font-semibold">−{savingsPct.toFixed(0)}%</span>
+                                          {' '}
+                                          <span className="text-gray-500">({(s.suppliers || [])[0] || ''})</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </details>
+                              )}
+                            </td>
+                            <td className="py-2 text-right font-mono">{r.massG.toFixed(1)}g</td>
+                            <td className="py-2 text-right font-mono">
+                              <div className="flex items-center gap-1 justify-end">
+                                <span className="text-gray-400">$</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={ingredients[r.idx]?.costPerKg || ''}
+                                  onChange={e => updateCost(r.idx, e.target.value)}
+                                  placeholder="0.00"
+                                  title="Edit $/kg — override DB default with your real supplier quote"
+                                  className="w-20 border border-gray-200 rounded px-1.5 py-0.5 text-xs font-mono text-right focus:outline-none focus:border-emerald-500 bg-white"
+                                />
+                                {r.isOverride && <span title="Overrides DB default" className="text-[9px] text-amber-600 font-bold">◉</span>}
+                              </div>
+                            </td>
+                            <td className="py-2 text-right font-mono font-semibold text-emerald-700">${r.lineCost.toFixed(3)}</td>
+                            <td className="py-2 text-right font-mono text-gray-600">{r.sharePct.toFixed(1)}%</td>
+                            <td className="py-2 text-gray-600 text-[10px] max-w-[240px]">
+                              {/* Supplier selector — picks from the ingredient's DB supplier list OR lets user type a custom name */}
+                              {(() => {
+                                const fd = ingredients[r.idx]?.foodData;
+                                const dbData = fd?.type === 'industrial' ? (fd.data as IndustrialIngredient) : null;
+                                const suppliers = dbData?.suppliers || [];
+                                const currentSupplier = ingredients[r.idx]?.supplier || '';
+                                const isCustom = currentSupplier && !suppliers.includes(currentSupplier);
+                                return (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <select
+                                      value={isCustom ? '__custom__' : currentSupplier}
+                                      onChange={e => {
+                                        const val = e.target.value;
+                                        if (val === '__custom__') {
+                                          const custom = window.prompt('Enter custom supplier name:', currentSupplier) || '';
+                                          if (custom) updateSupplier(r.idx, custom);
+                                        } else if (val) {
+                                          applySupplierFromRegistry(r.idx, val);
+                                        }
+                                      }}
+                                      title="Change supplier — applies registry price modifier to DB baseline"
+                                      className="w-full border border-gray-200 rounded px-1.5 py-0.5 text-[10px] bg-white focus:outline-none focus:border-emerald-500"
+                                    >
+                                      {suppliers.length === 0 && <option value="">(no DB suppliers)</option>}
+                                      {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                                      {isCustom && <option value={currentSupplier}>{currentSupplier} ✏️</option>}
+                                      <option value="__custom__">+ Type custom supplier…</option>
+                                    </select>
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="py-2 text-center">
+                              {r.moq === 'pilot' && <span className="px-1.5 py-0.5 bg-sky-100 text-sky-700 rounded text-[9px]">pilot</span>}
+                              {r.moq === 'below typical MOQ' && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px]" title="Below typical 20kg industrial MOQ — expect pilot-pack pricing">↑ MOQ</span>}
+                              {r.moq === 'ok' && <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px]">ok</span>}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="border-t-2 border-gray-700 font-bold bg-gray-50">
+                          <td className="py-2">TOTAL (batch, {totalBatchGrams.toFixed(0)}g)</td>
+                          <td className="py-2 text-right font-mono">{totalBatchGrams.toFixed(1)}g</td>
+                          <td></td>
+                          <td className="py-2 text-right font-mono text-emerald-700">${rawIngredientCost.toFixed(2)}</td>
+                          <td className="py-2 text-right font-mono">100.0%</td>
+                          <td></td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-3 italic">
+                    Override ingredient $/kg on the 🔬 Build tab (with real supplier quotes). ◉ badge marks overridden rows.
+                    Lower-cost subs are drawn from the same category in this mode&apos;s DB — verify functional equivalence before swapping.
+                  </p>
+                </div>
+
+                {/* ───── COGS Waterfall ───── */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <h3 className="text-base font-semibold text-gray-800 mb-4">📉 Per-Unit COGS Waterfall</h3>
+                  <div className="space-y-2">
+                    {(() => {
+                      const items = [
+                        { label: 'Ingredients (delivered)', value: ingredientCostPerUnit, color: 'bg-emerald-500' },
+                        { label: 'Packaging (container + closure)', value: packagingCostPerUnit, color: 'bg-sky-500' },
+                        { label: 'Direct labor', value: laborPerUnit, color: 'bg-violet-500' },
+                        { label: `Overhead (${overheadPct}%)`, value: overheadPerUnit, color: 'bg-amber-500' },
+                      ];
+                      const max = Math.max(fullyLoadedCOGS, 0.001);
+                      return items.map((it, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="w-56 text-xs text-gray-600">{it.label}</div>
+                          <div className="flex-1 h-6 bg-gray-100 rounded relative overflow-hidden">
+                            <div className={`absolute inset-y-0 left-0 ${it.color}`} style={{ width: `${(it.value / max) * 100}%` }} />
+                            <div className="absolute inset-0 flex items-center px-2 text-[10px] font-mono font-semibold text-gray-800">
+                              ${fmt(it.value)} &nbsp;<span className="text-gray-500">({fullyLoadedCOGS > 0 ? ((it.value / fullyLoadedCOGS) * 100).toFixed(0) : '0'}%)</span>
+                            </div>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                    <div className="flex items-center gap-3 pt-2 border-t-2 border-gray-700">
+                      <div className="w-56 text-sm font-bold text-gray-800">Fully-loaded COGS / unit</div>
+                      <div className="flex-1 h-7 bg-gray-200 rounded relative overflow-hidden">
+                        <div className="absolute inset-0 flex items-center px-2 text-sm font-bold font-mono text-gray-900">
+                          ${fmt(fullyLoadedCOGS)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-56 text-xs text-gray-600">Wholesale (${wholesaleFactor.toFixed(2)}× SRP)</div>
+                      <div className="flex-1 h-6 bg-gray-100 rounded relative overflow-hidden">
+                        <div className="absolute inset-0 flex items-center px-2 text-[10px] font-mono font-semibold text-gray-700">
+                          ${wholesalePrice.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-56 text-xs text-gray-600">SRP (retail)</div>
+                      <div className="flex-1 h-6 bg-gray-100 rounded relative overflow-hidden">
+                        <div className="absolute inset-0 flex items-center px-2 text-[10px] font-mono font-semibold text-gray-700">
+                          ${targetSRP.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
+                    <div className="bg-gray-50 border border-gray-200 rounded p-2">
+                      <div className="text-[10px] text-gray-500 uppercase">Units / batch</div>
+                      <div className="font-bold font-mono">{unitsPerBatch}</div>
+                    </div>
+                    <div className="bg-gray-50 border border-gray-200 rounded p-2">
+                      <div className="text-[10px] text-gray-500 uppercase">Revenue / batch (at wholesale)</div>
+                      <div className="font-bold font-mono text-emerald-700">${(unitsPerBatch * wholesalePrice).toFixed(2)}</div>
+                    </div>
+                    <div className="bg-gray-50 border border-gray-200 rounded p-2">
+                      <div className="text-[10px] text-gray-500 uppercase">Gross profit / batch</div>
+                      <div className={`font-bold font-mono ${onTarget ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        ${(unitsPerBatch * (wholesalePrice - fullyLoadedCOGS)).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {commoditySpikePct !== 0 && (
+                    <div className={`mt-4 text-xs border rounded-lg p-3 ${commoditySpikePct > 0 ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                      <strong>Stress test active:</strong> all ingredient $/kg multiplied by {(1 + commoditySpikePct / 100).toFixed(2)}× ({commoditySpikePct > 0 ? '+' : ''}{commoditySpikePct}% commodity spike).
+                      {' '}Reset the slider to return to baseline.
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          SOURCING TAB
+          Per-ingredient supplier breakdown with cert filters.
+          ══════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'sourcing' && (
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          {/* Sub-view toggle: Suppliers directory vs. Qualifications tracker */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setSourcingSubView('suppliers')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${sourcingSubView === 'suppliers' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            >
+              🏭 Suppliers by Ingredient
+            </button>
+            <button
+              onClick={() => setSourcingSubView('qualifications')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${sourcingSubView === 'qualifications' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            >
+              📋 Qualification Tracker {supplierQuals.length > 0 && <span className="ml-1 text-[10px] opacity-75">({supplierQuals.length})</span>}
+            </button>
+          </div>
+
+          {sourcingSubView === 'suppliers' && (
+          <>
+          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">🌐 Supplier Sourcing</h2>
+                <p className="text-gray-500 text-sm mt-1">{formulationName || 'Untitled formulation'} • {mc.name}</p>
+              </div>
+              <div className="text-xs text-gray-400">Cert filters below apply in real time</div>
+            </div>
+
+            {/* Filter bar */}
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-2">Required certifications (must-haves)</div>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { label: '🌱 USDA Organic', state: sourcingFilterOrganic, set: setSourcingFilterOrganic, cert: 'usda-organic' as SustainabilityCert },
+                  { label: '🧬 Non-GMO Verified', state: sourcingFilterNonGmo, set: setSourcingFilterNonGmo, cert: 'non-gmo-verified' as SustainabilityCert },
+                  { label: '✡ Kosher', state: sourcingFilterKosher, set: setSourcingFilterKosher, cert: 'kosher' as SustainabilityCert },
+                  { label: '☪ Halal', state: sourcingFilterHalal, set: setSourcingFilterHalal, cert: 'halal' as SustainabilityCert },
+                  { label: '🌴 RSPO', state: sourcingFilterRspo, set: setSourcingFilterRspo, cert: 'rspo-segregated' as SustainabilityCert },
+                  { label: '🐟 MSC/ASC', state: sourcingFilterMsc, set: setSourcingFilterMsc, cert: 'msc' as SustainabilityCert },
+                  { label: '🤝 Fair Trade', state: sourcingFilterFairTrade, set: setSourcingFilterFairTrade, cert: 'fair-trade-usa' as SustainabilityCert },
+                  { label: '🏭 cGMP', state: sourcingFilterCgmp, set: setSourcingFilterCgmp, cert: 'cgmp' as SustainabilityCert },
+                ]).map(f => (
+                  <button
+                    key={f.cert}
+                    onClick={() => f.set(!f.state)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                      f.state
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-emerald-400'
+                    }`}
+                  >
+                    {f.state ? '✓ ' : ''}{f.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 mt-3">
+                <label className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Max Lead Time:</label>
+                <select
+                  value={sourcingFilterMaxLeadTime}
+                  onChange={e => setSourcingFilterMaxLeadTime(e.target.value as typeof sourcingFilterMaxLeadTime)}
+                  className="border border-gray-300 rounded px-2 py-1 text-xs"
+                >
+                  <option value="any">Any</option>
+                  <option value="1-3-days">1–3 days</option>
+                  <option value="1-2-weeks">1–2 weeks</option>
+                  <option value="2-4-weeks">2–4 weeks</option>
+                  <option value="4-8-weeks">4–8 weeks</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {ingredients.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm italic">
+              Add ingredients on the 🔬 Build tab first. This tab shows every supplier for every ingredient in your formula, with cert filters.
+            </div>
+          ) : (() => {
+            // Helper: rank lead-time buckets for filter comparison
+            const leadTimeRank: Record<LeadTimeBucket, number> = {
+              'same-day': 0, '1-3-days': 1, '1-2-weeks': 2, '2-4-weeks': 3, '4-8-weeks': 4, '8-plus-weeks': 5,
+            };
+            const maxLeadRank = sourcingFilterMaxLeadTime === 'any' ? 99 : leadTimeRank[sourcingFilterMaxLeadTime];
+            const requiredCerts: SustainabilityCert[] = [
+              ...(sourcingFilterOrganic ? ['usda-organic' as SustainabilityCert] : []),
+              ...(sourcingFilterNonGmo ? ['non-gmo-verified' as SustainabilityCert] : []),
+              ...(sourcingFilterKosher ? ['kosher' as SustainabilityCert] : []),
+              ...(sourcingFilterHalal ? ['halal' as SustainabilityCert] : []),
+              ...(sourcingFilterRspo ? ['rspo-segregated' as SustainabilityCert, 'rspo-mass-balance' as SustainabilityCert] : []),
+              ...(sourcingFilterMsc ? ['msc' as SustainabilityCert, 'asc' as SustainabilityCert] : []),
+              ...(sourcingFilterFairTrade ? ['fair-trade-usa' as SustainabilityCert, 'fair-trade-international' as SustainabilityCert, 'rainforest-alliance' as SustainabilityCert] : []),
+              ...(sourcingFilterCgmp ? ['cgmp' as SustainabilityCert] : []),
+            ];
+
+            // Expand into per-ingredient / per-supplier rows
+            return (
+              <div className="space-y-4">
+                {ingredients.map((ing, idx) => {
+                  const suppliers = ing.foodData?.type === 'industrial'
+                    ? (ing.foodData.data as IndustrialIngredient).suppliers || []
+                    : ing.supplier ? [ing.supplier] : [];
+                  const ingBaseCost = ing.costPerKg || 0;
+
+                  // Per-supplier profile with filters applied
+                  const supplierProfiles = suppliers.map(name => {
+                    const info = getSupplierInfo(name);
+                    const hasAllCerts = requiredCerts.length === 0 ||
+                      requiredCerts.every(c =>
+                        sourcingFilterRspo ? (info.certs.includes('rspo-segregated') || info.certs.includes('rspo-mass-balance'))
+                        : sourcingFilterMsc ? (info.certs.includes('msc') || info.certs.includes('asc'))
+                        : sourcingFilterFairTrade ? (info.certs.includes('fair-trade-usa') || info.certs.includes('fair-trade-international') || info.certs.includes('rainforest-alliance'))
+                        : info.certs.includes(c)
+                      );
+                    const leadOk = leadTimeRank[info.typicalLeadTime] <= maxLeadRank;
+                    const effectiveCostPerKg = ingBaseCost * info.priceModifier;
+                    return { info, hasAllCerts, leadOk, effectiveCostPerKg, passes: hasAllCerts && leadOk };
+                  }).sort((a, b) => a.effectiveCostPerKg - b.effectiveCostPerKg);
+
+                  const passingCount = supplierProfiles.filter(s => s.passes).length;
+
+                  return (
+                    <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="p-4 border-b border-gray-200 flex items-baseline justify-between flex-wrap gap-2">
+                        <div>
+                          <div className="font-semibold text-gray-800">{ing.name}</div>
+                          <div className="text-[10px] text-gray-500 mt-0.5">
+                            {ing.qty}{ing.unit} • DB baseline ${ingBaseCost.toFixed(2)}/kg
+                          </div>
+                        </div>
+                        <div className="text-xs">
+                          <span className={`px-2 py-1 rounded ${passingCount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            {passingCount}/{supplierProfiles.length} suppliers match filters
+                          </span>
+                        </div>
+                      </div>
+
+                      {supplierProfiles.length === 0 ? (
+                        <div className="p-4 text-xs text-gray-400 italic">No suppliers listed for this ingredient.</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-gray-200 text-left text-[10px] uppercase tracking-wide text-gray-500 bg-gray-50">
+                                <th className="py-2 px-3">Supplier</th>
+                                <th className="py-2 px-3">Country</th>
+                                <th className="py-2 px-3">Tier</th>
+                                <th className="py-2 px-3">Certs</th>
+                                <th className="py-2 px-3">Lead Time</th>
+                                <th className="py-2 px-3">MOQ</th>
+                                <th className="py-2 px-3 text-right">$/kg (est.)</th>
+                                <th className="py-2 px-3">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {supplierProfiles.map((sp, sidx) => {
+                                const { info } = sp;
+                                const tierColor = info.tier === 'commodity' ? 'gray' : info.tier === 'specialty' ? 'sky' : info.tier === 'premium' ? 'violet' : 'amber';
+                                return (
+                                  <tr key={sidx} className={`border-b border-gray-100 ${!sp.passes ? 'opacity-40' : ''}`}>
+                                    <td className="py-2 px-3">
+                                      <div className="font-medium text-gray-800">{info.name}</div>
+                                      {info.notes && <div className="text-[9px] text-gray-500 mt-0.5">{info.notes.slice(0, 80)}{info.notes.length > 80 ? '…' : ''}</div>}
+                                    </td>
+                                    <td className="py-2 px-3 text-gray-600">{info.country}</td>
+                                    <td className="py-2 px-3">
+                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold bg-${tierColor}-100 text-${tierColor}-700`}>{info.tier}</span>
+                                    </td>
+                                    <td className="py-2 px-3">
+                                      <div className="flex flex-wrap gap-0.5 max-w-[200px]">
+                                        {info.certs.slice(0, 5).map(c => (
+                                          <span key={c} className="px-1 py-0.5 rounded text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-200" title={CERT_LABELS[c] || c}>
+                                            {CERT_LABELS[c]?.split(' ')[0] || c.split('-')[0]}
+                                          </span>
+                                        ))}
+                                        {info.certs.length > 5 && <span className="text-[8px] text-gray-500">+{info.certs.length - 5}</span>}
+                                      </div>
+                                    </td>
+                                    <td className="py-2 px-3 text-gray-600 text-[11px]">{info.typicalLeadTime.replace(/-/g, ' ')}</td>
+                                    <td className="py-2 px-3 text-gray-600 text-[11px]">{info.moqTier}</td>
+                                    <td className="py-2 px-3 text-right font-mono">
+                                      <span className={sp.effectiveCostPerKg > ingBaseCost * 1.05 ? 'text-rose-600' : sp.effectiveCostPerKg < ingBaseCost * 0.95 ? 'text-emerald-700' : 'text-gray-700'}>
+                                        ${sp.effectiveCostPerKg.toFixed(2)}
+                                      </span>
+                                      <div className="text-[9px] text-gray-400">({info.priceModifier.toFixed(2)}×)</div>
+                                    </td>
+                                    <td className="py-2 px-3">
+                                      {sp.passes ? (
+                                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-semibold">✓ matches</span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[9px] font-semibold" title={!sp.hasAllCerts ? 'Missing required certs' : 'Lead time too long'}>
+                                          {!sp.hasAllCerts ? 'missing certs' : 'lead time'}
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <div className="bg-gray-50 border border-gray-200 rounded p-3 text-[11px] text-gray-600 italic">
+                  <strong>How this works:</strong> $/kg shows the DB baseline cost multiplied by each supplier&apos;s price modifier (commodity = 0.95–1.0×, specialty = 1.05–1.15×, premium = 1.20–1.45×, craft = 1.60–2.85×). Certifications come from the supplier registry — verify current certificates with the supplier before contracting. Price modifiers are directional estimates, not firm quotes.
+                </div>
+              </div>
+            );
+          })()}
+          </>
+          )}
+
+          {/* ═════════ QUALIFICATION TRACKER sub-view ═════════ */}
+          {sourcingSubView === 'qualifications' && (() => {
+            const summary = summarizeQualifications(supplierQuals);
+            return (
+              <>
+                <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
+                  <div className="flex items-start justify-between flex-wrap gap-4">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-800">📋 Supplier Qualification Tracker</h2>
+                      <p className="text-gray-500 text-sm mt-1 max-w-2xl">
+                        Track supplier documentation with expiration dates. Alerts bubble up to the Dashboard when anything expires within 60 days.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingQualId('new');
+                        setQualForm({ supplierName: '', docType: 'locg', issuedDate: new Date().toISOString().slice(0, 10), expirationDate: '', certifier: '', notes: '' });
+                      }}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-semibold"
+                    >
+                      + Add Qualification
+                    </button>
+                  </div>
+
+                  {/* Status summary tiles */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Total</div>
+                      <div className="text-2xl font-bold text-gray-800">{summary.total}</div>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                      <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold">✓ Current</div>
+                      <div className="text-2xl font-bold text-emerald-700">{summary.current}</div>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold">⚠ Expiring ≤60d</div>
+                      <div className="text-2xl font-bold text-amber-700">{summary.expiring}</div>
+                    </div>
+                    <div className="bg-rose-50 border border-rose-200 rounded-lg p-3">
+                      <div className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold">🚨 Expired</div>
+                      <div className="text-2xl font-bold text-rose-700">{summary.expired}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Qualifications list */}
+                {supplierQuals.length === 0 ? (
+                  <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-sm text-gray-400 italic">
+                    No qualifications tracked yet. Add your first with the &ldquo;+ Add Qualification&rdquo; button above.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {[...supplierQuals]
+                      .sort((a, b) => new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime())
+                      .map(q => {
+                        const st = getQualificationStatus(q);
+                        return (
+                          <div
+                            key={q.id}
+                            className={`bg-white rounded-lg border-2 p-4 flex items-center justify-between flex-wrap gap-3 border-${st.color}-200`}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <span className="text-2xl">{DOC_TYPE_ICONS[q.docType]}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                  <span className="font-bold text-gray-800">{q.supplierName}</span>
+                                  <span className="text-xs text-gray-500">•</span>
+                                  <span className="text-xs text-gray-700">{DOC_TYPE_LABELS[q.docType]}</span>
+                                  {q.certifier && <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{q.certifier}</span>}
+                                </div>
+                                <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-0.5 flex-wrap">
+                                  <span>Issued {new Date(q.issuedDate).toLocaleDateString()}</span>
+                                  <span>•</span>
+                                  <span>Expires {new Date(q.expirationDate).toLocaleDateString()}</span>
+                                  {q.notes && <><span>•</span><span className="italic">{q.notes}</span></>}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-1 rounded-full text-[11px] font-semibold bg-${st.color}-100 text-${st.color}-800 border border-${st.color}-300`}>
+                                {st.label}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setEditingQualId(q.id);
+                                  setQualForm(q);
+                                }}
+                                className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded"
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Delete this qualification for ${q.supplierName}?`)) {
+                                    setSupplierQuals(supplierQuals.filter(x => x.id !== q.id));
+                                  }
+                                }}
+                                className="px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 rounded"
+                              >
+                                🗑
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+
+                {/* Add/Edit modal */}
+                {editingQualId !== null && (
+                  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setEditingQualId(null)}>
+                    <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+                      <h3 className="text-lg font-bold text-gray-800 mb-4">
+                        {editingQualId === 'new' ? '+ Add Qualification' : '✏️ Edit Qualification'}
+                      </h3>
+
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">Supplier Name *</label>
+                          <input
+                            type="text"
+                            value={qualForm.supplierName || ''}
+                            onChange={e => setQualForm({ ...qualForm, supplierName: e.target.value })}
+                            placeholder="e.g., Cargill, Kerry Ingredients"
+                            list="sourcing-supplier-list"
+                            className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+                          />
+                          <datalist id="sourcing-supplier-list">
+                            {Array.from(new Set(INDUSTRIAL_DB.flatMap(i => i.suppliers || []))).slice(0, 50).map(s => (
+                              <option key={s} value={s} />
+                            ))}
+                          </datalist>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">Document Type *</label>
+                          <select
+                            value={qualForm.docType || 'locg'}
+                            onChange={e => setQualForm({ ...qualForm, docType: e.target.value as SupplierDocType })}
+                            className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                          >
+                            {(Object.entries(DOC_TYPE_LABELS) as [SupplierDocType, string][]).map(([val, label]) => (
+                              <option key={val} value={val}>{DOC_TYPE_ICONS[val]} {label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-semibold text-gray-700">Issued Date *</label>
+                            <input
+                              type="date"
+                              value={qualForm.issuedDate || ''}
+                              onChange={e => setQualForm({ ...qualForm, issuedDate: e.target.value })}
+                              className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold text-gray-700">Expiration Date *</label>
+                            <input
+                              type="date"
+                              value={qualForm.expirationDate || ''}
+                              onChange={e => setQualForm({ ...qualForm, expirationDate: e.target.value })}
+                              className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">Certifier / Issuing Body</label>
+                          <input
+                            type="text"
+                            value={qualForm.certifier || ''}
+                            onChange={e => setQualForm({ ...qualForm, certifier: e.target.value })}
+                            placeholder="e.g., OU, Kof-K, USDA, NSF, SGS"
+                            className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">Notes</label>
+                          <textarea
+                            rows={2}
+                            value={qualForm.notes || ''}
+                            onChange={e => setQualForm({ ...qualForm, notes: e.target.value })}
+                            placeholder="Contact person, renewal protocol, special conditions..."
+                            className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 mt-5">
+                        <button
+                          onClick={() => {
+                            if (!qualForm.supplierName?.trim() || !qualForm.expirationDate || !qualForm.issuedDate) {
+                              alert('Please fill in supplier name, issued date, and expiration date.');
+                              return;
+                            }
+                            const payload: SupplierQualification = {
+                              id: editingQualId === 'new' ? Date.now().toString() : editingQualId as string,
+                              supplierName: qualForm.supplierName!.trim(),
+                              docType: qualForm.docType!,
+                              issuedDate: qualForm.issuedDate!,
+                              expirationDate: qualForm.expirationDate!,
+                              certifier: qualForm.certifier?.trim() || undefined,
+                              notes: qualForm.notes?.trim() || undefined,
+                            };
+                            if (editingQualId === 'new') {
+                              setSupplierQuals([...supplierQuals, payload]);
+                            } else {
+                              setSupplierQuals(supplierQuals.map(q => q.id === editingQualId ? payload : q));
+                            }
+                            setEditingQualId(null);
+                          }}
+                          className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-semibold"
+                        >
+                          💾 Save
+                        </button>
+                        <button
+                          onClick={() => setEditingQualId(null)}
+                          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* BATCH SHEET TAB */}
+      {activeTab === 'batch' && (
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          {/* Controls (hidden on print) */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 print:hidden">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-gray-800">🏭 Batch Sheet Generator</h2>
+              <button
+                onClick={() => window.print()}
+                disabled={ingredients.length === 0}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
+              >
+                🖨️ Print / Save as PDF
+              </button>
+            </div>
+            {ingredients.length === 0 ? (
+              <div className="text-gray-500 py-8 text-center">Go to the 🔬 Build tab and add some ingredients first.</div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Production Batch Size</label>
+                  <div className="flex gap-1">
+                    <input type="number" value={batchSize} onChange={(e) => setBatchSize(Math.max(0.1, parseFloat(e.target.value) || 10))}
+                      className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-base font-bold focus:outline-none focus:border-emerald-500" />
+                    <select value={batchSizeUnit} onChange={(e) => setBatchSizeUnit(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
+                      {['kg', 'lb', 'L', 'g'].map(u => <option key={u}>{u}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
+                  <input type="text" value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} placeholder="e.g., 20260422-01"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Production Date</label>
+                  <input type="date" value={productionDate} onChange={(e) => setProductionDate(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Operator</label>
+                  <input type="text" value={operator} onChange={(e) => setOperator(e.target.value)} placeholder="Operator initials"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Batch Sheet Document */}
+          {ingredients.length > 0 && (() => {
+            const targetBatchGrams = batchSize * (UNIT_TO_GRAMS[batchSizeUnit] || 1000);
+            const scaleFactor = totalBatchGrams > 0 ? targetBatchGrams / totalBatchGrams : 1;
+            return (
+              <div className="bg-white border border-gray-200 rounded-xl p-8 print:p-0 print:border-0 print:rounded-none print:shadow-none">
+                {/* Header */}
+                <div className="border-b-2 border-gray-800 pb-4 mb-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h1 className="text-3xl font-bold text-gray-900">{formulationName || 'Untitled Formulation'}</h1>
+                      <p className="text-gray-600 text-sm mt-1">{productType || 'Product type not set'}</p>
+                    </div>
+                    <div className="text-right text-sm">
+                      <div><span className="text-gray-500">Batch #</span> <span className="font-bold">{batchNumber || '_______________'}</span></div>
+                      <div><span className="text-gray-500">Date</span> <span className="font-bold">{productionDate}</span></div>
+                      <div><span className="text-gray-500">Operator</span> <span className="font-bold">{operator || '_______________'}</span></div>
+                      <div><span className="text-gray-500">Target Batch</span> <span className="font-bold">{batchSize} {batchSizeUnit} ({targetBatchGrams.toFixed(0)} g)</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Production Cost Summary — scaled to the target batch size */}
+                {totalCost > 0 && (
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Production Cost ({batchSize} {batchSizeUnit})</h2>
+                    {(() => {
+                      const scaledIngredientCost = totalCost * scaleFactor;
+                      const unitsProduced = packageSizeInGrams > 0 ? Math.floor(targetBatchGrams / packageSizeInGrams) : 0;
+                      const scaledPackagingCost = packagingCostPerUnit * unitsProduced;
+                      const totalProductionCost = scaledIngredientCost + scaledPackagingCost;
+                      const costPerUnit = unitsProduced > 0 ? totalProductionCost / unitsProduced : 0;
+                      const costPerKg = targetBatchGrams > 0 ? (scaledIngredientCost / (targetBatchGrams / 1000)) : 0;
+                      return (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <div className="text-gray-500 text-[10px] uppercase tracking-wide">Ingredient Cost</div>
+                            <div className="font-bold text-lg">${scaledIngredientCost.toFixed(2)}</div>
+                            <div className="text-[10px] text-gray-500">${costPerKg.toFixed(2)}/kg</div>
+                          </div>
+                          {scaledPackagingCost > 0 && (
+                            <div>
+                              <div className="text-gray-500 text-[10px] uppercase tracking-wide">Packaging Cost</div>
+                              <div className="font-bold text-lg">${scaledPackagingCost.toFixed(2)}</div>
+                              <div className="text-[10px] text-gray-500">{unitsProduced} units × ${packagingCostPerUnit.toFixed(3)}</div>
+                            </div>
+                          )}
+                          <div>
+                            <div className="text-gray-500 text-[10px] uppercase tracking-wide">Total Batch Cost</div>
+                            <div className="font-bold text-lg text-emerald-700">${totalProductionCost.toFixed(2)}</div>
+                          </div>
+                          {unitsProduced > 0 && (
+                            <div>
+                              <div className="text-gray-500 text-[10px] uppercase tracking-wide">Cost / Retail Unit</div>
+                              <div className="font-bold text-lg text-emerald-700">${costPerUnit.toFixed(3)}</div>
+                              <div className="text-[10px] text-gray-500">{unitsProduced} units produced</div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <p className="text-[10px] text-gray-400 mt-2 italic">* Based on estimated ingredient costs. Override per-ingredient with supplier quotes in the Build tab for accuracy.</p>
+                  </section>
+                )}
+
+                {/* Target Specs */}
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Target Specs</h2>
+                  <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div><span className="text-gray-500">pH</span><br /><span className="font-bold text-lg">{specs.pH > 0 ? specs.pH.toFixed(2) : '—'}</span></div>
+                    <div><span className="text-gray-500">Brix</span><br /><span className="font-bold text-lg">{specs.brix > 0 ? specs.brix.toFixed(1) + '°' : '—'}</span></div>
+                    <div><span className="text-gray-500">Moisture</span><br /><span className="font-bold text-lg">{specs.moisture.toFixed(1)}%</span></div>
+                    <div><span className="text-gray-500">a_w</span><br /><span className="font-bold text-lg">{specs.aw > 0 ? specs.aw.toFixed(3) : '—'}</span></div>
+                    <div><span className="text-gray-500">Bostwick</span><br /><span className="font-bold text-lg">{specs.bostwickCmPer30s.toFixed(1)} cm/30s</span></div>
+                    <div><span className="text-gray-500">Brookfield est.</span><br /><span className="font-bold text-lg">{specs.brookfieldCp.toLocaleString()} cP</span></div>
+                    <div><span className="text-gray-500">Acetic acid</span><br /><span className="font-bold text-lg">{specs.aceticAcid > 0 ? specs.aceticAcid.toFixed(2) + '%' : '—'}</span></div>
+                    <div><span className="text-gray-500">A/M ratio</span><br /><span className="font-bold text-lg">{specs.aceticMoistureRatio > 0 ? specs.aceticMoistureRatio.toFixed(2) + '%' : '—'}</span></div>
+                  </div>
+                  <p className="text-xs text-gray-500 italic mt-2">{specs.regulatoryClass}</p>
+                  {processTemplate.targetSpecs && processTemplate.targetSpecs.length > 0 && (
+                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                      <span className="font-semibold">Critical targets for {productType}: </span>
+                      {processTemplate.targetSpecs.map(t => `${t.name}: ${t.value}`).join(' • ')}
+                    </div>
+                  )}
+                </section>
+
+                {/* Ingredients scaled to batch */}
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Ingredients (scaled to {batchSize} {batchSizeUnit})</h2>
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b-2 border-gray-700 text-left">
+                        <th className="py-2 pr-2 w-6">#</th>
+                        <th className="py-2 pr-2">Ingredient</th>
+                        <th className="py-2 pr-2">Supplier</th>
+                        <th className="py-2 pr-2 text-right">% wt</th>
+                        <th className="py-2 pr-2 text-right">Target</th>
+                        <th className="py-2 pr-2 text-right">Actual</th>
+                        <th className="py-2 pr-2">Lot #</th>
+                        <th className="py-2 text-center">COA ✓</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ingredients.map((ing, i) => {
+                        const baseGrams = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                        const scaledGrams = baseGrams * scaleFactor;
+                        const weightPct = totalBatchGrams > 0 ? (baseGrams / totalBatchGrams) * 100 : 0;
+                        return (
+                          <tr key={i} className="border-b border-gray-200">
+                            <td className="py-2 pr-2 align-top">{i + 1}</td>
+                            <td className="py-2 pr-2 align-top">
+                              <div className="font-medium">{ing.name}</div>
+                              {ing.subIngredients && ing.subIngredients.length > 0 && (
+                                <div className="text-gray-400 text-[10px]">{ing.subIngredients.join(', ')}</div>
+                              )}
+                            </td>
+                            <td className="py-2 pr-2 align-top">{ing.supplier || '—'}</td>
+                            <td className="py-2 pr-2 text-right align-top font-mono">{weightPct.toFixed(2)}%</td>
+                            <td className="py-2 pr-2 text-right align-top font-mono">
+                              {scaledGrams >= 1000 ? `${(scaledGrams / 1000).toFixed(3)} kg` : `${scaledGrams.toFixed(2)} g`}
+                            </td>
+                            <td className="py-2 pr-2 align-top border-l border-r border-gray-300 min-w-[80px]"></td>
+                            <td className="py-2 pr-2 align-top border-r border-gray-300 min-w-[100px]"></td>
+                            <td className="py-2 text-center align-top">☐</td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-b-2 border-gray-700 font-bold">
+                        <td></td>
+                        <td className="py-2">TOTAL</td>
+                        <td></td>
+                        <td className="py-2 pr-2 text-right font-mono">100.00%</td>
+                        <td className="py-2 pr-2 text-right font-mono">{(targetBatchGrams / 1000).toFixed(3)} kg</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Allergens */}
+                {allergenStatement.length > 0 && (
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">⚠️ Allergens</h2>
+                    <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.join(', ')}</p>
+                    <p className="text-xs text-gray-500 mt-1">Confirm allergen changeover protocol is complete before starting this batch.</p>
+                  </section>
+                )}
+
+                {/* Packaging */}
+                {(selectedPackaging || selectedClosure) && (
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Packaging</h2>
+                    <div className="text-sm space-y-1">
+                      {selectedPackaging && <div><span className="text-gray-500">Container:</span> <span className="font-medium">{selectedPackaging.name}</span> — {selectedPackaging.suppliers[0]}</div>}
+                      {selectedClosure && <div><span className="text-gray-500">Closure:</span> <span className="font-medium">{selectedClosure.name}</span> — {selectedClosure.suppliers[0]}</div>}
+                      <div><span className="text-gray-500">Fill size:</span> <span className="font-medium">{packageSize} {packageUnit}</span> • <span className="text-gray-500">Units produced (target):</span> <span className="font-medium">{packageSize > 0 ? Math.floor(targetBatchGrams / packageSizeInGrams) : '—'}</span></div>
+                    </div>
+                  </section>
+                )}
+
+                {/* Suggested HACCP Category */}
+                {suggestedHaccp && (
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">🛡️ HACCP Category</h2>
+                    <div className="text-sm">
+                      <div className="font-bold">{suggestedHaccp.name}</div>
+                      <div className="text-xs text-gray-600">{suggestedHaccp.framework}</div>
+                      <ul className="text-xs mt-2 space-y-1">
+                        {suggestedHaccp.ccps.map(ccp => (
+                          <li key={ccp.number}><span className="font-semibold">CCP {ccp.number} ({ccp.name}):</span> {ccp.criticalLimit}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </section>
+                )}
+
+                {/* Process Instructions */}
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Process Instructions</h2>
+                  <ol className="list-decimal ml-5 space-y-1.5 text-sm">
+                    {processTemplate.steps.map((step, i) => (
+                      <li key={i} className="text-gray-800">{step}</li>
+                    ))}
+                  </ol>
+                </section>
+
+                {/* QA Checkpoints */}
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">QA Checkpoints</h2>
+                  <ul className="space-y-1.5 text-sm">
+                    {processTemplate.qaCheckpoints.map((qa, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="font-mono">☐</span>
+                        <span>{qa}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                {/* Signatures */}
+                <section className="mt-8 pt-6 border-t-2 border-gray-800">
+                  <h2 className="text-base font-bold text-gray-800 mb-4 uppercase tracking-wide">Sign-Off</h2>
+                  <div className="grid grid-cols-3 gap-6 text-xs">
+                    <div>
+                      <div className="border-b border-gray-400 h-12"></div>
+                      <p className="mt-1 text-gray-500">Operator</p>
+                      <p className="text-gray-400">Date / Time</p>
+                    </div>
+                    <div>
+                      <div className="border-b border-gray-400 h-12"></div>
+                      <p className="mt-1 text-gray-500">QA</p>
+                      <p className="text-gray-400">Date / Time</p>
+                    </div>
+                    <div>
+                      <div className="border-b border-gray-400 h-12"></div>
+                      <p className="mt-1 text-gray-500">Supervisor / Release</p>
+                      <p className="text-gray-400">Date / Time</p>
+                    </div>
+                  </div>
+                </section>
+
+                <div className="mt-6 text-[10px] text-gray-400 print:block">
+                  Generated by Formulation Wizard on {new Date().toLocaleString()}. Specs are formulation estimates — verify in lab prior to release.
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* FILING TAB — Scheduled Process draft for Process Authority review */}
+      {activeTab === 'filing' && (
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          {/* Header and determination */}
+          <div className={`rounded-xl border-2 p-6 mb-6 print:hidden ${filingReq.urgency === 'critical' ? 'bg-red-50 border-red-300' : filingReq.urgency === 'recommended' ? 'bg-amber-50 border-amber-300' : 'bg-emerald-50 border-emerald-300'}`}>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <h2 className="text-2xl font-bold text-gray-800">📋 Scheduled Process Filing Draft</h2>
+              <button
+                onClick={() => window.print()}
+                disabled={ingredients.length === 0}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
+              >
+                🖨️ Print / Save as PDF
+              </button>
+            </div>
+            {ingredients.length === 0 ? (
+              <p className="text-gray-600">Add ingredients in the 🔬 Build tab first — the filing will auto-populate from your formulation.</p>
+            ) : (
+              <>
+                <div className="mb-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-600 font-semibold mb-1">Filing Determination</p>
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className={`text-2xl font-bold ${filingReq.required ? 'text-red-700' : 'text-emerald-700'}`}>
+                      {filingReq.required ? 'Filing REQUIRED' : 'No FDA filing required'}
+                    </span>
+                    <span className="text-sm font-mono text-gray-700">→ {filingReq.formName}</span>
+                  </div>
+                  <p className="text-sm text-gray-700 mt-2">{filingReq.reason}</p>
+                  {filingReq.processAuthorityRequired && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-300 rounded-lg">
+                      <p className="text-sm text-red-800 font-semibold">
+                        ⚠️ Process Authority review & letter REQUIRED before first commercial batch.
+                      </p>
+                      <p className="text-xs text-red-700 mt-1.5">
+                        This classification is computed from your ingredient data and is <strong>advisory</strong>. The actual Scheduled Process filing, critical factors, and thermal process parameters MUST be determined by a qualified Process Authority per 21 CFR 113.83 / 114.83.
+                      </p>
+                      <button
+                        onClick={() => setActiveTab('authorities')}
+                        className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-red-700 text-white rounded text-xs font-semibold hover:bg-red-800 transition"
+                      >
+                        ⚖️ Find a Process Authority →
+                      </button>
+                      <button
+                        onClick={() => { setActiveTab('services'); setServiceRequestType('scaleup'); }}
+                        className="mt-2 ml-2 inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-700 text-white rounded text-xs font-semibold hover:bg-emerald-800 transition"
+                      >
+                        🤝 Request Scale-Up Consultation →
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="text-xs text-gray-600">
+                  <span className="font-semibold">Citations:</span> {filingReq.citations.join(' • ')}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Q&A form — only show if ingredients exist */}
+          {ingredients.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 print:p-0 print:border-0 print:rounded-none print:shadow-none">
+              {/* Printable header */}
+              <div className="border-b-2 border-gray-800 pb-4 mb-6">
+                <h1 className="text-2xl font-bold text-gray-900">Scheduled Process Information Sheet</h1>
+                <p className="text-sm text-gray-600 mt-1">
+                  Draft for submission to a licensed Process Authority for review and issuance of a Scheduled Process letter.
+                  This draft is NOT a substitute for the Process Authority&apos;s own evaluation.
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  <span className="font-semibold">Form:</span> {filingReq.formName}
+                  {' • '}
+                  <span className="font-semibold">Generated:</span> {new Date().toLocaleDateString()}
+                </p>
+              </div>
+
+              {/* Section 1: Product & classification (auto-populated) */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">1. Product Identification</h2>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <FilingField label="Product common name" value={formulationName || '—'} readOnly />
+                  <FilingField label="Product type" value={productType || '—'} readOnly />
+                  <FilingField label="Mode" value={mc.name} readOnly />
+                  <FilingField label="HACCP category" value={suggestedHaccp?.name || '—'} readOnly />
+                </div>
+              </section>
+
+              {/* Section 2: Establishment */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">2. Establishment</h2>
+                <p className="text-xs text-gray-500 mb-2">Food Canning Establishment (FCE) registration on Form FDA 2541 is a prerequisite. Apply at <span className="font-mono">fda.gov/food/acidified-low-acid-canned-foods-lacf</span>.</p>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <FilingInput label="Establishment name" value={filing.establishmentName} onChange={v => setFiling({ ...filing, establishmentName: v })} />
+                  <FilingInput label="FCE number" value={filing.fceNumber} onChange={v => setFiling({ ...filing, fceNumber: v })} placeholder="e.g., 12345" />
+                  <FilingInput label="Address" value={filing.establishmentAddress} onChange={v => setFiling({ ...filing, establishmentAddress: v })} className="col-span-2" />
+                  <FilingInput label="Contact name" value={filing.contactName} onChange={v => setFiling({ ...filing, contactName: v })} />
+                  <FilingInput label="Contact email" value={filing.contactEmail} onChange={v => setFiling({ ...filing, contactEmail: v })} />
+                </div>
+              </section>
+
+              {/* Section 3: Process Authority */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">3. Process Authority</h2>
+                <p className="text-xs text-gray-500 mb-2">A Process Authority must review and sign off on your Scheduled Process. Common examples: NFPA-affiliated experts, certified consultants with BPCS credentials, university food-science programs.</p>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <FilingInput label="Process Authority name" value={filing.processAuthorityName} onChange={v => setFiling({ ...filing, processAuthorityName: v })} />
+                  <FilingInput label="Affiliation / firm" value={filing.processAuthorityOrg} onChange={v => setFiling({ ...filing, processAuthorityOrg: v })} />
+                  <FilingInput label="PA letter date" value={filing.processAuthorityDate} onChange={v => setFiling({ ...filing, processAuthorityDate: v })} placeholder="YYYY-MM-DD" />
+                </div>
+              </section>
+
+              {/* Section 4: Container (auto from packaging where possible) */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">4. Container &amp; Closure</h2>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <FilingField label="Container type" value={selectedPackaging?.name || '—'} readOnly />
+                  <FilingField label="Material" value={selectedPackaging?.material || '—'} readOnly />
+                  <FilingField label="Neck finish" value={selectedPackaging?.neckFinish || '—'} readOnly />
+                  <FilingField label="Capacity" value={selectedPackaging?.capacity ? `${selectedPackaging.capacity.value} ${selectedPackaging.capacity.unit}` : '—'} readOnly />
+                  <FilingField label="Closure" value={selectedClosure?.name || '—'} readOnly />
+                  <FilingField label="Net fill weight" value={`${packageSize} ${packageUnit}`} readOnly />
+                  <FilingInput label="Headspace target" value={filing.containerHeadspace} onChange={v => setFiling({ ...filing, containerHeadspace: v })} placeholder={'e.g., 1/4"'} />
+                  <FilingInput label="Vacuum target" value={filing.containerVacuum} onChange={v => setFiling({ ...filing, containerVacuum: v })} placeholder="e.g., ≥ 10 in Hg" />
+                </div>
+              </section>
+
+              {/* Section 5: Process method & parameters */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">5. Process Method &amp; Parameters</h2>
+                <div className="mb-3">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Process Method</label>
+                  <select
+                    value={filing.processMethod}
+                    onChange={e => setFiling({ ...filing, processMethod: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-emerald-500 print:border-0 print:bg-transparent"
+                  >
+                    {PROCESS_METHODS.map(m => (
+                      <option key={m.id} value={m.id}>{m.label} — {m.notes}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <FilingInput label="Initial temperature (IT) of product" value={filing.fillInitialTemp} onChange={v => setFiling({ ...filing, fillInitialTemp: v })} placeholder="°F" />
+                  <FilingInput label="Target fill / process temperature" value={filing.fillTargetTemp} onChange={v => setFiling({ ...filing, fillTargetTemp: v })} placeholder="e.g., ≥ 180°F" />
+                  <FilingInput label="Hold time at temperature" value={filing.holdTime} onChange={v => setFiling({ ...filing, holdTime: v })} placeholder="minutes or seconds" />
+                  {(filing.processMethod === 'still-retort' || filing.processMethod === 'rotary-retort' || filing.processMethod === 'hydrostat') && (
+                    <>
+                      <FilingInput label="Retort process temp" value={filing.retortProcessTemp} onChange={v => setFiling({ ...filing, retortProcessTemp: v })} placeholder="e.g., 250°F" />
+                      <FilingInput label="Retort process time" value={filing.retortProcessTime} onChange={v => setFiling({ ...filing, retortProcessTime: v })} placeholder="minutes" />
+                      <FilingInput label="Cooling water chlorine (ppm)" value={filing.coolWaterChlorine} onChange={v => setFiling({ ...filing, coolWaterChlorine: v })} placeholder="≥ 1.0" />
+                    </>
+                  )}
+                </div>
+              </section>
+
+              {/* Section 6: Critical Factors (auto from specs) */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">6. Critical Factors (estimated from formulation)</h2>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <FilingField label="Estimated pH" value={specs.pH > 0 ? specs.pH.toFixed(2) : '—'} readOnly />
+                  <FilingInput label="Target equilibrium pH" value={filing.targetPh} onChange={v => setFiling({ ...filing, targetPh: v })} placeholder="e.g., ≤ 4.2" />
+                  <FilingField label="Estimated a_w" value={specs.aw > 0 ? specs.aw.toFixed(3) : '—'} readOnly />
+                  <FilingField label="Estimated Brix" value={specs.brix > 0 ? `${specs.brix.toFixed(1)}°` : '—'} readOnly />
+                  <FilingField label="Estimated moisture %" value={`${specs.moisture.toFixed(1)}%`} readOnly />
+                  <FilingField label="Estimated Bostwick" value={`${specs.bostwickCmPer30s.toFixed(1)} cm/30s`} readOnly />
+                  <FilingField label="Acetic acid %" value={specs.aceticAcid > 0 ? `${specs.aceticAcid.toFixed(2)}%` : '—'} readOnly />
+                  <FilingField label="Acetic / moisture ratio" value={specs.aceticMoistureRatio > 0 ? `${specs.aceticMoistureRatio.toFixed(2)}%` : '—'} readOnly />
+                  <FilingInput label="Primary acidulant" value={filing.acidulantType} onChange={v => setFiling({ ...filing, acidulantType: v })} placeholder="e.g., Vinegar, Citric acid" />
+                  <FilingInput label="Salt %" value={filing.saltPercent} onChange={v => setFiling({ ...filing, saltPercent: v })} placeholder="% of formulation" />
+                  <FilingInput label="Equilibrium pH measurement day" value={filing.equilibriumPhDay} onChange={v => setFiling({ ...filing, equilibriumPhDay: v })} placeholder="typical = 10" />
+                </div>
+              </section>
+
+              {/* Section 7: Ingredient statement */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">7. Formulation Summary</h2>
+                <p className="text-xs text-gray-500 mb-2">Verbatim ingredient statement + batch composition (from formulation tool):</p>
+                <div className="bg-amber-50 border border-amber-200 p-3 rounded text-sm mb-3">{ingredientStatement || '—'}</div>
+                {allergenStatement.length > 0 && (
+                  <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.join(', ')}</p>
+                )}
+              </section>
+
+              {/* Section 8: QA testing plan */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">8. Finished Product QA Plan</h2>
+                <p className="text-xs text-gray-500 mb-2">Default tests for {suggestedHaccp?.name || 'this product'}. Add custom tests as needed.</p>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-600 text-left">
+                      <th className="py-2 pr-2">Parameter</th>
+                      <th className="py-2 pr-2">Target / Critical Limit</th>
+                      <th className="py-2 pr-2">Method</th>
+                      <th className="py-2 pr-2">Frequency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mergedQaTests.map((t, i) => (
+                      <tr key={i} className="border-b border-gray-200">
+                        <td className="py-1.5 pr-2 font-semibold">{t.parameter}</td>
+                        <td className="py-1.5 pr-2">{t.target}</td>
+                        <td className="py-1.5 pr-2">{t.method}</td>
+                        <td className="py-1.5 pr-2">{t.frequency}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button
+                  onClick={() => setCustomQaTests([...customQaTests, { parameter: '', target: '', method: '', frequency: '' }])}
+                  className="mt-3 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition font-medium print:hidden"
+                >
+                  + Add custom QA test
+                </button>
+                {customQaTests.map((t, i) => (
+                  <div key={i} className="mt-2 grid grid-cols-4 gap-2 print:hidden">
+                    <input value={t.parameter} onChange={e => { const c = [...customQaTests]; c[i] = { ...c[i], parameter: e.target.value }; setCustomQaTests(c); }} placeholder="Parameter" className="border rounded px-2 py-1 text-xs" />
+                    <input value={t.target} onChange={e => { const c = [...customQaTests]; c[i] = { ...c[i], target: e.target.value }; setCustomQaTests(c); }} placeholder="Target" className="border rounded px-2 py-1 text-xs" />
+                    <input value={t.method} onChange={e => { const c = [...customQaTests]; c[i] = { ...c[i], method: e.target.value }; setCustomQaTests(c); }} placeholder="Method" className="border rounded px-2 py-1 text-xs" />
+                    <input value={t.frequency} onChange={e => { const c = [...customQaTests]; c[i] = { ...c[i], frequency: e.target.value }; setCustomQaTests(c); }} placeholder="Frequency" className="border rounded px-2 py-1 text-xs" />
+                  </div>
+                ))}
+              </section>
+
+              {/* Section 9: HACCP summary */}
+              {suggestedHaccp && (
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">9. HACCP CCPs (from Suggested Plan)</h2>
+                  <ul className="text-sm space-y-1 list-disc ml-5">
+                    {suggestedHaccp.ccps.map(c => (
+                      <li key={c.number}><span className="font-semibold">CCP {c.number} ({c.name}):</span> {c.criticalLimit}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {/* Section 10: Notes */}
+              <section className="mb-6">
+                <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">10. Additional Notes to Process Authority</h2>
+                <textarea
+                  value={filing.notes}
+                  onChange={e => setFiling({ ...filing, notes: e.target.value })}
+                  className="w-full h-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 print:border-0"
+                  placeholder="Any product-specific considerations, target shelf life, distribution conditions, etc."
+                />
+              </section>
+
+              {/* Signatures */}
+              <section className="mt-8 pt-6 border-t-2 border-gray-800">
+                <h2 className="text-base font-bold text-gray-800 mb-4 uppercase tracking-wide">Sign-Off</h2>
+                <div className="grid grid-cols-3 gap-6 text-xs">
+                  <div>
+                    <div className="border-b border-gray-400 h-12"></div>
+                    <p className="mt-1 text-gray-500">Establishment representative</p>
+                    <p className="text-gray-400">Date</p>
+                  </div>
+                  <div>
+                    <div className="border-b border-gray-400 h-12"></div>
+                    <p className="mt-1 text-gray-500">Process Authority</p>
+                    <p className="text-gray-400">Date</p>
+                  </div>
+                  <div>
+                    <div className="border-b border-gray-400 h-12"></div>
+                    <p className="mt-1 text-gray-500">Scheduled Process ID (assigned by FDA)</p>
+                  </div>
+                </div>
+              </section>
+
+              <div className="mt-6 text-[10px] text-gray-400 print:block">
+                Generated by Formulation Wizard on {new Date().toLocaleString()}. This is a DRAFT to aid conversations with a licensed Process Authority — not a direct FDA filing. The Process Authority is responsible for validating the Scheduled Process and issuing the supporting letter.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          PROCESS AUTHORITIES DIRECTORY TAB
+          ══════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'authorities' && (
+        <div className="max-w-6xl mx-auto px-6 py-8">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
+            <div className="flex items-start justify-between flex-wrap gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">⚖️ Process Authority Directory</h2>
+                <p className="text-gray-500 text-sm mt-1 max-w-2xl">
+                  Qualified Process Authorities recognized under 21 CFR 113.83 and 114.83. Any formula requiring a Scheduled Process filing <strong>must</strong> be reviewed by one of these (or equivalent) before commercial production.
+                </p>
+              </div>
+              <div className="text-xs bg-amber-50 border border-amber-300 rounded-lg p-2 max-w-xs">
+                <strong className="text-amber-800">Advisory listing.</strong>
+                <span className="text-amber-900"> Verify current credentials and availability directly with each authority before engaging. Compiled from public records; not an endorsement.</span>
+              </div>
+            </div>
+
+            {/* Filters */}
+            <div className="mt-5 grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Search</label>
+                <input
+                  type="text"
+                  value={paSearch}
+                  onChange={e => setPaSearch(e.target.value)}
+                  placeholder="Name, city, specialty..."
+                  className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">State</label>
+                <select
+                  value={paStateFilter}
+                  onChange={e => setPaStateFilter(e.target.value)}
+                  className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                >
+                  <option value="All">All states</option>
+                  {getPAStates().map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Type</label>
+                <select
+                  value={paTypeFilter}
+                  onChange={e => setPaTypeFilter(e.target.value as typeof paTypeFilter)}
+                  className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                >
+                  <option value="All">All types</option>
+                  <option value="university">🎓 University Extension</option>
+                  <option value="consulting">🏢 Consulting Firm</option>
+                  <option value="bpcs">📚 BPCS Training</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={() => { setPaSearch(''); setPaStateFilter('All'); setPaTypeFilter('All'); }}
+                  className="w-full px-3 py-2 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200 transition"
+                >
+                  Clear filters
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {(() => {
+            const filtered = PROCESS_AUTHORITIES.filter(pa => {
+              if (paStateFilter !== 'All' && pa.state !== paStateFilter) return false;
+              if (paTypeFilter !== 'All' && pa.type !== paTypeFilter) return false;
+              if (paSearch) {
+                const q = paSearch.toLowerCase();
+                const matches = pa.name.toLowerCase().includes(q)
+                  || (pa.city || '').toLowerCase().includes(q)
+                  || pa.specialty.some(s => s.toLowerCase().includes(q))
+                  || (pa.notes || '').toLowerCase().includes(q);
+                if (!matches) return false;
+              }
+              return true;
+            });
+            return (
+              <>
+                <div className="mb-3 text-xs text-gray-500">{filtered.length} of {PROCESS_AUTHORITIES.length} authorities shown</div>
+                <div className="grid gap-3">
+                  {filtered.map((pa, i) => (
+                    <div key={i} className="bg-white rounded-xl border border-gray-200 p-5">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <h3 className="text-sm font-bold text-gray-800">{pa.name}</h3>
+                            <span className="text-[10px] text-gray-500">{PA_TYPE_LABELS[pa.type]}</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            📍 {pa.city ? `${pa.city}, ` : ''}{pa.state}
+                          </p>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {pa.specialty.map((s, j) => (
+                              <span key={j} className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px]">{s}</span>
+                            ))}
+                          </div>
+                          {pa.notes && <p className="text-[11px] text-gray-600 italic mt-2">{pa.notes}</p>}
+                        </div>
+                        <div className="text-right text-xs space-y-1">
+                          {pa.phone && <div className="text-gray-700 font-mono">{pa.phone}</div>}
+                          {pa.email && <a href={`mailto:${pa.email}`} className="text-emerald-700 hover:underline block">{pa.email}</a>}
+                          {pa.website && <a href={pa.website} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline block">🌐 Website</a>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+
+          <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs text-gray-600">
+            <p className="leading-relaxed">
+              <strong>Need help engaging a Process Authority?</strong> Formulation Wizard offers scale-up consulting services to bridge bench-top formulation and Process Authority review — including formula preparation, pre-submission review, and ongoing liaison through scheduled-process filing. See the 🤝 <button onClick={() => setActiveTab('services')} className="underline text-emerald-700 font-semibold">Services tab</button>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          SERVICES & CONSULTING TAB
+          ══════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'services' && (
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          <div className="bg-white rounded-xl border border-emerald-200 p-8 mb-6">
+            <div className="flex items-center gap-4 mb-3">
+              <NautilusMark size={64} />
+              <div>
+                <h2 className="text-3xl font-semibold text-emerald-700 tracking-tight">Formulation Wizard Services</h2>
+                <p className="text-sm text-gray-500 italic">R&amp;D, reformulation, and scale-up for industrial F&amp;B manufacturers.</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-700 leading-relaxed max-w-3xl mt-4">
+              When you&apos;ve taken your product as far as the tool can take you, we can take it the rest of the way. Four hands-on services bridge the gap from bench formulation to retail shelf.
+            </p>
+          </div>
+
+          {/* Service cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <button
+              onClick={() => setServiceRequestType('bench')}
+              className={`text-left bg-white rounded-xl border-2 p-5 hover:shadow-lg transition ${serviceRequestType === 'bench' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200 hover:border-emerald-400'}`}
+            >
+              <div className="text-3xl mb-2">🧪</div>
+              <h3 className="font-bold text-gray-800 mb-1">Bench-Top Sample Development</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                We produce and ship bench-top samples to your team — real product, your formula, made to your target specs. Taste, adjust, iterate before committing to a production run. Typical 1–3 week turnaround.
+              </p>
+            </button>
+
+            <button
+              onClick={() => setServiceRequestType('reform')}
+              className={`text-left bg-white rounded-xl border-2 p-5 hover:shadow-lg transition ${serviceRequestType === 'reform' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200 hover:border-emerald-400'}`}
+            >
+              <div className="text-3xl mb-2">🎯</div>
+              <h3 className="font-bold text-gray-800 mb-1">Reformulation to Flavor Expectation</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                You know what it should taste like. We&apos;ll reformulate to match. Whether you&apos;re matching a benchmark competitor, bringing a family recipe to scale, or swapping ingredients for cost, clean-label, or regulatory reasons — we get the flavor profile right.
+              </p>
+            </button>
+
+            <button
+              onClick={() => setServiceRequestType('scaleup')}
+              className={`text-left bg-white rounded-xl border-2 p-5 hover:shadow-lg transition ${serviceRequestType === 'scaleup' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200 hover:border-emerald-400'}`}
+            >
+              <div className="text-3xl mb-2">📈</div>
+              <h3 className="font-bold text-gray-800 mb-1">Scale-Up Consulting</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Bench to pilot to plant isn&apos;t linear. Mixing times change, heat transfer shifts, fermentation kinetics behave differently. We manage the scale-up, including Process Authority liaison, HACCP plan development, and supplier qualification — so the formula that works at 5 kg still works at 5 tons.
+              </p>
+            </button>
+
+            <button
+              onClick={() => setServiceRequestType('copacker')}
+              className={`text-left bg-white rounded-xl border-2 p-5 hover:shadow-lg transition ${serviceRequestType === 'copacker' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200 hover:border-emerald-400'}`}
+            >
+              <div className="text-3xl mb-2">🏭</div>
+              <h3 className="font-bold text-gray-800 mb-1">Exclusive Co-Packer Placement <span className="text-[10px] font-normal text-emerald-600">F&amp;B only</span></h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                We place your product with a vetted F&amp;B co-packer matched to your volume, certification requirements, and geography. Exclusive service — we know the co-packer network personally and advocate for your build before you sign a production contract.
+              </p>
+            </button>
+          </div>
+
+          {/* Request intake form */}
+          {serviceRequestType && (() => {
+            const serviceTitle =
+              serviceRequestType === 'bench' ? 'Request Bench-Top Samples'
+              : serviceRequestType === 'reform' ? 'Request Reformulation'
+              : serviceRequestType === 'scaleup' ? 'Request Scale-Up Consultation'
+              : 'Request Co-Packer Placement';
+
+            const buildEmailBody = () => {
+              const formulaLines = ingredients.length > 0
+                ? ingredients.map(i => `  - ${i.name}: ${i.qty}${i.unit}`).join('\n')
+                : '  (no formula entered yet)';
+              const specsLine = specs.pH > 0
+                ? `  • pH: ${specs.pH.toFixed(2)} • aw: ${specs.aw.toFixed(3)} • Classification: ${specs.productClassification}`
+                : '  (specs not yet computed)';
+              return `Service: ${serviceTitle}
+Client: ${serviceClientName}
+Company: ${serviceClientCompany}
+Email: ${serviceClientEmail}
+
+=== FORMULATION CONTEXT ===
+Name: ${formulationName || '(unnamed)'}
+Mode: ${mc.name}
+Product Type: ${productType || '(not set)'}
+Serving Size: ${servingSize} ${servingUnit}
+Package Size: ${packageSize} ${packageUnit}
+
+=== INGREDIENTS (${ingredients.length}) ===
+${formulaLines}
+
+=== SPECS ===
+${specsLine}
+
+=== NOTES FROM CLIENT ===
+${serviceNotes || '(none)'}
+`;
+            };
+
+            const handleSubmit = () => {
+              if (!serviceClientName.trim() || !serviceClientEmail.trim()) {
+                alert('Please enter at least your name and email.');
+                return;
+              }
+              const subject = encodeURIComponent(`[${serviceTitle}] ${formulationName || 'Untitled'} — ${serviceClientCompany || serviceClientName}`);
+              const body = encodeURIComponent(buildEmailBody());
+              window.location.href = `mailto:formulationwizard@gmail.com?subject=${subject}&body=${body}`;
+            };
+
+            return (
+              <div className="bg-white rounded-xl border-2 border-emerald-300 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-gray-800">{serviceTitle}</h3>
+                  <button onClick={() => setServiceRequestType('')} className="text-xs text-gray-500 hover:text-gray-700">✕ Cancel</button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700">Your Name *</label>
+                    <input type="text" value={serviceClientName} onChange={e => setServiceClientName(e.target.value)}
+                      className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700">Email *</label>
+                    <input type="email" value={serviceClientEmail} onChange={e => setServiceClientEmail(e.target.value)}
+                      className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-semibold text-gray-700">Company</label>
+                    <input type="text" value={serviceClientCompany} onChange={e => setServiceClientCompany(e.target.value)}
+                      className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-semibold text-gray-700">Notes / specific requests</label>
+                    <textarea rows={4} value={serviceNotes} onChange={e => setServiceNotes(e.target.value)}
+                      placeholder={serviceRequestType === 'bench' ? 'Quantity of samples needed, flavor profile targets, shipping address preferences...' :
+                                   serviceRequestType === 'reform' ? 'What are you matching? Any specific ingredient constraints? Allergen requirements?' :
+                                   serviceRequestType === 'scaleup' ? 'Target batch size, timeline, current pilot status, any regulatory blocks...' :
+                                   'Volume estimate, target market geography, required certifications, timeline...'}
+                      className="w-full mt-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
+                  <p className="text-[11px] text-gray-600 mb-2">
+                    <strong>The following formula context will be sent with your request:</strong>
+                  </p>
+                  <ul className="text-[11px] text-gray-700 space-y-0.5">
+                    <li>• Name: {formulationName || <em className="text-gray-400">(unnamed)</em>}</li>
+                    <li>• Mode: {mc.name}</li>
+                    <li>• {ingredients.length} ingredients</li>
+                    <li>• Specs: pH {specs.pH > 0 ? specs.pH.toFixed(2) : '—'}, aw {specs.aw > 0 ? specs.aw.toFixed(3) : '—'}, classification {specs.productClassification}</li>
+                  </ul>
+                </div>
+
+                <button
+                  onClick={handleSubmit}
+                  className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition"
+                >
+                  ✉️ Send Request to Formulation Wizard
+                </button>
+                <p className="text-[10px] text-gray-500 italic mt-2 text-center">
+                  This opens your default email client with a pre-filled draft. Review and send.
+                </p>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          PERSISTENT FOOTER DISCLAIMER (on every tab)
+          ══════════════════════════════════════════════════════════════════ */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 text-gray-300 text-[10px] py-2 px-4 text-center z-40 print:hidden backdrop-blur-sm">
+        <span className="opacity-80">
+          ⚠️ Advisory tool only — not legal, regulatory, or scientific advice.
+          All regulatory classifications and filing indicators require verification by a qualified
+          <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">Process Authority</button>
+          before commercial production.
+          <button onClick={() => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); }} className="underline ml-2 hover:text-emerald-300">Review Terms</button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Small form field helpers for the Filing tab
+// ============================================================
+function FilingField(props: { label: string; value: string; readOnly?: boolean; className?: string }) {
+  return (
+    <div className={props.className || ''}>
+      <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">{props.label}</label>
+      <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-800 print:border-0 print:bg-transparent print:px-0">
+        {props.value || '—'}
+      </div>
+    </div>
+  );
+}
+
+function FilingInput(props: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; className?: string }) {
+  return (
+    <div className={props.className || ''}>
+      <label className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">{props.label}</label>
+      <input
+        type="text"
+        value={props.value}
+        onChange={e => props.onChange(e.target.value)}
+        placeholder={props.placeholder}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 print:border-0 print:border-b print:rounded-none"
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// Small presentational helper components
+// ============================================================
+function SpecTile(props: { label: string; value: string; hint: string; color: 'emerald' | 'amber' | 'red' | 'gray' }) {
+  const bgMap = {
+    emerald: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    amber: 'bg-amber-50 border-amber-200 text-amber-800',
+    red: 'bg-red-50 border-red-200 text-red-800',
+    gray: 'bg-gray-50 border-gray-200 text-gray-700',
+  };
+  return (
+    <div className={`rounded-lg border p-3 ${bgMap[props.color]}`}>
+      <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">{props.label}</p>
+      <p className="text-xl font-bold">{props.value}</p>
+      <p className="text-[10px] text-gray-500 mt-0.5">{props.hint}</p>
+    </div>
+  );
+}

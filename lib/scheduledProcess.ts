@@ -1,0 +1,206 @@
+// ============================================================
+// SCHEDULED PROCESS FILING HELPERS
+// ------------------------------------------------------------
+// Supports the FDA Food Canning Establishment (FCE) + Submission
+// Identifier (SID) process filing family for shelf-stable
+// low-acid and acidified foods:
+//
+//   • Form FDA 2541   — Registration of Food Canning Establishment
+//   • Form FDA 2541a  — Process Filing, all methods except aseptic
+//   • Form FDA 2541c  — Process Filing for aseptic processing
+//
+// This module determines which filing (if any) applies to the
+// current formulation and supplies structural metadata, default
+// critical factors, and typical finished-product QA tests so the
+// UI can pre-populate a draft for the customer's Process Authority.
+// ============================================================
+
+export type FormName =
+  | 'FDA 2541a'
+  | 'FDA 2541c'
+  | 'FSIS HACCP (no FDA Scheduled Process)'
+  | 'None — GRAS / GMP only'
+  | 'Process Authority review strongly recommended';
+
+export interface FilingRequirement {
+  required: boolean;
+  formName: FormName;
+  citations: string[];
+  reason: string;
+  processAuthorityRequired: boolean;
+  urgency: 'critical' | 'recommended' | 'not-required';
+}
+
+export interface QaTest {
+  parameter: string;
+  target: string;
+  method: string;
+  frequency: string;
+}
+
+// ----- Determine which (if any) filing applies -----------------------------
+/**
+ * Determine whether a Scheduled Process filing is required.
+ *
+ * Uses `productClassification` (from the spec estimator) as the primary signal —
+ * this distinguishes the three 21 CFR categories cleanly:
+ *   • 'acid'                   — 21 CFR 114.3(b)(1) — naturally acid, no filing
+ *   • 'acidified'              — 21 CFR 114 — filing REQUIRED on 2541a
+ *   • 'acidified-in-process'   — intent is acidified, pH not yet ≤ 4.6 → add more acid
+ *   • 'lacf'                   — 21 CFR 113 — retort + filing REQUIRED on 2541a
+ *   • 'shelf-stable-dry'       — aw ≤ 0.85, no filing
+ *
+ * HACCP category (FSIS meat) short-circuits to USDA pathway.
+ */
+export function determineFilingRequirement(
+  haccpCategoryId: string | null | undefined,
+  specs: {
+    pH?: number;
+    aw?: number;
+    lowAcidComponentPct?: number;
+    productClassification?: 'acid' | 'acidified' | 'acidified-in-process' | 'lacf' | 'shelf-stable-dry' | '—';
+  }
+): FilingRequirement {
+  // USDA FSIS meat products short-circuit FDA logic entirely.
+  if (haccpCategoryId === 'rte-cooked-meat' || haccpCategoryId === 'fermented-dry-cured-meat') {
+    return {
+      required: true,
+      formName: 'FSIS HACCP (no FDA Scheduled Process)',
+      citations: ['9 CFR 417 (HACCP)', '9 CFR 430 (Listeria)', '9 CFR 424.21 (Cure limits)'],
+      reason: 'USDA-FSIS inspected meat product. No FDA filing — a validated HACCP plan on file with USDA district office + Grant of Inspection required before production.',
+      processAuthorityRequired: true,
+      urgency: 'critical',
+    };
+  }
+
+  const classification = specs.productClassification;
+  const pH = specs.pH;
+  const aw = specs.aw;
+  const lowAcidPct = specs.lowAcidComponentPct;
+
+  // ═══ ACIDIFIED FOOD (21 CFR 114) — final pH ≤ 4.6 WITH low-acid base ═══
+  if (classification === 'acidified') {
+    return {
+      required: true,
+      formName: 'FDA 2541a',
+      citations: ['21 CFR 114', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541a (Process Filing)'],
+      reason: `ACIDIFIED FOOD (21 CFR 114). Finished pH ${pH?.toFixed(2)} ≤ 4.6 with ${lowAcidPct?.toFixed(1)}% low-acid components — an otherwise-low-acid base acidified to shelf-stable pH. Scheduled Process + Process Authority review MANDATORY before first commercial batch.`,
+      processAuthorityRequired: true,
+      urgency: 'critical',
+    };
+  }
+
+  // ═══ ACIDIFIED-IN-PROCESS — intent is acidified, pH not there yet ═══
+  if (classification === 'acidified-in-process') {
+    return {
+      required: true,
+      formName: 'FDA 2541a',
+      citations: ['21 CFR 114', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541a (Process Filing)'],
+      reason: `ACIDIFIED FOOD (21 CFR 114) — intent detected (acidulant present + ${lowAcidPct?.toFixed(1)}% low-acid base), but FINISHED pH ${pH?.toFixed(2)} is NOT YET ≤ 4.6. Add more acidulant (vinegar, citric acid, lime juice) until equilibrium pH ≤ 4.6 (target ≤ 4.2 for safety margin). Once properly acidified, Scheduled Process + Process Authority review MANDATORY.`,
+      processAuthorityRequired: true,
+      urgency: 'critical',
+    };
+  }
+
+  // ═══ LACF (21 CFR 113) — genuinely low-acid, no acidification intent ═══
+  if (classification === 'lacf') {
+    return {
+      required: true,
+      formName: 'FDA 2541a',
+      citations: ['21 CFR 113', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541a (Process Filing)'],
+      reason: `LOW-ACID CANNED FOOD / LACF (21 CFR 113). pH ${pH?.toFixed(2)} > 4.6 and a_w ${aw?.toFixed(2)} > 0.85 with no acidulant present. Requires thermal processing to commercial sterility (retort) and Scheduled Process filing. This is the highest-risk FDA process category — 12D Clostridium botulinum inactivation mandatory.`,
+      processAuthorityRequired: true,
+      urgency: 'critical',
+    };
+  }
+
+  // ═══ ACID FOOD (21 CFR 114.3(b)(1)) — naturally acid, GMP only ═══
+  if (classification === 'acid') {
+    return {
+      required: false,
+      formName: 'None — GRAS / GMP only',
+      citations: ['21 CFR 114.3(b)(1)', '21 CFR 117 (Preventive Controls)'],
+      reason: `ACID FOOD (21 CFR 114.3(b)(1)) — naturally pH ${pH?.toFixed(2)} ≤ 4.6 with only ${lowAcidPct?.toFixed(1)}% low-acid components. No FDA Scheduled Process filing required. Follow 21 CFR 117 Preventive Controls. Typical examples: fruit, tomato products, fermented products.`,
+      processAuthorityRequired: false,
+      urgency: 'not-required',
+    };
+  }
+
+  // ═══ SHELF-STABLE DRY — a_w ≤ 0.85 ═══
+  if (classification === 'shelf-stable-dry') {
+    return {
+      required: false,
+      formName: 'None — GRAS / GMP only',
+      citations: ['21 CFR 117'],
+      reason: `Shelf-stable by water activity (a_w ${aw?.toFixed(2)} ≤ 0.85). No FDA Scheduled Process filing required. Follow 21 CFR 117 Preventive Controls + low-moisture foods environmental Salmonella program.`,
+      processAuthorityRequired: false,
+      urgency: 'not-required',
+    };
+  }
+
+  // Fallback (insufficient data)
+  return {
+    required: false,
+    formName: 'None — GRAS / GMP only',
+    citations: ['21 CFR 117'],
+    reason: 'Insufficient spec data to determine filing requirement. Add more ingredients with known pH/a_w data, or consult a Process Authority.',
+    processAuthorityRequired: false,
+    urgency: 'not-required',
+  };
+}
+
+// ----- Default QA tests by HACCP category -----------------------------------
+export function defaultQaTestsForCategory(haccpCategoryId: string | null | undefined): QaTest[] {
+  switch (haccpCategoryId) {
+    case 'high-acid-hot-filled':
+    case 'acidified-foods':
+      return [
+        { parameter: 'Equilibrium pH', target: '≤ 4.6 (target ≤ 4.2)', method: 'pH meter, calibrated 2-point daily', frequency: 'Every batch + 3 units at day 10' },
+        { parameter: 'Fill Temperature', target: '≥ 180°F at closure', method: 'In-line + handheld thermometer', frequency: 'Continuous + every 30 min' },
+        { parameter: 'Vacuum / Closure', target: 'Button inverted OR ≥ 10 in Hg vacuum', method: 'Visual + vacuum gauge', frequency: '100% visual + 10 units/hr vacuum' },
+        { parameter: 'Brix (soluble solids)', target: 'Per formula ± 1°', method: 'Digital refractometer', frequency: 'Every batch' },
+        { parameter: 'Net Weight', target: 'Per label ± 2g', method: 'Calibrated scale', frequency: 'Sampling plan per shift' },
+      ];
+    case 'lacf-retort':
+      return [
+        { parameter: 'F₀ (Lethality)', target: 'Per Scheduled Process (typical ≥ 6.0 min)', method: 'Retort chart + thermocouple validation', frequency: 'Continuous per lot' },
+        { parameter: 'Vent + Come-Up Time', target: 'Per SID', method: 'Retort record', frequency: 'Every cycle' },
+        { parameter: 'Seam Integrity', target: 'Per SID dimensions', method: 'Seam teardown + micrometer', frequency: 'Startup + 2x/shift each head' },
+        { parameter: 'Can Vacuum', target: 'Per SID', method: 'Vacuum gauge', frequency: 'Hourly' },
+        { parameter: 'Cooling Water Chlorine', target: '≥ 1 ppm free residual', method: 'DPD test kit', frequency: 'Every 4 hrs' },
+        { parameter: 'Incubation Hold (mesophile)', target: 'Negative at 35°C × 14 d', method: 'Incubator + pH / visual', frequency: 'Retention samples per lot' },
+      ];
+    case 'rte-cooked-meat':
+      return [
+        { parameter: 'Internal Cook Temperature', target: '≥ 160°F × 15 sec (per FSIS Appendix A)', method: 'Thermocouple in coldest spot', frequency: 'Every batch' },
+        { parameter: 'Cooling Rate', target: '120°F → 80°F in 90 min; 80°F → 40°F in 5 hrs (Appendix B Option 1)', method: 'Data logger', frequency: 'Every batch' },
+        { parameter: 'Ingoing Nitrite', target: '≤ 156 ppm (120 ppm pumped bacon)', method: 'Cure pre-weigh + batch record', frequency: 'Every batch' },
+        { parameter: 'Finished Listeria monocytogenes', target: 'Negative per 9 CFR 430 alternative', method: 'Environmental + product testing', frequency: 'Per program' },
+      ];
+    case 'fermented-dry-cured-meat':
+      return [
+        { parameter: 'Fermentation pH', target: '≤ 5.3 within degree-hour limits (FSIS)', method: 'pH meter + temp log', frequency: 'Every 2 hrs during ferment' },
+        { parameter: 'Finished a_w', target: '≤ 0.91 (or ≤ 0.92 if pH ≤ 5.0)', method: 'a_w meter', frequency: 'At release per lot' },
+        { parameter: 'Weight Loss', target: '30–40% of green weight', method: 'Gravimetric', frequency: 'Weekly during drying' },
+        { parameter: 'Trichinella Treatment (pork)', target: 'Per 9 CFR 318.10 Table 1', method: 'Freezer log OR validated process', frequency: 'Every lot' },
+        { parameter: 'Ingoing Nitrite + Nitrate', target: '≤ 156 ppm NO₂; ≤ 1,718 ppm NO₃', method: 'Batch record', frequency: 'Every batch' },
+      ];
+    default:
+      return [
+        { parameter: 'pH', target: 'Per specification', method: 'pH meter', frequency: 'Every batch' },
+        { parameter: 'Net Weight', target: 'Per label', method: 'Scale', frequency: 'Sampling plan' },
+      ];
+  }
+}
+
+// ----- Process-method options for the wizard --------------------------------
+export const PROCESS_METHODS = [
+  { id: 'hot-fill', label: 'Hot-Fill & Hold', notes: 'Fill at ≥ 180°F, invert to sanitize closure, cool' },
+  { id: 'cold-fill-acidified', label: 'Cold-Fill (Acidified)', notes: 'Acidified brine + 10-day equilibrium pH check' },
+  { id: 'still-retort', label: 'Still Retort (saturated steam)', notes: 'Batch retort, no agitation' },
+  { id: 'rotary-retort', label: 'Rotary / Agitating Retort', notes: 'Continuous or batch with product rotation' },
+  { id: 'hydrostat', label: 'Hydrostatic Retort', notes: 'Continuous pressure-balanced tower' },
+  { id: 'water-bath', label: 'Water-Bath Pasteurization', notes: 'Low-acid pasteurization (pickling)' },
+  { id: 'aseptic', label: 'Aseptic (UHT + aseptic fill)', notes: 'Sterilize product + container separately, combine in sterile zone' },
+  { id: 'open-kettle', label: 'Open Kettle / Atmospheric Cook', notes: 'Cook at atmospheric pressure; typical for acid foods' },
+];
