@@ -1,6 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import {
+  Ban,
+  OctagonX,
+  AlertTriangle,
+  AlertCircle,
+  CheckCircle2,
+  X as XIcon,
+} from 'lucide-react';
 import type {
   Ingredient,
   Nutrition,
@@ -876,7 +884,10 @@ export default function FormulationWizard() {
             </div>
 
             <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-4">
-              <h3 className="text-sm font-bold text-amber-900 mb-2">⚠️ This is a decision-support tool, not a substitute for qualified professional review.</h3>
+              <h3 className="text-sm font-bold text-amber-900 mb-2 inline-flex items-center gap-1.5">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" aria-hidden="true" />
+                <span>This is a decision-support tool, not a substitute for qualified professional review.</span>
+              </h3>
               <p className="text-xs text-amber-900 leading-relaxed">
                 Formulation Wizard computes regulatory classifications (Acid, Acidified, LACF, Shelf-Stable Dry), suggests HACCP categories, generates filing-requirement indicators, and validates nutrition claims based on published FDA regulations. These outputs are <strong>advisory and educational only</strong>.
               </p>
@@ -919,7 +930,7 @@ export default function FormulationWizard() {
         // Build search indices for each result type
         type CmdResult = {
           type: 'tab' | 'action' | 'formula' | 'ingredient' | 'supplier' | 'authority';
-          icon: string;
+          icon: ReactNode;
           label: string;
           sublabel?: string;
           onSelect: () => void;
@@ -952,13 +963,13 @@ export default function FormulationWizard() {
         });
 
         // Quick actions
-        const actions: { label: string; icon: string; run: () => void }[] = [
+        const actions: { label: string; icon: ReactNode; run: () => void }[] = [
           { label: 'New formula (clear current)', icon: '✨', run: () => { setIngredients([]); setFormulationName(''); setFormulaStatus('draft'); setActiveTab('build'); } },
           { label: 'Open bulk paste', icon: '📋', run: () => { setShowPaste(true); setActiveTab('build'); } },
           { label: 'Save current formula', icon: '💾', run: () => { saveFormulation(); } },
           { label: 'Compare saved formulas', icon: '🔀', run: () => { setActiveTab('saved'); } },
           { label: 'Toggle appearance mode', icon: '🌓', run: () => { setAppearance(appearance === 'light' ? 'dim' : appearance === 'dim' ? 'dark' : 'light'); } },
-          { label: 'Review Terms of Use', icon: '⚠️', run: () => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); } },
+          { label: 'Review Terms of Use', icon: <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />, run: () => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); } },
         ];
         actions.forEach(a => {
           if (!q || a.label.toLowerCase().includes(q)) {
@@ -1122,7 +1133,7 @@ export default function FormulationWizard() {
                                   isSelected ? 'bg-emerald-50' : 'hover:bg-gray-50'
                                 }`}
                               >
-                                <span className="text-base w-5 text-center shrink-0">{r.icon}</span>
+                                <span className="text-base w-5 h-5 inline-flex items-center justify-center shrink-0">{r.icon}</span>
                                 <div className="flex-1 min-w-0">
                                   <div className={`text-sm truncate ${isSelected ? 'text-emerald-800 font-semibold' : 'text-gray-800'}`}>{r.label}</div>
                                   {r.sublabel && <div className="text-[10px] text-gray-500 truncate">{r.sublabel}</div>}
@@ -1360,8 +1371,9 @@ export default function FormulationWizard() {
                   </span>
                 )}
                 {allergenStatement.length > 0 && (
-                  <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 font-semibold" title={`Contains: ${allergenStatement.join(', ')}`}>
-                    ⚠ {allergenStatement.length} allergen{allergenStatement.length !== 1 ? 's' : ''}
+                  <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 font-semibold inline-flex items-center gap-1" title={`Contains: ${allergenStatement.join(', ')}`}>
+                    <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
+                    <span>{allergenStatement.length} allergen{allergenStatement.length !== 1 ? 's' : ''}</span>
                   </span>
                 )}
                 {perUnitCost > 0 && (
@@ -1420,13 +1432,13 @@ export default function FormulationWizard() {
         // rule flags as impure behavior during rendering.
         const now = dashboardNow;
         // ─── Items needing attention ───
-        const attention: { icon: string; title: string; subtitle: string; action?: () => void }[] = [];
+        const attention: { icon: ReactNode; title: string; subtitle: string; action?: () => void }[] = [];
 
         // Supplier qualification expirations
         const qualSummary = summarizeQualifications(supplierQuals, now);
         qualSummary.expiredList.forEach(q => {
           attention.push({
-            icon: '🚨',
+            icon: <Ban className="h-4 w-4 text-rose-700" aria-hidden="true" />,
             title: `${q.supplierName} — ${DOC_TYPE_LABELS[q.docType]} EXPIRED`,
             subtitle: `Expired ${new Date(q.expirationDate).toLocaleDateString()}. Request renewal before next shipment.`,
             action: () => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); },
@@ -1435,7 +1447,7 @@ export default function FormulationWizard() {
         qualSummary.expiringList.slice(0, 5).forEach(q => {
           const st = getQualificationStatus(q, now);
           attention.push({
-            icon: '⚠️',
+            icon: <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />,
             title: `${q.supplierName} — ${DOC_TYPE_LABELS[q.docType]} expiring`,
             subtitle: `${st.label}. Start renewal workflow now to avoid gap in coverage.`,
             action: () => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); },
@@ -1580,19 +1592,28 @@ export default function FormulationWizard() {
                 </button>
                 <button onClick={() => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); }}
                   className="bg-white rounded-xl border border-emerald-200 p-4 text-left hover:border-emerald-400 transition">
-                  <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold">✓ Current</div>
+                  <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold inline-flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />
+                    <span>Current</span>
+                  </div>
                   <div className="text-2xl font-bold text-emerald-700 mt-1">{qualSummary.current}</div>
                   <div className="text-[10px] text-gray-400 mt-1">valid beyond 60 days</div>
                 </button>
                 <button onClick={() => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); }}
                   className={`bg-white rounded-xl border p-4 text-left transition ${qualSummary.expiring > 0 ? 'border-amber-300 hover:border-amber-500 ring-1 ring-amber-100' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold">⚠ Expiring ≤ 60d</div>
+                  <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold inline-flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
+                    <span>Expiring ≤ 60d</span>
+                  </div>
                   <div className="text-2xl font-bold text-amber-700 mt-1">{qualSummary.expiring}</div>
                   <div className="text-[10px] text-gray-400 mt-1">needs renewal</div>
                 </button>
                 <button onClick={() => { setActiveTab('sourcing'); setSourcingSubView('qualifications'); }}
                   className={`bg-white rounded-xl border p-4 text-left transition ${qualSummary.expired > 0 ? 'border-rose-300 hover:border-rose-500 ring-1 ring-rose-100' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <div className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold">🚨 Expired</div>
+                  <div className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold inline-flex items-center gap-1">
+                    <Ban className="h-3 w-3 text-rose-700" aria-hidden="true" />
+                    <span>Expired</span>
+                  </div>
                   <div className="text-2xl font-bold text-rose-700 mt-1">{qualSummary.expired}</div>
                   <div className="text-[10px] text-gray-400 mt-1">immediate action</div>
                 </button>
@@ -1650,7 +1671,10 @@ export default function FormulationWizard() {
               {/* Needs attention */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">⚠️ Needs Attention</h3>
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                    <span>Needs Attention</span>
+                  </h3>
                   <span className="text-xs text-gray-500">{attention.length} item{attention.length !== 1 ? 's' : ''}</span>
                 </div>
                 {attention.length === 0 ? (
@@ -1665,7 +1689,9 @@ export default function FormulationWizard() {
                         onClick={a.action}
                         className="w-full flex items-start gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 transition text-left"
                       >
-                        <span className="text-xl shrink-0">{a.icon}</span>
+                        <span className="shrink-0 w-6 h-6 inline-flex items-center justify-center mt-0.5">
+                          {typeof a.icon === 'string' ? <span className="text-xl">{a.icon}</span> : a.icon}
+                        </span>
                         <div className="flex-1 min-w-0">
                           <div className="font-semibold text-amber-900 text-sm">{a.title}</div>
                           <div className="text-[11px] text-amber-800 mt-0.5">{a.subtitle}</div>
@@ -1821,7 +1847,7 @@ export default function FormulationWizard() {
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <h3 className="font-semibold text-gray-800">{ing.name}</h3>
                       <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs">{ing.category}</span>
-                      {ing.allergens.map(a => <span key={a} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">⚠️ {a}</span>)}
+                      {ing.allergens.map(a => <span key={a} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" /><span>{a}</span></span>)}
                     </div>
                     <p className="text-xs text-gray-500 mb-2">{ing.notes}</p>
                     <div className="flex flex-wrap gap-4 text-xs text-gray-600">
@@ -2144,7 +2170,10 @@ export default function FormulationWizard() {
                   {/* Allergen delta */}
                   {(addedAllergens.length > 0 || removedAllergens.length > 0) && (
                     <div className="bg-rose-50 border border-rose-300 rounded-lg p-3 mb-4">
-                      <div className="text-[10px] uppercase tracking-wide text-rose-800 font-bold mb-1">⚠️ Allergen Changes (label must be updated!)</div>
+                      <div className="text-[10px] uppercase tracking-wide text-rose-800 font-bold mb-1 inline-flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
+                        <span>Allergen Changes (label must be updated!)</span>
+                      </div>
                       {addedAllergens.length > 0 && (
                         <div className="text-xs text-rose-800">
                           <span className="font-bold">Added:</span> {addedAllergens.join(', ')}
@@ -2379,8 +2408,11 @@ export default function FormulationWizard() {
               : tier === 'warn' ? 'bg-orange-50 border-orange-300 text-orange-900 hover:bg-orange-100'
               : tier === 'caution' ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
               : 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100';
-            const pillIcon = (tier: PillTier) =>
-              tier === 'critical' ? '⛔' : tier === 'warn' ? '⚠' : tier === 'caution' ? '◔' : '✓';
+            const pillIcon = (tier: PillTier): ReactNode =>
+              tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+              : tier === 'warn' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+              : tier === 'caution' ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+              : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />;
 
             return (
               <div className="mb-6">
@@ -2411,7 +2443,7 @@ export default function FormulationWizard() {
                       className={`rounded-lg border-2 px-3 py-2 text-left transition ${pillClass(p.tier)}`}
                     >
                       <div className="flex items-center gap-1.5 font-bold text-xs">
-                        <span>{pillIcon(p.tier)}</span>
+                        {pillIcon(p.tier)}
                         <span>{p.name}</span>
                       </div>
                       <div className="text-[10px] mt-0.5 leading-tight opacity-80">{p.detail}</div>
@@ -2487,18 +2519,28 @@ export default function FormulationWizard() {
               {complianceFindings.length > 0 && (
                 <div className={`rounded-xl border-2 p-6 ${complianceViolations.length > 0 ? 'bg-red-50 border-red-400' : 'bg-emerald-50 border-emerald-300'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <h2 className={`text-lg font-bold ${complianceViolations.length > 0 ? 'text-red-800' : 'text-emerald-800'}`}>
-                      {complianceViolations.length > 0
-                        ? `🚫 ${complianceViolations.length} Regulatory Violation${complianceViolations.length !== 1 ? 's' : ''}`
-                        : `✓ ${complianceFindings.length} Regulated Ingredient${complianceFindings.length !== 1 ? 's' : ''} — All Within Limits`}
+                    <h2 className={`text-lg font-bold flex items-center gap-2 ${complianceViolations.length > 0 ? 'text-red-800' : 'text-emerald-800'}`}>
+                      {complianceViolations.length > 0 ? (
+                        <>
+                          <Ban className="h-4 w-4 text-rose-700" aria-hidden="true" />
+                          <span>{complianceViolations.length} Regulatory Violation{complianceViolations.length !== 1 ? 's' : ''}</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                          <span>{complianceFindings.length} Regulated Ingredient{complianceFindings.length !== 1 ? 's' : ''} — All Within Limits</span>
+                        </>
+                      )}
                     </h2>
                     <span className="text-[10px] uppercase tracking-wide text-gray-500">FDA / USDA-FSIS</span>
                   </div>
                   <div className="space-y-2">
                     {complianceFindings.map((f, i) => (
                       <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${f.violated ? 'bg-red-100 border border-red-300' : 'bg-white border border-emerald-200'}`}>
-                        <span className={`font-mono font-bold shrink-0 ${f.violated ? 'text-red-700' : 'text-emerald-700'}`}>
-                          {f.violated ? '✗' : '✓'}
+                        <span className="shrink-0 mt-0.5">
+                          {f.violated
+                            ? <XIcon className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                            : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />}
                         </span>
                         <div className="flex-1">
                           <div className="flex flex-wrap items-center gap-1">
@@ -2517,8 +2559,11 @@ export default function FormulationWizard() {
                             {f.limit.authority} {f.limit.citation} — {f.limit.summary}
                           </p>
                           {f.activeSpeciesPpm !== undefined && f.limit.activeName && (
-                            <p className={`text-[10px] mt-0.5 font-semibold ${f.activeViolated ? 'text-red-700' : 'text-emerald-700'}`}>
-                              ↳ Active {f.limit.activeName}: {f.activeSpeciesPpm.toFixed(1)} ppm (max {f.limit.activeMaxPpm} ppm) {f.activeViolated ? '— OVER' : '✓'}
+                            <p className={`text-[10px] mt-0.5 font-semibold inline-flex items-center gap-1 ${f.activeViolated ? 'text-red-700' : 'text-emerald-700'}`}>
+                              <span>↳ Active {f.limit.activeName}: {f.activeSpeciesPpm.toFixed(1)} ppm (max {f.limit.activeMaxPpm} ppm)</span>
+                              {f.activeViolated
+                                ? <span>— OVER</span>
+                                : <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />}
                             </p>
                           )}
                         </div>
@@ -2526,8 +2571,9 @@ export default function FormulationWizard() {
                     ))}
                   </div>
                   {complianceViolations.length > 0 && (
-                    <p className="text-xs text-red-800 mt-3 font-semibold">
-                      ⚠️ This formulation exceeds one or more US regulatory limits. Reduce the flagged ingredient(s) before producing — non-compliant products are misbranded under federal law.
+                    <p className="text-xs text-red-800 mt-3 font-semibold inline-flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                      <span>This formulation exceeds one or more US regulatory limits. Reduce the flagged ingredient(s) before producing — non-compliant products are misbranded under federal law.</span>
                     </p>
                   )}
                 </div>
@@ -2548,8 +2594,10 @@ export default function FormulationWizard() {
                     </div>
                     <div className={`rounded-lg p-3 ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-2 border-rose-400' : 'bg-emerald-50'}`}>
                       <p className="text-xs text-gray-500 mb-1">Per Serving</p>
-                      <p className={`text-2xl font-bold ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                        {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? '⚠️' : `$${costPerServing.toFixed(3)}`}
+                      <p className={`text-2xl font-bold ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700 inline-flex items-center justify-center w-full' : 'text-emerald-700'}`}>
+                        {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0
+                          ? <AlertTriangle className="h-6 w-6 text-amber-600" aria-label="Unit mismatch" />
+                          : `$${costPerServing.toFixed(3)}`}
                       </p>
                       <p className="text-[10px] text-gray-400 mt-0.5">
                         {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0
@@ -2559,8 +2607,10 @@ export default function FormulationWizard() {
                     </div>
                     <div className={`rounded-lg p-3 border-2 ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-rose-400' : 'bg-emerald-50 border-emerald-400'}`}>
                       <p className="text-xs text-gray-500 mb-1">Per Package</p>
-                      <p className={`text-2xl font-bold ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                        {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? '⚠️' : `$${costPerPackage.toFixed(3)}`}
+                      <p className={`text-2xl font-bold ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700 inline-flex items-center justify-center w-full' : 'text-emerald-700'}`}>
+                        {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0
+                          ? <AlertTriangle className="h-6 w-6 text-amber-600" aria-label="Unit mismatch" />
+                          : `$${costPerPackage.toFixed(3)}`}
                       </p>
                       {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? (
                         <p className="text-[10px] text-rose-600 mt-0.5 font-semibold">Package &gt; batch — check unit</p>
@@ -3121,12 +3171,12 @@ export default function FormulationWizard() {
                           ? 'bg-sky-50 border-sky-300'
                           : 'bg-emerald-50 border-emerald-300';
 
-                const headerIcon =
-                  summary.banned > 0 ? '🚫'
-                  : summary.critical > 0 ? '⛔'
-                  : summary.warning > 0 ? '⚠️'
-                  : summary.caution > 0 ? '⚠'
-                  : '✓';
+                const headerIcon: ReactNode =
+                  summary.banned > 0 ? <Ban className="h-4 w-4 text-rose-700" aria-hidden="true" />
+                  : summary.critical > 0 ? <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                  : summary.warning > 0 ? <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                  : summary.caution > 0 ? <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden="true" />
+                  : <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />;
 
                 const headerText =
                   summary.banned > 0
@@ -3160,7 +3210,8 @@ export default function FormulationWizard() {
                     >
                       <h2 className={`text-lg font-bold ${headerColor} flex items-center gap-2`}>
                         <span className="text-xs opacity-60">{expanded ? '▼' : '▶'}</span>
-                        {headerIcon} {headerText}
+                        {headerIcon}
+                        <span>{headerText}</span>
                       </h2>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] uppercase tracking-wide text-gray-500">IOM / FDA / DSHEA</span>
@@ -3182,20 +3233,20 @@ export default function FormulationWizard() {
                           : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
                           : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
                           : 'bg-sky-100 border border-sky-300';
+                        const mark: ReactNode =
+                          f.tier === 'banned' ? <Ban className="h-3.5 w-3.5 text-rose-700" aria-hidden="true" />
+                          : f.tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                          : f.tier === 'warning' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                          : f.tier === 'caution' ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                          : <span className="font-mono font-bold text-sky-700">⇄</span>;
                         const markColor =
                           f.tier === 'banned' || f.tier === 'critical' ? 'text-red-700'
                           : f.tier === 'warning' ? 'text-orange-700'
                           : f.tier === 'caution' ? 'text-amber-700'
                           : 'text-sky-700';
-                        const mark =
-                          f.tier === 'banned' ? '🚫'
-                          : f.tier === 'critical' ? '⛔'
-                          : f.tier === 'warning' ? '✗'
-                          : f.tier === 'caution' ? '⚠'
-                          : '⇄';
                         return (
                           <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${rowColor}`}>
-                            <span className={`font-mono font-bold shrink-0 ${markColor}`}>{mark}</span>
+                            <span className="shrink-0 mt-0.5">{mark}</span>
                             <div className="flex-1">
                               <div className="flex flex-wrap items-center gap-1">
                                 <span className="font-semibold text-gray-800">{f.limitName}</span>
@@ -3237,13 +3288,14 @@ export default function FormulationWizard() {
                     {/* Compact safe-range summary — shows which actives were checked and passed. */}
                     {findings.some(f => f.tier === 'ok') && (
                       <details className="mt-3 text-xs text-emerald-800">
-                        <summary className="cursor-pointer font-medium">
-                          ✓ {findings.filter(f => f.tier === 'ok').length} active{findings.filter(f => f.tier === 'ok').length !== 1 ? 's' : ''} checked and within safe range (click to expand)
+                        <summary className="cursor-pointer font-medium inline-flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                          <span>{findings.filter(f => f.tier === 'ok').length} active{findings.filter(f => f.tier === 'ok').length !== 1 ? 's' : ''} checked and within safe range (click to expand)</span>
                         </summary>
                         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1">
                           {findings.filter(f => f.tier === 'ok').map((f, i) => (
                             <div key={i} className="flex items-center gap-2 py-0.5">
-                              <span className="text-emerald-600">✓</span>
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" aria-hidden="true" />
                               <span className="font-medium text-gray-700">{f.limitName}</span>
                               {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
                                 <span className="text-[11px] text-gray-500 font-mono">
@@ -3258,9 +3310,12 @@ export default function FormulationWizard() {
 
                     {/* Hard-stop language — mirrors the regulatory compliance card */}
                     {summary.hardStop && (
-                      <div className="mt-4 p-3 rounded-lg bg-red-900 text-white">
-                        <p className="text-sm font-bold mb-1">⛔ HARD STOP — Do Not Ship</p>
-                        <p className="text-xs leading-snug">
+                      <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
+                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
+                          <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                          <span>HARD STOP — Do Not Ship</span>
+                        </p>
+                        <p className="text-xs leading-snug text-rose-800">
                           This formulation {summary.banned > 0 ? 'contains an FDA-banned or import-restricted ingredient' : 'exceeds one or more Tolerable Upper Intake Levels'}.
                           Selling a product in this state is misbranding under DSHEA and creates unreasonable
                           risk of injury — the strict-liability standard under FDA enforcement.
@@ -3433,9 +3488,12 @@ export default function FormulationWizard() {
 
                     {/* Advice */}
                     {worst > 30 && (
-                      <div className="mt-4 p-3 rounded-lg bg-red-900 text-white">
-                        <p className="text-sm font-bold mb-1">⚠ Stability concern</p>
-                        <p className="text-xs leading-snug">
+                      <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
+                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
+                          <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                          <span>Stability concern</span>
+                        </p>
+                        <p className="text-xs leading-snug text-rose-800">
                           At least one active is projected to lose more than 30% of label claim over this shelf life.
                           Options: shorten claimed shelf life, add protective packaging (amber + desiccant + N₂ flush),
                           reformulate with a more stable ingredient form, or substantially increase the overage.
@@ -3509,11 +3567,14 @@ export default function FormulationWizard() {
                           : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
                           : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
                           : 'bg-sky-100 border border-sky-300';
-                        const mark = f.tier === 'critical' ? '⛔' : f.tier === 'warning' ? '✗' : f.tier === 'caution' ? '⚠' : 'ℹ';
+                        const mark: ReactNode = f.tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                          : f.tier === 'warning' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                          : f.tier === 'caution' ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                          : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />;
                         return (
                           <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
                             <div className="flex items-start gap-2">
-                              <span className="font-mono font-bold shrink-0">{mark}</span>
+                              <span className="shrink-0 mt-0.5">{mark}</span>
                               <div className="flex-1">
                                 <div className="font-semibold text-gray-800">{f.title}</div>
                                 <div className="text-[11px] text-gray-600 mt-0.5">
@@ -3556,7 +3617,12 @@ export default function FormulationWizard() {
                     >
                       <h2 className={`text-lg font-bold ${ndi.required > 0 ? 'text-red-800' : ndi.unknown > 0 ? 'text-amber-800' : 'text-emerald-800'} flex items-center gap-2`}>
                         <span className="text-xs opacity-60">{ndiExpanded ? '▼' : '▶'}</span>
-                        {ndi.required > 0 ? '⛔ ' : '📋 '}NDI Compliance Check
+                        {ndi.required > 0
+                          ? <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                          : ndi.unknown > 0
+                            ? <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden="true" />
+                            : <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />}
+                        <span>NDI Compliance Check</span>
                       </h2>
                       <span className="text-[10px] uppercase tracking-wide text-gray-500">DSHEA §8 · 21 CFR 190.6</span>
                     </button>
@@ -3583,11 +3649,15 @@ export default function FormulationWizard() {
                             const rowColor = f.status === 'required' ? 'bg-red-100 border border-red-400'
                               : f.status === 'unknown' ? 'bg-amber-100 border border-amber-300'
                               : 'bg-sky-100 border border-sky-300';
-                            const mark = f.status === 'required' ? '⛔' : f.status === 'unknown' ? '?' : 'ℹ';
+                            const mark: ReactNode = f.status === 'required'
+                              ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                              : f.status === 'unknown'
+                                ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                                : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />;
                             return (
                               <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
                                 <div className="flex items-start gap-2">
-                                  <span className="font-mono font-bold shrink-0">{mark}</span>
+                                  <span className="shrink-0 mt-0.5">{mark}</span>
                                   <div className="flex-1">
                                     <div className="font-semibold text-gray-800">{f.ingredientName}</div>
                                     <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.advisory}</p>
@@ -3599,9 +3669,12 @@ export default function FormulationWizard() {
                       </div>
                     )}
                     {ndi.required > 0 && (
-                      <div className="mt-3 p-3 rounded-lg bg-red-900 text-white">
-                        <p className="text-sm font-bold mb-1">⛔ NDI Compliance Risk</p>
-                        <p className="text-xs leading-snug">
+                      <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
+                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
+                          <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                          <span>NDI Compliance Risk</span>
+                        </p>
+                        <p className="text-xs leading-snug text-rose-800">
                           This formulation contains one or more post-1994 ingredients without a known FDA-accepted NDI notification.
                           21 USC §350b requires a 75-day pre-market notification before marketing. Without it, the product is misbranded.
                           Consult FDA&apos;s NDI database and legal counsel before release.
@@ -3609,8 +3682,9 @@ export default function FormulationWizard() {
                       </div>
                     )}
                     {ndi.required === 0 && ndi.unknown === 0 && (
-                      <p className="text-xs text-emerald-700 mt-2">
-                        ✓ All ingredients classified. Verify your specific supplier forms match accepted NDI filings where applicable.
+                      <p className="text-xs text-emerald-700 mt-2 inline-flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                        <span>All ingredients classified. Verify your specific supplier forms match accepted NDI filings where applicable.</span>
                       </p>
                     )}
                     </>)}
@@ -3754,8 +3828,9 @@ export default function FormulationWizard() {
                         </div>
                       )}
                       {suppDraftClaim.trim() && draftFlags.length === 0 && (
-                        <p className="mt-2 text-xs text-emerald-700">
-                          ✓ No disease-claim or drug-claim language detected. Still have legal counsel review before print.
+                        <p className="mt-2 text-xs text-emerald-700 inline-flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                          <span>No disease-claim or drug-claim language detected. Still have legal counsel review before print.</span>
                         </p>
                       )}
                     </div>
@@ -3771,8 +3846,9 @@ export default function FormulationWizard() {
                             </div>
                           )}
                           {disclaimers.additionalWarnings.map((w, i) => (
-                            <div key={i} className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
-                              <span className="font-bold">⚠ </span>{w}
+                            <div key={i} className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900 flex items-start gap-1.5">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                              <span>{w}</span>
                             </div>
                           ))}
                         </div>
@@ -3821,8 +3897,12 @@ export default function FormulationWizard() {
                                 <div className="font-semibold text-sm text-gray-800">{r.retailer.name}</div>
                                 <div className="text-[11px] text-gray-500 leading-tight">{r.retailer.blurb}</div>
                               </div>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 border rounded ${badge} uppercase`}>
-                                {r.status === 'ready' ? '✓ Ready' : r.status === 'caution' ? '⚠ Caution' : '✗ Blocked'}
+                              <span className={`text-[10px] font-bold px-2 py-0.5 border rounded ${badge} uppercase inline-flex items-center gap-1`}>
+                                {r.status === 'ready'
+                                  ? <><CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" /><span>Ready</span></>
+                                  : r.status === 'caution'
+                                    ? <><AlertCircle className="h-3 w-3 text-amber-500" aria-hidden="true" /><span>Caution</span></>
+                                    : <><XIcon className="h-3 w-3 text-rose-600" aria-hidden="true" /><span>Blocked</span></>}
                               </span>
                             </div>
                             <div className="flex items-center gap-2 my-1">
@@ -3848,8 +3928,9 @@ export default function FormulationWizard() {
                       })}
                     </div>
                     {!hasAnyConcerns && (
-                      <p className="text-xs text-emerald-700 mt-3">
-                        ✓ Formula is ready for every channel checked. Still verify current retailer standards before listing submission.
+                      <p className="text-xs text-emerald-700 mt-3 inline-flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                        <span>Formula is ready for every channel checked. Still verify current retailer standards before listing submission.</span>
                       </p>
                     )}
                     </>)}
@@ -4256,18 +4337,18 @@ export default function FormulationWizard() {
                                 return (
                                   <>
                                     {compatible.length > 0 ? (
-                                      <optgroup label={`✓ Compatible with ${code || selectedPackaging.neckFinish}`}>
+                                      <optgroup label={`Compatible with ${code || selectedPackaging.neckFinish}`}>
                                         {compatible.map(p => (
                                           <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
                                         ))}
                                       </optgroup>
                                     ) : (
-                                      <optgroup label={`⚠️ No matching closure in DB for ${code || selectedPackaging.neckFinish || 'this finish'}`}>
+                                      <optgroup label={`No matching closure in DB for ${code || selectedPackaging.neckFinish || 'this finish'}`}>
                                         <option value="" disabled>(Contact supplier for a closure that fits this neck)</option>
                                       </optgroup>
                                     )}
                                     {incompatible.length > 0 && (
-                                      <optgroup label="⚠︎ Other closures (won't fit this container)">
+                                      <optgroup label="Other closures (won't fit this container)">
                                         {incompatible.map(p => (
                                           <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
                                         ))}
@@ -4308,8 +4389,9 @@ export default function FormulationWizard() {
                               : 'bg-emerald-50 border-emerald-100'
                           }`}>
                             {selectedPackaging && !isClosureCompatible(selectedPackaging, selectedClosure) && (
-                              <p className="text-amber-800 font-semibold mb-1">
-                                ⚠️ Neck mismatch: container is {extractNeckCode(selectedPackaging.neckFinish) || selectedPackaging.neckFinish}, closure is {extractNeckCode(selectedClosure.neckFinish) || selectedClosure.neckFinish}. Won&apos;t physically fit.
+                              <p className="text-amber-800 font-semibold mb-1 inline-flex items-start gap-1.5">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                                <span>Neck mismatch: container is {extractNeckCode(selectedPackaging.neckFinish) || selectedPackaging.neckFinish}, closure is {extractNeckCode(selectedClosure.neckFinish) || selectedClosure.neckFinish}. Won&apos;t physically fit.</span>
                               </p>
                             )}
                             <div className="flex flex-wrap gap-2 items-center">
@@ -4776,8 +4858,10 @@ export default function FormulationWizard() {
                           )}
                           {finding && (
                             <div className={`text-xs mb-1.5 px-2 py-1 rounded border ${finding.violated ? 'bg-red-100 border-red-300 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
-                              <span className="font-semibold">
-                                {finding.violated ? '🚫 OVER LEGAL LIMIT' : '✓ within limit'}
+                              <span className="font-semibold inline-flex items-center gap-1">
+                                {finding.violated
+                                  ? <><Ban className="h-3 w-3 text-rose-700" aria-hidden="true" /><span>OVER LEGAL LIMIT</span></>
+                                  : <><CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" /><span>within limit</span></>}
                               </span>
                               {' — '}
                               <span className="font-mono">{formatAmount(finding.currentPercent, finding.currentPpm)}</span>
@@ -4873,7 +4957,7 @@ export default function FormulationWizard() {
                             })()}
                           </div>
                           {ing.allergens?.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mb-2">{ing.allergens.map(a => <span key={a} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">⚠️ {a}</span>)}</div>
+                            <div className="flex flex-wrap gap-1 mb-2">{ing.allergens.map(a => <span key={a} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" /><span>{a}</span></span>)}</div>
                           )}
                           {/* Sub-ingredient statement — editable override for specific brands */}
                           <div className="mt-2 pt-2 border-t border-gray-200">
@@ -5361,8 +5445,10 @@ export default function FormulationWizard() {
                         return (
                           <div className={`mt-2 p-3 rounded-lg border-2 bg-${barColor}-50 border-${barColor}-300 text-xs`}>
                             <div className="flex items-center justify-between mb-1">
-                              <span className={`font-bold ${result.allowed ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                {result.allowed ? '✓ Claim SUPPORTED' : '✗ Claim NOT SUPPORTED'}
+                              <span className={`font-bold inline-flex items-center gap-1 ${result.allowed ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                {result.allowed
+                                  ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" /><span>Claim SUPPORTED</span></>
+                                  : <><XIcon className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" /><span>Claim NOT SUPPORTED</span></>}
                               </span>
                               <span className="text-[10px] text-gray-500 font-mono">{result.citation}</span>
                             </div>
@@ -5399,7 +5485,10 @@ export default function FormulationWizard() {
                         'amber-100 text-amber-800 border-amber-300';
                       return (
                         <div>
-                          <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1.5">✓ Claims your formula currently supports ({available.length})</div>
+                          <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1.5 inline-flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />
+                            <span>Claims your formula currently supports ({available.length})</span>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {available.map((c, i) => (
                               <button
@@ -5432,7 +5521,10 @@ export default function FormulationWizard() {
 
                 {/* Allergen Statement — immediately after ingredient statement, per FDA convention */}
                 <div className="mt-4">
-                  <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">⚠️ Allergen Statement</h3>
+                  <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                    <span>Allergen Statement</span>
+                  </h3>
                   <p className="text-[10px] text-gray-500 mb-2">FDA Top 9 allergens — auto-detected from ingredients</p>
                   {allergenStatement.length > 0 ? (
                     <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
@@ -5501,7 +5593,9 @@ export default function FormulationWizard() {
                       <SpecTile
                         label="Acetic / Moisture"
                         value={specs.aceticMoistureRatio > 0 ? `${specs.aceticMoistureRatio.toFixed(2)}%` : '—'}
-                        hint={specs.aceticMoistureRatio >= 0.5 ? '✓ ≥ 0.5% (acidified target)' : specs.aceticMoistureRatio > 0 ? 'Below 0.5% target' : '—'}
+                        hint={specs.aceticMoistureRatio >= 0.5
+                          ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" /><span>≥ 0.5% (acidified target)</span></span>
+                          : specs.aceticMoistureRatio > 0 ? 'Below 0.5% target' : '—'}
                         color={specs.aceticMoistureRatio >= 0.5 ? 'emerald' : specs.aceticMoistureRatio > 0 ? 'amber' : 'gray'}
                       />
                       <SpecTile
@@ -5668,7 +5762,10 @@ export default function FormulationWizard() {
                         <span>{(specs.coverage * 100).toFixed(0)}% of mass has spec data</span>
                       </div>
                       {specs.coverage < 0.7 && (
-                        <p className="text-amber-600 mt-1">⚠️ Less than 70% of mass has spec data. Estimates may be less accurate — add more industrial-DB ingredients or verify in lab.</p>
+                        <p className="text-amber-600 mt-1 inline-flex items-start gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                          <span>Less than 70% of mass has spec data. Estimates may be less accurate — add more industrial-DB ingredients or verify in lab.</span>
+                        </p>
                       )}
                     </div>
                     <p className="text-xs text-gray-400 mt-3">
@@ -5693,8 +5790,10 @@ export default function FormulationWizard() {
                       : 'bg-amber-50 border-amber-400'
                   }`}>
                     <div className="flex items-start gap-3">
-                      <span className="text-2xl shrink-0">
-                        {haccpMismatch.severity === 'critical' ? '🚨' : '⚠️'}
+                      <span className="shrink-0 mt-0.5">
+                        {haccpMismatch.severity === 'critical'
+                          ? <OctagonX className="h-5 w-5 text-rose-600" aria-hidden="true" />
+                          : <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden="true" />}
                       </span>
                       <div className="flex-1 text-sm">
                         <div className={`font-bold ${haccpMismatch.severity === 'critical' ? 'text-rose-800' : 'text-amber-800'}`}>
@@ -5741,12 +5840,14 @@ export default function FormulationWizard() {
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div>
                           <span className="text-xs uppercase tracking-wide text-gray-600 font-semibold">Scheduled Process Filing</span>
-                          <div className={`text-base font-bold ${
+                          <div className={`text-base font-bold inline-flex items-center gap-1.5 ${
                             filingReq.urgency === 'critical' ? 'text-red-800' :
                             filingReq.urgency === 'recommended' ? 'text-amber-800' :
                             'text-emerald-800'
                           }`}>
-                            {filingReq.required ? `⚠️ REQUIRED → ${filingReq.formName}` : `✓ ${filingReq.formName}`}
+                            {filingReq.required
+                              ? <><AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" /><span>REQUIRED → {filingReq.formName}</span></>
+                              : <><CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" /><span>{filingReq.formName}</span></>}
                           </div>
                         </div>
                         <button
@@ -5836,8 +5937,9 @@ export default function FormulationWizard() {
                       </>
                     )}
 
-                    <p className="text-xs text-gray-400 mt-3">
-                      ⚠️ This is a STARTER TEMPLATE. Every production facility must develop and validate its own HACCP plan with a qualified PCQI or certified Process Authority. Critical limits, monitoring frequency, and corrective actions must be validated for your specific product and equipment.
+                    <p className="text-xs text-gray-400 mt-3 inline-flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                      <span>This is a STARTER TEMPLATE. Every production facility must develop and validate its own HACCP plan with a qualified PCQI or certified Process Authority. Critical limits, monitoring frequency, and corrective actions must be validated for your specific product and equipment.</span>
                     </p>
                   </>
                 )}
@@ -5997,8 +6099,10 @@ export default function FormulationWizard() {
                   <section className="mb-6">
                     <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">3. Compatibility Verification</h2>
                     <div className={`text-sm p-3 rounded border ${neckMatch ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
-                      <div className="font-semibold mb-1">
-                        {neckMatch ? '✓ Neck Match Verified' : '⚠ Neck Mismatch — Will Not Seal'}
+                      <div className="font-semibold mb-1 inline-flex items-center gap-1.5">
+                        {neckMatch
+                          ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" /><span>Neck Match Verified</span></>
+                          : <><AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" /><span>Neck Mismatch — Will Not Seal</span></>}
                       </div>
                       <div className="text-xs">
                         Container neck: <span className="font-mono">{extractNeckCode(container.neckFinish) || container.neckFinish || 'unspecified'}</span>
@@ -6479,7 +6583,7 @@ export default function FormulationWizard() {
                 {unitSanityViolation && (
                   <div className="bg-rose-50 border-2 border-rose-400 rounded-xl p-4 mb-6">
                     <div className="flex items-start gap-3">
-                      <span className="text-2xl">⚠️</span>
+                      <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
                       <div className="flex-1 text-sm">
                         <p className="font-bold text-rose-800">Unit mismatch detected — all per-unit cost figures below are unreliable.</p>
                         <p className="text-rose-700 mt-1">
@@ -7102,15 +7206,24 @@ export default function FormulationWizard() {
                       <div className="text-2xl font-bold text-gray-800">{summary.total}</div>
                     </div>
                     <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                      <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold">✓ Current</div>
+                      <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold inline-flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />
+                        <span>Current</span>
+                      </div>
                       <div className="text-2xl font-bold text-emerald-700">{summary.current}</div>
                     </div>
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                      <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold">⚠ Expiring ≤60d</div>
+                      <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold inline-flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
+                        <span>Expiring ≤60d</span>
+                      </div>
                       <div className="text-2xl font-bold text-amber-700">{summary.expiring}</div>
                     </div>
                     <div className="bg-rose-50 border border-rose-200 rounded-lg p-3">
-                      <div className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold">🚨 Expired</div>
+                      <div className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold inline-flex items-center gap-1">
+                        <Ban className="h-3 w-3 text-rose-700" aria-hidden="true" />
+                        <span>Expired</span>
+                      </div>
                       <div className="text-2xl font-bold text-rose-700">{summary.expired}</div>
                     </div>
                   </div>
@@ -7499,7 +7612,10 @@ export default function FormulationWizard() {
                 {/* Allergens */}
                 {allergenStatement.length > 0 && (
                   <section className="mb-6">
-                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">⚠️ Allergens</h2>
+                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                      <span>Allergens</span>
+                    </h2>
                     <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.join(', ')}</p>
                     <p className="text-xs text-gray-500 mt-1">Confirm allergen changeover protocol is complete before starting this batch.</p>
                   </section>
@@ -7617,8 +7733,9 @@ export default function FormulationWizard() {
                   <p className="text-sm text-gray-700 mt-2">{filingReq.reason}</p>
                   {filingReq.processAuthorityRequired && (
                     <div className="mt-3 p-3 bg-red-50 border border-red-300 rounded-lg">
-                      <p className="text-sm text-red-800 font-semibold">
-                        ⚠️ Process Authority review & letter REQUIRED before first commercial batch.
+                      <p className="text-sm text-red-800 font-semibold inline-flex items-start gap-1.5">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                        <span>Process Authority review &amp; letter REQUIRED before first commercial batch.</span>
                       </p>
                       <p className="text-xs text-red-700 mt-1.5">
                         This classification is computed from your ingredient data and is <strong>advisory</strong>. The actual Scheduled Process filing, critical factors, and thermal process parameters MUST be determined by a qualified Process Authority per 21 CFR 113.83 / 114.83.
@@ -8162,12 +8279,15 @@ ${serviceNotes || '(none)'}
           PERSISTENT FOOTER DISCLAIMER (on every tab)
           ══════════════════════════════════════════════════════════════════ */}
       <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 text-gray-300 text-[10px] py-2 px-4 text-center z-40 print:hidden backdrop-blur-sm">
-        <span className="opacity-80">
-          ⚠️ Advisory tool only — not legal, regulatory, or scientific advice.
-          All regulatory classifications and filing indicators require verification by a qualified
-          <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">Process Authority</button>
-          before commercial production.
-          <button onClick={() => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); }} className="underline ml-2 hover:text-emerald-300">Review Terms</button>
+        <span className="opacity-80 inline-flex items-center gap-1.5 flex-wrap justify-center">
+          <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" aria-hidden="true" />
+          <span>
+            Advisory tool only — not legal, regulatory, or scientific advice.
+            All regulatory classifications and filing indicators require verification by a qualified
+            <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">Process Authority</button>
+            before commercial production.
+            <button onClick={() => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); }} className="underline ml-2 hover:text-emerald-300">Review Terms</button>
+          </span>
         </span>
       </div>
     </div>
@@ -8206,7 +8326,7 @@ function FilingInput(props: { label: string; value: string; onChange: (v: string
 // ============================================================
 // Small presentational helper components
 // ============================================================
-function SpecTile(props: { label: string; value: string; hint: string; color: 'emerald' | 'amber' | 'red' | 'gray' }) {
+function SpecTile(props: { label: string; value: string; hint: ReactNode; color: 'emerald' | 'amber' | 'red' | 'gray' }) {
   const bgMap = {
     emerald: 'bg-emerald-50 border-emerald-200 text-emerald-800',
     amber: 'bg-amber-50 border-amber-200 text-amber-800',
