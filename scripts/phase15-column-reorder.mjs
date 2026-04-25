@@ -36,33 +36,45 @@ for (let i = leftOpenIdx + 1; i < lines.length; i++) {
 }
 if (rightHeaderIdx < 0) throw new Error('Cannot find RIGHT column header.');
 
+// Defensive: lines may carry trailing \r on CRLF files. Compare against
+// trimmed-of-CR copies for anchor matches.
+const stripCR = (s) => s.endsWith('\r') ? s.slice(0, -1) : s;
+
 // LEFT body = leftOpenIdx+1 .. (line of `</div>` just before rightHeaderIdx)
 let leftCloseIdx = rightHeaderIdx - 1;
-while (leftCloseIdx > leftOpenIdx && lines[leftCloseIdx].trim() === '') leftCloseIdx--;
-if (lines[leftCloseIdx].trim() !== '</div>') {
+while (leftCloseIdx > leftOpenIdx && stripCR(lines[leftCloseIdx]).trim() === '') leftCloseIdx--;
+if (stripCR(lines[leftCloseIdx]).trim() !== '</div>') {
   throw new Error(`LEFT column doesn't close cleanly at line ${leftCloseIdx + 1}: "${lines[leftCloseIdx]}"`);
 }
 
 let rightOpenIdx = -1;
 for (let i = rightHeaderIdx + 1; i < lines.length; i++) {
-  if (lines[i].trim() === '<div className="space-y-6">') { rightOpenIdx = i; break; }
+  if (stripCR(lines[i]).trim() === '<div className="space-y-6">') { rightOpenIdx = i; break; }
 }
 if (rightOpenIdx < 0) throw new Error('Cannot find RIGHT column open.');
 
-// RIGHT body ends at the matching `</div>` at the same indent as RIGHT-open's parent.
-// The space-y-6 div closes with a `            </div>` at column-12 indent.
-// Walk forward from rightOpenIdx tracking depth; stop when depth returns to 0.
-let depth = 1;
+// RIGHT body ends at the build-tab block terminator four-line sequence:
+//   `            </div>`   ← RIGHT column close (12 spaces)
+//   `          </div>`     ← grid wrapper close (10 spaces)
+//   `        </div>`       ← outer wrapper close ( 8 spaces)
+//   `      )}`             ← build-tab IIFE close ( 6 spaces)
+// The first line in the sequence is rightCloseIdx.
+const RIGHT_COL_CLOSE   = '            </div>';
+const GRID_CLOSE        = '          </div>';
+const BUILD_OUTER_CLOSE = '        </div>';
+const BUILD_BLOCK_END   = '      )}';
+
 let rightCloseIdx = -1;
-for (let i = rightOpenIdx + 1; i < lines.length; i++) {
-  const t = lines[i];
-  // Count opens vs closes of <div on this line.
-  const opens = (t.match(/<div[\s>]/g) || []).length;
-  const closes = (t.match(/<\/div>/g) || []).length;
-  depth += opens - closes;
-  if (depth === 0) { rightCloseIdx = i; break; }
+for (let i = rightOpenIdx + 1; i < lines.length - 3; i++) {
+  if (stripCR(lines[i])     === RIGHT_COL_CLOSE
+      && stripCR(lines[i + 1]) === GRID_CLOSE
+      && stripCR(lines[i + 2]) === BUILD_OUTER_CLOSE
+      && stripCR(lines[i + 3]) === BUILD_BLOCK_END) {
+    rightCloseIdx = i;
+    break;
+  }
 }
-if (rightCloseIdx < 0) throw new Error('Cannot find RIGHT column close.');
+if (rightCloseIdx < 0) throw new Error('Cannot find RIGHT column close (anchor pattern not found).');
 
 const headLines = lines.slice(0, leftOpenIdx + 1);              // up to and incl. LEFT <div className="space-y-6">
 const leftBody  = lines.slice(leftOpenIdx + 1, leftCloseIdx);   // LEFT sections

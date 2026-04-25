@@ -3142,887 +3142,85 @@ export default function FormulationWizard() {
                 )}
               </div>
 
-              {/* ═══════════════════════════════════════════════════════════
-                  DETERMINATION ENGINE — live regulatory classification
-                  Identity → Formula → Determination → Packaging/Dosage/Serving → Sustainability → Cost.
-                  Decisions flow downward; consequences appear in real-time.
-                  ═══════════════════════════════════════════════════════════ */}
-              <DeterminationEngineCard
-                modeId={mode}
-                specs={specs}
-                filing={filingReq}
-                hasIngredients={ingredients.length > 0}
-                onOpenProcessAuthorities={() => setActiveTab('authorities')}
-              />
-
-              {/* Regulatory Compliance */}
-              {complianceFindings.length > 0 && (
-                <div className={`rounded-xl border-2 p-6 ${complianceViolations.length > 0 ? 'bg-red-50 border-red-400' : 'bg-emerald-50 border-emerald-300'}`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className={`text-lg font-bold flex items-center gap-2 ${complianceViolations.length > 0 ? 'text-red-800' : 'text-emerald-800'}`}>
-                      {complianceViolations.length > 0 ? (
-                        <>
-                          <Ban className="h-4 w-4 text-rose-700" aria-hidden="true" />
-                          <span>{complianceViolations.length} Regulatory Violation{complianceViolations.length !== 1 ? 's' : ''}</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-                          <span>{complianceFindings.length} Regulated Ingredient{complianceFindings.length !== 1 ? 's' : ''} — All Within Limits</span>
-                        </>
+              {/* Serving & Package */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">Serving & Package Size</h2>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
+                    <div className="flex gap-1">
+                      <input type="number" value={servingSize} onChange={(e) => setServingSize(Math.max(0.1, parseFloat(e.target.value) || 30))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
+                      <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
+                    </div>
+                    {mode === 'supplements' && (() => {
+                      // Bridge between mass-based serving size and count-based label ("2 Capsules").
+                      // The Delivery Form card owns the count and per-unit noun; this card owns
+                      // the mass used for math. Surface the relationship so it's never ambiguous.
+                      const noun = SUPP_FORM_NOUN[suppDeliveryForm];
+                      const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
+                      const countable = ['capsule', 'tablet', 'softgel', 'gummy', 'lozenge', 'chewable'].includes(suppDeliveryForm);
+                      const massMg = servingSize * (UNIT_TO_GRAMS[servingUnit] || 1) * 1000;
+                      const perUnitMg = suppUnitsPerServing > 0 ? massMg / suppUnitsPerServing : 0;
+                      return (
+                        <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                          {countable ? (
+                            <>
+                              Label will read <span className="font-mono">&ldquo;{suppUnitsPerServing} {unitWord}&rdquo;</span> —
+                              each {noun.singular.toLowerCase()} ≈ <span className="font-mono">{perUnitMg.toFixed(0)} mg</span>.
+                              Adjust <span className="italic">Units Per Serving</span> in the Delivery Form card above.
+                            </>
+                          ) : suppDeliveryForm === 'powder' ? (
+                            <>Label will read <span className="font-mono">&ldquo;1 Scoop ({servingSize}{servingUnit})&rdquo;</span>.</>
+                          ) : suppDeliveryForm === 'liquid' ? (
+                            <>Label will read <span className="font-mono">&ldquo;1 Dropper ({servingSize}{servingUnit})&rdquo;</span>.</>
+                          ) : null}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-2">Package Size</label>
+                    <div className="flex gap-1">
+                      <input type="number" value={packageSize} onChange={(e) => setPackageSize(Math.max(0.1, parseFloat(e.target.value) || 300))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
+                      <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-600">Servings/Container</label>
+                      {servingsPerContainerOverride !== null && (
+                        <button
+                          onClick={() => setServingsPerContainerOverride(null)}
+                          className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
+                          title={`Reset to auto (${autoServingsPerContainer})`}
+                        >
+                          ↻ auto
+                        </button>
                       )}
-                    </h2>
-                    <span className="text-[10px] uppercase tracking-wide text-gray-500">FDA / USDA-FSIS</span>
-                  </div>
-                  <div className="space-y-2">
-                    {complianceFindings.map((f, i) => (
-                      <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${f.violated ? 'bg-red-100 border border-red-300' : 'bg-white border border-emerald-200'}`}>
-                        <span className="shrink-0 mt-0.5">
-                          {f.violated
-                            ? <XIcon className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
-                            : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />}
-                        </span>
-                        <div className="flex-1">
-                          <div className="flex flex-wrap items-center gap-1">
-                            <span className="font-semibold text-gray-800">{f.limit.shortName}</span>
-                            <span className="text-gray-500">— currently</span>
-                            <span className={`font-mono font-bold ${f.violated ? 'text-red-700' : 'text-emerald-700'}`}>
-                              {formatAmount(f.currentPercent, f.currentPpm)}
-                            </span>
-                            <span className="text-gray-500">vs max</span>
-                            <span className="font-mono font-bold text-gray-700">
-                              {f.limit.maxPercent !== undefined ? `${f.limit.maxPercent}%` : `${f.limit.maxPpm} ppm`}
-                            </span>
-                            <span className="text-gray-500">({f.utilization.toFixed(0)}% of cap)</span>
-                          </div>
-                          <p className="text-[10px] text-gray-500 mt-0.5">
-                            {f.limit.authority} {f.limit.citation} — {f.limit.summary}
-                          </p>
-                          {f.activeSpeciesPpm !== undefined && f.limit.activeName && (
-                            <p className={`text-[10px] mt-0.5 font-semibold inline-flex items-center gap-1 ${f.activeViolated ? 'text-red-700' : 'text-emerald-700'}`}>
-                              <span>↳ Active {f.limit.activeName}: {f.activeSpeciesPpm.toFixed(1)} ppm (max {f.limit.activeMaxPpm} ppm)</span>
-                              {f.activeViolated
-                                ? <span>— OVER</span>
-                                : <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {complianceViolations.length > 0 && (
-                    <p className="text-xs text-red-800 mt-3 font-semibold inline-flex items-start gap-1.5">
-                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
-                      <span>This formulation exceeds one or more US regulatory limits. Reduce the flagged ingredient(s) before producing — non-compliant products are misbranded under federal law.</span>
+                    </div>
+                    <input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={servingsPerContainer}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setServingsPerContainerOverride(isNaN(v) || v <= 0 ? null : v);
+                      }}
+                      className={`w-full text-center rounded-lg py-2 text-lg font-bold focus:outline-none focus:border-emerald-500 border ${
+                        servingsPerContainerOverride !== null
+                          ? 'border-emerald-400 text-emerald-700 bg-white'
+                          : 'border-gray-100 bg-gray-50 text-emerald-700'
+                      }`}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
+                      {servingsPerContainerOverride !== null
+                        ? `Overridden. Auto would be ${autoServingsPerContainer}.`
+                        : 'Auto-calculated from package ÷ serving size. Edit to override.'}
                     </p>
-                  )}
+                  </div>
                 </div>
-              )}
-
-              {/* ═══════════════════════════════════════════════════════════
-                  DOSAGE SAFETY CHECK (supplements mode only)
-                  Tiered warnings — mirrors the regulatory compliance card
-                  pattern used for cure-ppm / sodium benzoate / sorbate etc.
-                  Scans every ingredient against the IOM Tolerable Upper
-                  Intake Levels table and the FDA banned/restricted list,
-                  plus high-risk interaction herbs.
-                  ═══════════════════════════════════════════════════════════ */}
-              {mode === 'supplements' && ingredients.length > 0 && (() => {
-                // Compute per-serving mg for every ingredient so the checker can
-                // compare against UL thresholds. Serving-scale the batch mass.
-                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
-                const perServingMgByName = new Map<string, number>();
-                for (const ing of ingredients) {
-                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
-                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
-                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
-                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
-                    ? ing.foodData.data.potencyFactor : 1;
-                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
-                }
-                const findings = checkSupplementSafety(ingredients, perServingMgByName, suppAudience);
-                const summary = summarizeFindings(findings);
-                if (findings.length === 0) return null;
-
-                // Overall card color reflects the worst tier present.
-                const cardColor =
-                  summary.banned > 0 || summary.critical > 0
-                    ? 'bg-red-50 border-red-500'
-                    : summary.warning > 0
-                      ? 'bg-orange-50 border-orange-400'
-                      : summary.caution > 0
-                        ? 'bg-amber-50 border-amber-300'
-                        : summary.interaction > 0
-                          ? 'bg-sky-50 border-sky-300'
-                          : 'bg-emerald-50 border-emerald-300';
-
-                const headerIcon: ReactNode =
-                  summary.banned > 0 ? <Ban className="h-4 w-4 text-rose-700" aria-hidden="true" />
-                  : summary.critical > 0 ? <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
-                  : summary.warning > 0 ? <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
-                  : summary.caution > 0 ? <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden="true" />
-                  : <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />;
-
-                const headerText =
-                  summary.banned > 0
-                    ? `${summary.banned} Banned / Restricted Ingredient${summary.banned !== 1 ? 's' : ''} — Do Not Ship`
-                  : summary.critical > 0
-                    ? `${summary.critical} Critical Dose${summary.critical !== 1 ? 's' : ''} — Hazardous`
-                  : summary.warning > 0
-                    ? `${summary.warning} Dose${summary.warning !== 1 ? 's' : ''} Over Upper Limit — Reformulate`
-                  : summary.caution > 0
-                    ? `${summary.caution} Dose${summary.caution !== 1 ? 's' : ''} Approaching Upper Limit`
-                  : `${findings.length} Dosage Check${findings.length !== 1 ? 's' : ''} — All Within Safe Range`;
-
-                const headerColor =
-                  summary.banned > 0 || summary.critical > 0 ? 'text-red-800'
-                  : summary.warning > 0 ? 'text-orange-800'
-                  : summary.caution > 0 ? 'text-amber-800'
-                  : 'text-emerald-800';
-
-                // Collapsible logic: card expands by default when any findings are
-                // non-OK. User click on the header overrides. Status-strip pills
-                // force-expand the card they correspond to.
-                const defaultExpanded = (summary.banned + summary.critical + summary.warning + summary.caution + summary.interaction) > 0;
-                const manual = suppCardsManuallyToggled['safety'];
-                const expanded = manual !== undefined ? manual : defaultExpanded;
-                return (
-                  <div id="supp-card-safety" className={`rounded-xl border-2 p-6 ${cardColor}`}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSuppCard('safety', expanded)}
-                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
-                    >
-                      <h2 className={`text-lg font-bold ${headerColor} flex items-center gap-2`}>
-                        <span className="text-xs opacity-60">{expanded ? '▼' : '▶'}</span>
-                        {headerIcon}
-                        <span>{headerText}</span>
-                      </h2>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] uppercase tracking-wide text-gray-500">IOM / FDA / DSHEA</span>
-                        {suppAudience !== 'general' && (
-                          <span className="text-[10px] uppercase tracking-wide bg-gray-800 text-white px-2 py-0.5 rounded">
-                            {suppAudience === 'pregnancy' ? 'Prenatal rules active' : suppAudience === 'pediatric' ? 'Pediatric rules active' : 'NCAA / Sport rules active'}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                    {expanded && (<>
-                    {/* Full-detail rows only for findings that need attention. "ok" findings
-                        get a compact summary line at the bottom so the hazard/mitigation text
-                        doesn't read as a warning when the ingredient is actually within safe range. */}
-                    <div className="space-y-2">
-                      {findings.filter(f => f.tier !== 'ok').map((f, i) => {
-                        const rowColor =
-                          f.tier === 'banned' || f.tier === 'critical' ? 'bg-red-100 border border-red-400'
-                          : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
-                          : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
-                          : 'bg-sky-100 border border-sky-300';
-                        const mark: ReactNode =
-                          f.tier === 'banned' ? <Ban className="h-3.5 w-3.5 text-rose-700" aria-hidden="true" />
-                          : f.tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
-                          : f.tier === 'warning' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-                          : f.tier === 'caution' ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
-                          : <span className="font-mono font-bold text-sky-700">⇄</span>;
-                        const markColor =
-                          f.tier === 'banned' || f.tier === 'critical' ? 'text-red-700'
-                          : f.tier === 'warning' ? 'text-orange-700'
-                          : f.tier === 'caution' ? 'text-amber-700'
-                          : 'text-sky-700';
-                        return (
-                          <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${rowColor}`}>
-                            <span className="shrink-0 mt-0.5">{mark}</span>
-                            <div className="flex-1">
-                              <div className="flex flex-wrap items-center gap-1">
-                                <span className="font-semibold text-gray-800">{f.limitName}</span>
-                                <span className="text-gray-500 text-[11px]">— ingredient:</span>
-                                <span className="font-medium text-gray-700 text-[11px]">{f.ingredientName}</span>
-                                {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
-                                  <>
-                                    <span className="text-gray-500">·</span>
-                                    <span className={`font-mono font-bold ${markColor}`}>
-                                      {f.amountPerServing.toFixed(f.amountPerServing >= 10 ? 0 : 1)}{f.unit}/serving
-                                    </span>
-                                    <span className="text-gray-500">vs UL</span>
-                                    <span className="font-mono font-bold text-gray-700">
-                                      {f.effectiveUL}{f.unit}
-                                    </span>
-                                    <span className="text-gray-500">({f.percentOfUL.toFixed(0)}% of UL)</span>
-                                  </>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-gray-600 mt-0.5 leading-snug">
-                                <span className="font-semibold">{f.authority}</span> {f.citation} — {f.hazard}
-                              </p>
-                              {f.mitigation && (
-                                <p className="text-[10px] text-gray-700 mt-0.5 leading-snug italic">
-                                  → {f.mitigation}
-                                </p>
-                              )}
-                              {f.populationNote && (
-                                <p className="text-[10px] text-red-700 mt-0.5 leading-snug font-semibold">
-                                  {f.populationNote}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Compact safe-range summary — shows which actives were checked and passed. */}
-                    {findings.some(f => f.tier === 'ok') && (
-                      <details className="mt-3 text-xs text-emerald-800">
-                        <summary className="cursor-pointer font-medium inline-flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                          <span>{findings.filter(f => f.tier === 'ok').length} active{findings.filter(f => f.tier === 'ok').length !== 1 ? 's' : ''} checked and within safe range (click to expand)</span>
-                        </summary>
-                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1">
-                          {findings.filter(f => f.tier === 'ok').map((f, i) => (
-                            <div key={i} className="flex items-center gap-2 py-0.5">
-                              <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" aria-hidden="true" />
-                              <span className="font-medium text-gray-700">{f.limitName}</span>
-                              {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
-                                <span className="text-[11px] text-gray-500 font-mono">
-                                  {f.amountPerServing.toFixed(f.amountPerServing >= 10 ? 0 : 1)}{f.unit} ({f.percentOfUL.toFixed(0)}% of UL)
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-
-                    {/* Hard-stop language — mirrors the regulatory compliance card */}
-                    {summary.hardStop && (
-                      <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
-                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
-                          <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
-                          <span>HARD STOP — Do Not Ship</span>
-                        </p>
-                        <p className="text-xs leading-snug text-rose-800">
-                          This formulation {summary.banned > 0 ? 'contains an FDA-banned or import-restricted ingredient' : 'exceeds one or more Tolerable Upper Intake Levels'}.
-                          Selling a product in this state is misbranding under DSHEA and creates unreasonable
-                          risk of injury — the strict-liability standard under FDA enforcement.
-                          Reduce the flagged ingredient(s) or remove them before any production batch is released.
-                        </p>
-                      </div>
-                    )}
-                    {!summary.hardStop && summary.caution > 0 && (
-                      <p className="mt-3 text-xs text-amber-800 font-medium">
-                        Caution level — one or more actives are within 20% of their UL. Not a violation, but worth scrutiny if your label targets chronic daily use.
-                      </p>
-                    )}
-                    {!summary.hardStop && summary.caution === 0 && summary.interaction > 0 && (
-                      <p className="mt-3 text-xs text-sky-800 font-medium">
-                        No dosage violations — but one or more ingredients carry clinically significant drug-interaction risks. Label should include an interaction warning.
-                      </p>
-                    )}
-                    </>)}
-                  </div>
-                );
-              })()}
-
-              {/* ═══════════════════════════════════════════════════════════
-                  STABILITY & OVERAGE (supplements mode only)
-                  Per-ingredient degradation prediction over the target shelf
-                  life, with storage + packaging modifiers. Output: required
-                  formulate-at amounts so the Supplement Facts label claim
-                  stays true through expiry — 21 CFR 101.36(b)(3)(iv).
-                  ═══════════════════════════════════════════════════════════ */}
-              {mode === 'supplements' && ingredients.length > 0 && (() => {
-                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
-                const perServingMgByName = new Map<string, number>();
-                for (const ing of ingredients) {
-                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
-                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
-                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
-                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
-                    ? ing.foodData.data.potencyFactor : 1;
-                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
-                }
-                const overage = computeOverages(ingredients, perServingMgByName, {
-                  shelfLifeMonths: suppShelfLifeMonths,
-                  storage: suppStorage,
-                  amberPackaging: suppAmberPkg,
-                  desiccant: suppDesiccant,
-                  nitrogenFlush: suppNitrogen,
-                  tocopherolAntioxidant: suppTocopherol,
-                });
-                if (overage.rows.length === 0) return null;
-
-                // Overall worst loss drives the card color.
-                const worst = overage.worstLossPct;
-                const cardColor =
-                  worst > 50 ? 'bg-red-50 border-red-400'
-                  : worst > 30 ? 'bg-orange-50 border-orange-300'
-                  : worst > 15 ? 'bg-amber-50 border-amber-300'
-                  : 'bg-emerald-50 border-emerald-300';
-
-                const stabDefaultExpanded = worst > 15;
-                const stabManual = suppCardsManuallyToggled['stability'];
-                const stabExpanded = stabManual !== undefined ? stabManual : stabDefaultExpanded;
-                return (
-                  <div id="supp-card-stability" className={`rounded-xl border-2 p-6 ${cardColor}`}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSuppCard('stability', stabExpanded)}
-                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
-                    >
-                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                        <span className="text-xs opacity-60">{stabExpanded ? '▼' : '▶'}</span>
-                        🧪 Stability & Overage — {suppShelfLifeMonths}mo shelf life
-                      </h2>
-                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.36(b)(3)(iv) · USP &lt;1150&gt;</span>
-                    </button>
-                    {stabExpanded && (<>
-                    {/* Condition controls */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Target Shelf Life</label>
-                        <select
-                          value={suppShelfLifeMonths}
-                          onChange={(e) => setSuppShelfLifeMonths(parseInt(e.target.value))}
-                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none"
-                        >
-                          <option value={12}>12 months (1 yr)</option>
-                          <option value={18}>18 months</option>
-                          <option value={24}>24 months (2 yr — industry standard)</option>
-                          <option value={36}>36 months (3 yr — premium)</option>
-                          <option value={60}>60 months (5 yr — pharma)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Storage Condition</label>
-                        <select
-                          value={suppStorage}
-                          onChange={(e) => setSuppStorage(e.target.value as StorageCondition)}
-                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none"
-                        >
-                          <option value="ambient">Ambient (room temperature)</option>
-                          <option value="refrigerated">Refrigerated (2-8°C)</option>
-                          <option value="frozen">Frozen (-20°C)</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-wrap gap-x-3 gap-y-2 items-end text-xs">
-                        <label className="inline-flex items-center gap-1">
-                          <input type="checkbox" checked={suppAmberPkg} onChange={(e) => setSuppAmberPkg(e.target.checked)} className="accent-emerald-600" />
-                          Amber / opaque
-                        </label>
-                        <label className="inline-flex items-center gap-1">
-                          <input type="checkbox" checked={suppDesiccant} onChange={(e) => setSuppDesiccant(e.target.checked)} className="accent-emerald-600" />
-                          Desiccant
-                        </label>
-                        <label className="inline-flex items-center gap-1">
-                          <input type="checkbox" checked={suppNitrogen} onChange={(e) => setSuppNitrogen(e.target.checked)} className="accent-emerald-600" />
-                          N₂ flush
-                        </label>
-                        <label className="inline-flex items-center gap-1">
-                          <input type="checkbox" checked={suppTocopherol} onChange={(e) => setSuppTocopherol(e.target.checked)} className="accent-emerald-600" />
-                          Tocopherol antioxidant
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Bottleneck callout */}
-                    {overage.bottleneck && (
-                      <div className="mb-3 text-sm text-gray-700">
-                        <span className="font-semibold">Stability bottleneck:</span>{' '}
-                        <span className="font-medium">{overage.bottleneck.ingredientName}</span>{' '}
-                        <span className="text-gray-500">({CATEGORY_LABEL[overage.bottleneck.category]})</span>{' '}
-                        <span className="text-gray-500">— </span>
-                        <span className={`font-bold ${overage.bottleneck.lossPct > 30 ? 'text-red-700' : overage.bottleneck.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700'}`}>
-                          {overage.bottleneck.lossPct.toFixed(0)}% loss projected
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Table */}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-left border-b-2 border-gray-300">
-                            <th className="py-2 pr-2 font-semibold text-gray-600">Ingredient</th>
-                            <th className="py-2 px-2 font-semibold text-gray-600">Category</th>
-                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Label Claim</th>
-                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Loss %</th>
-                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Predicted EOSL</th>
-                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Formulate At</th>
-                            <th className="py-2 pl-2 font-semibold text-gray-600 text-right">Overage</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {overage.rows.map((r, i) => {
-                            const lossColor = r.lossPct > 30 ? 'text-red-700' : r.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700';
-                            return (
-                              <tr key={i} className="border-b border-gray-200">
-                                <td className="py-1.5 pr-2 font-medium text-gray-800">{r.ingredientName}</td>
-                                <td className="py-1.5 px-2 text-gray-500 text-[11px]">{CATEGORY_LABEL[r.category]}</td>
-                                <td className="py-1.5 px-2 text-right font-mono">{formatDose(r.labelClaimMg)}</td>
-                                <td className={`py-1.5 px-2 text-right font-mono font-bold ${lossColor}`}>{r.lossPct.toFixed(0)}%</td>
-                                <td className="py-1.5 px-2 text-right font-mono text-gray-600">{formatDose(r.predictedEOSLMg)}</td>
-                                <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-700">{formatDose(r.requiredFormulateAtMg)}</td>
-                                <td className="py-1.5 pl-2 text-right font-mono text-gray-700">+{r.overagePct.toFixed(0)}%</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Advice */}
-                    {worst > 30 && (
-                      <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
-                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
-                          <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
-                          <span>Stability concern</span>
-                        </p>
-                        <p className="text-xs leading-snug text-rose-800">
-                          At least one active is projected to lose more than 30% of label claim over this shelf life.
-                          Options: shorten claimed shelf life, add protective packaging (amber + desiccant + N₂ flush),
-                          reformulate with a more stable ingredient form, or substantially increase the overage.
-                          Real stability data from accelerated + long-term ICH Q1A protocols should validate these predictions before release.
-                        </p>
-                      </div>
-                    )}
-                    {worst > 15 && worst <= 30 && (
-                      <p className="mt-3 text-xs text-amber-800 leading-snug">
-                        Moderate degradation expected. The Formulate-At column shows what to weigh to keep the label claim true through {suppShelfLifeMonths} months.
-                        Real stability data is still required — these are conservative industry estimates, not product-specific.
-                      </p>
-                    )}
-                    {worst <= 15 && (
-                      <p className="mt-3 text-xs text-emerald-800 leading-snug">
-                        Good stability profile for the target shelf life. Still plan to run accelerated (40°C/75% RH) + real-time stability per ICH Q1A to confirm.
-                      </p>
-                    )}
-                    <p className="mt-2 text-[10px] text-gray-500 italic leading-tight">
-                      Degradation rates are industry-conservative estimates derived from USP, CRN, and IFOS literature.
-                      Real stability data from your own accelerated + long-term program should replace these predictions for production.
-                    </p>
-                    </>)}
-                  </div>
-                );
-              })()}
-
-              {/* ═══════════════════════════════════════════════════════════
-                  INGREDIENT COMPATIBILITY (supplements mode only)
-                  Detects formulation-science incompatibilities — pro-oxidant
-                  pairs, mineral antagonisms, capsule-shell conflicts,
-                  packaging-mismatch issues. Mirrors the safety-card tiering.
-                  ═══════════════════════════════════════════════════════════ */}
-              {mode === 'supplements' && ingredients.length > 0 && (() => {
-                const compatFindings = checkCompatibility(ingredients, {
-                  deliveryForm: suppDeliveryForm,
-                  capsuleShell: suppDeliveryForm === 'softgel' ? 'gelatin' : suppDeliveryForm === 'capsule' ? 'gelatin' : 'none',
-                  hasDesiccant: suppDesiccant,
-                  hasNitrogenFlush: suppNitrogen,
-                  hasAmberPackaging: suppAmberPkg,
-                  storage: suppStorage,
-                });
-                const compatSummary = summarizeCompatibility(compatFindings);
-                if (compatFindings.length === 0) return null;
-                const cardColor =
-                  compatSummary.critical > 0 ? 'bg-red-50 border-red-400'
-                  : compatSummary.warning > 0 ? 'bg-orange-50 border-orange-300'
-                  : compatSummary.caution > 0 ? 'bg-amber-50 border-amber-300'
-                  : 'bg-sky-50 border-sky-300';
-                const compatDefaultExpanded = (compatSummary.critical + compatSummary.warning + compatSummary.caution) > 0;
-                const compatManual = suppCardsManuallyToggled['compat'];
-                const compatExpanded = compatManual !== undefined ? compatManual : compatDefaultExpanded;
-                return (
-                  <div id="supp-card-compat" className={`rounded-xl border-2 p-6 ${cardColor}`}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSuppCard('compat', compatExpanded)}
-                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
-                    >
-                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                        <span className="text-xs opacity-60">{compatExpanded ? '▼' : '▶'}</span>
-                        🧬 Ingredient Compatibility — {compatFindings.length} finding{compatFindings.length !== 1 ? 's' : ''}
-                      </h2>
-                      <span className="text-[10px] uppercase tracking-wide text-gray-500">USP &lt;1151&gt; · CRN Handbook · formulation science</span>
-                    </button>
-                    {compatExpanded && (
-                    <div className="space-y-2">
-                      {compatFindings.map((f, i) => {
-                        const rowColor =
-                          f.tier === 'critical' ? 'bg-red-100 border border-red-400'
-                          : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
-                          : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
-                          : 'bg-sky-100 border border-sky-300';
-                        const mark: ReactNode = f.tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
-                          : f.tier === 'warning' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-                          : f.tier === 'caution' ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
-                          : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />;
-                        return (
-                          <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
-                            <div className="flex items-start gap-2">
-                              <span className="shrink-0 mt-0.5">{mark}</span>
-                              <div className="flex-1">
-                                <div className="font-semibold text-gray-800">{f.title}</div>
-                                <div className="text-[11px] text-gray-600 mt-0.5">
-                                  {f.ingredients.join(' + ')}
-                                </div>
-                                <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.issue}</p>
-                                <p className="text-[11px] text-gray-800 mt-1 leading-snug italic">→ {f.remedy}</p>
-                                {f.citation && <p className="text-[10px] text-gray-500 mt-0.5 italic">{f.citation}</p>}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* ═══════════════════════════════════════════════════════════
-                  NDI (NEW DIETARY INGREDIENT) COMPLIANCE (supplements mode)
-                  Classifies each ingredient as grandfathered / notified /
-                  GRAS-food / NDI-required / unknown. Surfaces compliance
-                  risk for post-1994 ingredients without accepted notification.
-                  ═══════════════════════════════════════════════════════════ */}
-              {mode === 'supplements' && ingredients.length > 0 && (() => {
-                const ndi = analyzeNDI(ingredients.map(i => i.name));
-                const statusColor = ndi.required > 0 ? 'bg-red-50 border-red-400'
-                  : ndi.unknown > 0 ? 'bg-amber-50 border-amber-300'
-                  : 'bg-emerald-50 border-emerald-300';
-                const ndiDefaultExpanded = ndi.required > 0 || ndi.unknown > 0;
-                const ndiManual = suppCardsManuallyToggled['ndi'];
-                const ndiExpanded = ndiManual !== undefined ? ndiManual : ndiDefaultExpanded;
-                return (
-                  <div id="supp-card-ndi" className={`rounded-xl border-2 p-6 ${statusColor}`}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSuppCard('ndi', ndiExpanded)}
-                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
-                    >
-                      <h2 className={`text-lg font-bold ${ndi.required > 0 ? 'text-red-800' : ndi.unknown > 0 ? 'text-amber-800' : 'text-emerald-800'} flex items-center gap-2`}>
-                        <span className="text-xs opacity-60">{ndiExpanded ? '▼' : '▶'}</span>
-                        {ndi.required > 0
-                          ? <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
-                          : ndi.unknown > 0
-                            ? <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden="true" />
-                            : <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />}
-                        <span>NDI Compliance Check</span>
-                      </h2>
-                      <span className="text-[10px] uppercase tracking-wide text-gray-500">DSHEA §8 · 21 CFR 190.6</span>
-                    </button>
-                    {ndiExpanded && (<>
-                    {/* Summary row */}
-                    <div className="flex flex-wrap gap-3 mb-3 text-xs">
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Pre-1994 ODI: <strong>{ndi.grandfathered}</strong></span>
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-500" /> NDI notified: <strong>{ndi.notified}</strong></span>
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-teal-500" /> GRAS food: <strong>{ndi.grasFood}</strong></span>
-                      {ndi.required > 0 && (
-                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600" /> NDI required: <strong>{ndi.required}</strong></span>
-                      )}
-                      {ndi.unknown > 0 && (
-                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> Unknown: <strong>{ndi.unknown}</strong></span>
-                      )}
-                    </div>
-
-                    {/* Only show problematic findings (required / unknown / notified-with-note) */}
-                    {ndi.findings.filter(f => f.status === 'required' || f.status === 'unknown' || (f.status === 'notified' && f.match?.note)).length > 0 && (
-                      <div className="space-y-2">
-                        {ndi.findings
-                          .filter(f => f.status === 'required' || f.status === 'unknown' || (f.status === 'notified' && f.match?.note))
-                          .map((f, i) => {
-                            const rowColor = f.status === 'required' ? 'bg-red-100 border border-red-400'
-                              : f.status === 'unknown' ? 'bg-amber-100 border border-amber-300'
-                              : 'bg-sky-100 border border-sky-300';
-                            const mark: ReactNode = f.status === 'required'
-                              ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
-                              : f.status === 'unknown'
-                                ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
-                                : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />;
-                            return (
-                              <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
-                                <div className="flex items-start gap-2">
-                                  <span className="shrink-0 mt-0.5">{mark}</span>
-                                  <div className="flex-1">
-                                    <div className="font-semibold text-gray-800">{f.ingredientName}</div>
-                                    <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.advisory}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                    {ndi.required > 0 && (
-                      <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
-                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
-                          <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
-                          <span>NDI Compliance Risk</span>
-                        </p>
-                        <p className="text-xs leading-snug text-rose-800">
-                          This formulation contains one or more post-1994 ingredients without a known FDA-accepted NDI notification.
-                          21 USC §350b requires a 75-day pre-market notification before marketing. Without it, the product is misbranded.
-                          Consult FDA&apos;s NDI database and legal counsel before release.
-                        </p>
-                      </div>
-                    )}
-                    {ndi.required === 0 && ndi.unknown === 0 && (
-                      <p className="text-xs text-emerald-700 mt-2 inline-flex items-center gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                        <span>All ingredients classified. Verify your specific supplier forms match accepted NDI filings where applicable.</span>
-                      </p>
-                    )}
-                    </>)}
-                  </div>
-                );
-              })()}
-
-              {/* ═══════════════════════════════════════════════════════════
-                  CLAIMS VALIDATOR (supplements mode only)
-                  Nutrient-content claims auto-detected from %DV rollup,
-                  defensible structure/function claim library per ingredient,
-                  disease-claim language detector on the draft copy box,
-                  required disclaimers auto-generated.
-                  ═══════════════════════════════════════════════════════════ */}
-              {mode === 'supplements' && ingredients.length > 0 && (() => {
-                // Build %DV table from Supplement Facts data for nutrient content claims
-                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
-                const perServingMgByName = new Map<string, number>();
-                for (const ing of ingredients) {
-                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
-                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
-                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
-                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
-                    ? ing.foodData.data.potencyFactor : 1;
-                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
-                }
-                // Reuse the supplement-facts data for vitamin/mineral rows
-                const facts = buildSupplementFacts({
-                  ingredients,
-                  servingSizeInGrams,
-                  totalBatchGrams,
-                  servingsPerContainer,
-                  servingSizeLabel: `${servingSize}${servingUnit}`,
-                  caloriesPerServing: perServing(nutrition.calories),
-                  macroPerServing: {
-                    totalFat: perServing(nutrition.totalFat),
-                    totalCarbs: perServing(nutrition.totalCarbs),
-                    protein: perServing(nutrition.protein),
-                    sodium: perServing(nutrition.sodium),
-                    totalSugars: perServing(nutrition.totalSugars),
-                  },
-                });
-                const contentClaims = detectNutrientContentClaims(
-                  facts.vitaminMineralRows
-                    .filter(r => r.percentDV !== null)
-                    .map(r => ({
-                      nutrient: r.displayName.replace(/\s*\(as[^)]+\)/, '').trim(),
-                      percentDV: r.percentDV ?? 0,
-                    }))
-                );
-                const sfClaims = detectStructureFunctionClaims(ingredients.map(i => i.name));
-                const draftFlags = analyzeDraftClaim(suppDraftClaim);
-                const disclaimers = buildDisclaimers(sfClaims.length > 0, ingredients.map(i => i.name));
-
-                const claimsDefaultExpanded = draftFlags.length > 0 || suppDraftClaim.trim().length > 0;
-                const claimsManual = suppCardsManuallyToggled['claims'];
-                const claimsExpanded = claimsManual !== undefined ? claimsManual : claimsDefaultExpanded;
-                return (
-                  <div id="supp-card-claims" className="bg-white rounded-xl border border-gray-200 p-6">
-                    <button
-                      type="button"
-                      onClick={() => toggleSuppCard('claims', claimsExpanded)}
-                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
-                    >
-                      <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                        <span className="text-xs opacity-60">{claimsExpanded ? '▼' : '▶'}</span>
-                        📝 Claims Validator
-                      </h2>
-                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.54 · 101.93 (DSHEA)</span>
-                    </button>
-                    {claimsExpanded && (<>
-
-                    {/* Nutrient content claims (auto) */}
-                    {contentClaims.length > 0 && (
-                      <div className="mb-5">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Available nutrient-content claims</h3>
-                        <div className="space-y-1.5">
-                          {contentClaims.map((c, i) => (
-                            <div key={i} className="text-xs bg-emerald-50 border border-emerald-200 rounded p-2">
-                              <div className="font-semibold text-emerald-800">{c.claimLabel} · {c.nutrient}</div>
-                              <div className="text-gray-700 mt-0.5 italic">
-                                {c.templates.slice(0, 2).map((t, k) => (
-                                  <span key={k} className="inline-block mr-3">&ldquo;{t}&rdquo;</span>
-                                ))}
-                              </div>
-                              <div className="text-[10px] text-gray-500 mt-0.5">Qualifies at ≥ {c.minPercentDV}% DV per serving</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Structure/function claims (library) */}
-                    {sfClaims.length > 0 && (
-                      <div className="mb-5">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Defensible structure/function claims</h3>
-                        <div className="space-y-2">
-                          {sfClaims.map((c, i) => (
-                            <details key={i} className="text-xs bg-sky-50 border border-sky-200 rounded p-2" open={i < 3}>
-                              <summary className="cursor-pointer font-semibold text-sky-800">{c.ingredient}</summary>
-                              <ul className="mt-1.5 ml-4 list-disc text-gray-700 space-y-0.5">
-                                {c.claims.map((claim, k) => (
-                                  <li key={k}>&ldquo;{claim}&rdquo;</li>
-                                ))}
-                              </ul>
-                              <div className="text-[10px] text-gray-500 mt-1">
-                                Min dose: <span className="font-mono">{c.minDose}</span> · {c.citation}
-                              </div>
-                              {c.note && <div className="text-[10px] text-amber-700 mt-0.5 italic">{c.note}</div>}
-                            </details>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Draft-claim analyzer */}
-                    <div className="mb-5">
-                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Draft label copy — paste to check for disease-claim language</h3>
-                      <textarea
-                        rows={3}
-                        value={suppDraftClaim}
-                        onChange={(e) => setSuppDraftClaim(e.target.value)}
-                        placeholder="Paste your proposed label language, product description, or marketing copy here to scan for FDA-flagged disease claims, drug claims, and puffery."
-                        className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:outline-none focus:border-emerald-500"
-                      />
-                      {draftFlags.length > 0 && (
-                        <div className="mt-3 space-y-1.5">
-                          {draftFlags.map((f, i) => {
-                            const rowColor = f.tier === 'disease' ? 'bg-red-100 border-red-400 text-red-800'
-                              : f.tier === 'drug-claim' ? 'bg-orange-100 border-orange-300 text-orange-800'
-                              : 'bg-amber-100 border-amber-300 text-amber-800';
-                            return (
-                              <div key={i} className={`text-xs p-2 rounded border ${rowColor}`}>
-                                <div className="font-semibold">&ldquo;{f.match}&rdquo;</div>
-                                <div className="mt-0.5">{f.explanation}</div>
-                                {f.suggestion && <div className="italic mt-0.5">→ {f.suggestion}</div>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {suppDraftClaim.trim() && draftFlags.length === 0 && (
-                        <p className="mt-2 text-xs text-emerald-700 inline-flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                          <span>No disease-claim or drug-claim language detected. Still have legal counsel review before print.</span>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Required disclaimers */}
-                    {(disclaimers.dsheaDisclaimer || disclaimers.additionalWarnings.length > 0) && (
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Required disclaimers for this formula</h3>
-                        <div className="space-y-2">
-                          {disclaimers.dsheaDisclaimer && (
-                            <div className="text-xs bg-gray-50 border border-gray-200 rounded p-2 italic text-gray-700">
-                              {disclaimers.dsheaDisclaimer}
-                            </div>
-                          )}
-                          {disclaimers.additionalWarnings.map((w, i) => (
-                            <div key={i} className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900 flex items-start gap-1.5">
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
-                              <span>{w}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    </>)}
-                  </div>
-                );
-              })()}
-
-              {/* ═══════════════════════════════════════════════════════════
-                  RETAIL CHANNEL FIT (supplements mode only)
-                  Scan formulation against each retailer's unacceptable-
-                  ingredient list and score readiness for that channel.
-                  ═══════════════════════════════════════════════════════════ */}
-              {mode === 'supplements' && ingredients.length > 0 && (() => {
-                const reports = analyzeRetailFit(ingredients.map(i => i.name));
-                const hasAnyConcerns = reports.some(r => r.status !== 'ready');
-                const retailDefaultExpanded = reports.some(r => r.status === 'blocked');
-                const retailManual = suppCardsManuallyToggled['retail'];
-                const retailExpanded = retailManual !== undefined ? retailManual : retailDefaultExpanded;
-                return (
-                  <div id="supp-card-retail" className="bg-white rounded-xl border border-gray-200 p-6">
-                    <button
-                      type="button"
-                      onClick={() => toggleSuppCard('retail', retailExpanded)}
-                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
-                    >
-                      <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                        <span className="text-xs opacity-60">{retailExpanded ? '▼' : '▶'}</span>
-                        🛒 Retail Channel Fit
-                      </h2>
-                      <span className="text-[10px] uppercase tracking-wide text-gray-500">retailer standards · Prop 65</span>
-                    </button>
-                    {retailExpanded && (<>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {reports.map((r, i) => {
-                        const badge = r.status === 'ready' ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                          : r.status === 'caution' ? 'bg-amber-100 text-amber-700 border-amber-300'
-                          : 'bg-red-100 text-red-700 border-red-300';
-                        const barColor = r.score >= 90 ? 'bg-emerald-500' : r.score >= 70 ? 'bg-amber-500' : 'bg-red-500';
-                        return (
-                          <div key={i} className="border border-gray-200 rounded-lg p-3 flex flex-col">
-                            <div className="flex items-start justify-between gap-2 mb-1.5">
-                              <div className="flex-1">
-                                <div className="font-semibold text-sm text-gray-800">{r.retailer.name}</div>
-                                <div className="text-[11px] text-gray-500 leading-tight">{r.retailer.blurb}</div>
-                              </div>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 border rounded ${badge} uppercase inline-flex items-center gap-1`}>
-                                {r.status === 'ready'
-                                  ? <><CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" /><span>Ready</span></>
-                                  : r.status === 'caution'
-                                    ? <><AlertCircle className="h-3 w-3 text-amber-500" aria-hidden="true" /><span>Caution</span></>
-                                    : <><XIcon className="h-3 w-3 text-rose-600" aria-hidden="true" /><span>Blocked</span></>}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 my-1">
-                              <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-                                <div className={`h-full ${barColor}`} style={{ width: `${r.score}%` }} />
-                              </div>
-                              <span className="text-xs font-mono font-bold text-gray-700 w-10 text-right">{r.score}%</span>
-                            </div>
-                            {r.disqualifyingIngredients.length > 0 && (
-                              <div className="text-[11px] text-red-700 mt-1 leading-tight">
-                                <span className="font-semibold">Disqualifies: </span>
-                                {r.disqualifyingIngredients.join(', ')}
-                              </div>
-                            )}
-                            {r.cautionIngredients.length > 0 && (
-                              <div className="text-[11px] text-amber-700 mt-1 leading-tight">
-                                <span className="font-semibold">Watch: </span>
-                                {r.cautionIngredients.join(', ')}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {!hasAnyConcerns && (
-                      <p className="text-xs text-emerald-700 mt-3 inline-flex items-center gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                        <span>Formula is ready for every channel checked. Still verify current retailer standards before listing submission.</span>
-                      </p>
-                    )}
-                    </>)}
-                  </div>
-                );
-              })()}
+              </div>
 
               {/* ═══════════════════════════════════════════════════════════
                   SUPPLEMENT DOSAGE & DELIVERY FORM (supplements mode only)
@@ -4187,86 +3385,6 @@ export default function FormulationWizard() {
                   </div>
                 );
               })()}
-
-              {/* Serving & Package */}
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">Serving & Package Size</h2>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
-                    <div className="flex gap-1">
-                      <input type="number" value={servingSize} onChange={(e) => setServingSize(Math.max(0.1, parseFloat(e.target.value) || 30))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
-                      <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
-                    </div>
-                    {mode === 'supplements' && (() => {
-                      // Bridge between mass-based serving size and count-based label ("2 Capsules").
-                      // The Delivery Form card owns the count and per-unit noun; this card owns
-                      // the mass used for math. Surface the relationship so it's never ambiguous.
-                      const noun = SUPP_FORM_NOUN[suppDeliveryForm];
-                      const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
-                      const countable = ['capsule', 'tablet', 'softgel', 'gummy', 'lozenge', 'chewable'].includes(suppDeliveryForm);
-                      const massMg = servingSize * (UNIT_TO_GRAMS[servingUnit] || 1) * 1000;
-                      const perUnitMg = suppUnitsPerServing > 0 ? massMg / suppUnitsPerServing : 0;
-                      return (
-                        <p className="text-[10px] text-gray-500 mt-1 leading-tight">
-                          {countable ? (
-                            <>
-                              Label will read <span className="font-mono">&ldquo;{suppUnitsPerServing} {unitWord}&rdquo;</span> —
-                              each {noun.singular.toLowerCase()} ≈ <span className="font-mono">{perUnitMg.toFixed(0)} mg</span>.
-                              Adjust <span className="italic">Units Per Serving</span> in the Delivery Form card above.
-                            </>
-                          ) : suppDeliveryForm === 'powder' ? (
-                            <>Label will read <span className="font-mono">&ldquo;1 Scoop ({servingSize}{servingUnit})&rdquo;</span>.</>
-                          ) : suppDeliveryForm === 'liquid' ? (
-                            <>Label will read <span className="font-mono">&ldquo;1 Dropper ({servingSize}{servingUnit})&rdquo;</span>.</>
-                          ) : null}
-                        </p>
-                      );
-                    })()}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-2">Package Size</label>
-                    <div className="flex gap-1">
-                      <input type="number" value={packageSize} onChange={(e) => setPackageSize(Math.max(0.1, parseFloat(e.target.value) || 300))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
-                      <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-gray-600">Servings/Container</label>
-                      {servingsPerContainerOverride !== null && (
-                        <button
-                          onClick={() => setServingsPerContainerOverride(null)}
-                          className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
-                          title={`Reset to auto (${autoServingsPerContainer})`}
-                        >
-                          ↻ auto
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      type="number"
-                      min={0.1}
-                      step={0.1}
-                      value={servingsPerContainer}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setServingsPerContainerOverride(isNaN(v) || v <= 0 ? null : v);
-                      }}
-                      className={`w-full text-center rounded-lg py-2 text-lg font-bold focus:outline-none focus:border-emerald-500 border ${
-                        servingsPerContainerOverride !== null
-                          ? 'border-emerald-400 text-emerald-700 bg-white'
-                          : 'border-gray-100 bg-gray-50 text-emerald-700'
-                      }`}
-                    />
-                    <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
-                      {servingsPerContainerOverride !== null
-                        ? `Overridden. Auto would be ${autoServingsPerContainer}.`
-                        : 'Auto-calculated from package ÷ serving size. Edit to override.'}
-                    </p>
-                  </div>
-                </div>
-              </div>
 
               {/* Packaging & Closure — title adapts to the active mode */}
               <div className={`bg-white rounded-xl border p-6 ${mc.packagingRelevance === 'secondary' ? 'border-gray-200 opacity-90' : 'border-gray-200'}`}>
@@ -4846,345 +3964,6 @@ export default function FormulationWizard() {
                 <p className="text-xs text-gray-400 mt-2">💡 Packaging cost rolls into &ldquo;Per Package&rdquo; in the Cost Summary above. Curated across {containerCategories.length + closureCategories.length} container &amp; closure categories.</p>
               </div>
 
-              {/* ──────────────────────────────────────────────────────────
-                  SUSTAINABILITY & SOURCING PANEL
-                  Auto-inferred from name + category on every ingredient.
-                  ────────────────────────────────────────────────────────── */}
-              {ingredients.length > 0 && (() => {
-                const rows = ingredients.map(ing => {
-                  const massG = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  const category = ing.foodData?.type === 'industrial'
-                    ? (ing.foodData.data as IndustrialIngredient).category
-                    : '';
-                  return { name: ing.name, category, massG };
-                });
-                const sust = computeFormulationSustainability(rows);
-                const organicCompliance = computeOrganicCompliance(rows);
-                const perUnitScale = packageSizeInGrams > 0 && totalBatchGrams > 0
-                  ? packageSizeInGrams / totalBatchGrams
-                  : 0;
-                const carbonPerUnit = sust.avgCarbonKgCo2ePerUnit * (totalBatchGrams / 1000) * perUnitScale;
-                const waterPerUnit = sust.avgWaterLitersPerUnit * (totalBatchGrams / 1000) * perUnitScale;
-
-                // Color band for headline score
-                const scoreColor = sust.score >= 75 ? 'emerald' : sust.score >= 55 ? 'amber' : sust.score >= 35 ? 'orange' : 'rose';
-
-                // Per-ingredient sustainability profile (for the details table)
-                const perIng = rows.map(r => ({ ...r, profile: getSustainabilityProfile(r) }));
-
-                return (
-                  <div className="bg-white rounded-xl border border-emerald-200 p-6">
-                    <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
-                      <h2 className="text-lg font-semibold text-gray-800">🌱 Sustainability & Sourcing</h2>
-                      <span className="text-[10px] uppercase tracking-wide text-gray-400">Organic / Non-GMO / Footprint</span>
-                    </div>
-
-                    {/* ───── Headline score ───── */}
-                    <div className={`rounded-xl p-4 mb-4 border-2 bg-${scoreColor}-50 border-${scoreColor}-300`}>
-                      <div className="flex items-baseline justify-between flex-wrap gap-3">
-                        <div>
-                          <div className="text-[10px] uppercase tracking-wide text-gray-600">Formula Sustainability Score</div>
-                          <div className={`text-5xl font-bold text-${scoreColor}-700 leading-none`}>{sust.score}<span className="text-xl text-gray-500">/100</span></div>
-                        </div>
-                        <div className="text-right text-xs text-gray-600 space-y-1">
-                          <div><span className="font-semibold text-gray-800">{sust.organicCoveragePct.toFixed(0)}%</span> organic-available mass</div>
-                          <div><span className="font-semibold text-gray-800">{sust.nonGmoCoveragePct.toFixed(0)}%</span> inherently non-GMO</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* ───── Footprint tiles ───── */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Carbon / unit</div>
-                        <div className="text-xl font-bold text-gray-800 mt-1">
-                          {carbonPerUnit < 1 ? `${(carbonPerUnit * 1000).toFixed(0)}g` : `${carbonPerUnit.toFixed(2)}kg`}
-                        </div>
-                        <div className="text-[10px] text-gray-400">CO₂e</div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Water / unit</div>
-                        <div className="text-xl font-bold text-gray-800 mt-1">
-                          {waterPerUnit < 1 ? `${(waterPerUnit * 1000).toFixed(0)}mL` : `${waterPerUnit.toFixed(1)}L`}
-                        </div>
-                        <div className="text-[10px] text-gray-400">blue+green</div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500">GMO-risk items</div>
-                        <div className="text-xl font-bold text-gray-800 mt-1">{sust.highGmoRiskIngredients.length}</div>
-                        <div className="text-[10px] text-gray-400">
-                          {sust.highGmoRiskIngredients.length === 0 ? 'clean' : 'need non-GMO variant'}
-                        </div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Sector flags</div>
-                        <div className="text-xl font-bold text-gray-800 mt-1">
-                          {[sust.palmOilPresent && '🌴', sust.seafoodPresent && '🐟', sust.cocoaPresent && '🍫'].filter(Boolean).join(' ') || '—'}
-                        </div>
-                        <div className="text-[10px] text-gray-400">
-                          {(sust.palmOilPresent || sust.seafoodPresent || sust.cocoaPresent) ? 'cert needed' : 'none flagged'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* ───── NOP Organic Claim Validator ───── */}
-                    {(() => {
-                      const tier = organicCompliance.claimTier;
-                      const tierColor =
-                        tier === '100-percent-organic' ? 'emerald' :
-                        tier === 'organic' ? 'emerald' :
-                        tier === 'made-with-organic' ? 'amber' :
-                        'gray';
-                      const icon =
-                        tier === '100-percent-organic' ? '💯' :
-                        tier === 'organic' ? '🌱' :
-                        tier === 'made-with-organic' ? '🌿' :
-                        '🚫';
-                      return (
-                        <div className={`mb-4 rounded-lg p-3 border-2 bg-${tierColor}-50 border-${tierColor}-300`}>
-                          <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-2xl">{icon}</span>
-                              <div>
-                                <div className="text-[10px] uppercase tracking-wide text-gray-600">USDA NOP Organic Claim</div>
-                                <div className={`text-base font-bold text-${tierColor}-700`}>{organicCompliance.claimLabel}</div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-[10px] uppercase tracking-wide text-gray-500">Organic % of eligible mass</div>
-                              <div className={`text-2xl font-bold font-mono text-${tierColor}-700`}>
-                                {organicCompliance.percentOrganic.toFixed(1)}%
-                              </div>
-                              <div className="text-[10px] text-gray-500">
-                                ({(organicCompliance.organicMassG / 1000).toFixed(3)} kg organic / {(organicCompliance.eligibleMassG / 1000).toFixed(3)} kg eligible)
-                              </div>
-                            </div>
-                          </div>
-                          {organicCompliance.thresholdGap > 0 && tier !== 'specific-organic' && (
-                            <div className="text-xs text-gray-700 border-t border-gray-300 pt-2 mt-1">
-                              <span className="font-semibold">Gap to next tier: </span>
-                              <span className="font-mono">+{organicCompliance.thresholdGap.toFixed(1)} pp</span>
-                              <span className="text-gray-500"> to reach {tier === 'organic' ? '100% Organic' : tier === 'made-with-organic' ? 'Organic' : 'Made with Organic'}.</span>
-                            </div>
-                          )}
-                          <details className="text-[10px] text-gray-600 mt-2">
-                            <summary className="cursor-pointer font-semibold hover:text-gray-800">📋 NOP compliance details ({organicCompliance.notes.length} notes)</summary>
-                            <ul className="mt-1 space-y-0.5 pl-3">
-                              {organicCompliance.notes.map((n, i) => (
-                                <li key={i}>• {n}</li>
-                              ))}
-                            </ul>
-                          </details>
-                        </div>
-                      );
-                    })()}
-
-                    {/* ───── Recommendations ───── */}
-                    {sust.recommendations.length > 0 && (
-                      <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                        <div className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2">💡 Recommendations</div>
-                        <ul className="space-y-1">
-                          {sust.recommendations.map((r, i) => (
-                            <li key={i} className="text-xs text-amber-900 leading-relaxed">• {r}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* ───── Organic Conversion Quick Actions ───── */}
-                    {(() => {
-                      // Preview cost of each upgrade tier
-                      const currentTier = organicCompliance.claimTier;
-                      const targets: { tier: OrganicClaimTier; label: string; icon: string; nopSection: string }[] = [
-                        { tier: 'made-with-organic', label: 'Made with Organic (70%+)', icon: '🌿', nopSection: '§ 205.304' },
-                        { tier: 'organic', label: 'Organic (95%+)', icon: '🌱', nopSection: '§ 205.301(b)' },
-                        { tier: '100-percent-organic', label: '100% Organic', icon: '💯', nopSection: '§ 205.301(a)' },
-                      ];
-                      const tierRank: Record<OrganicClaimTier, number> = {
-                        'specific-organic': 0,
-                        'made-with-organic': 1,
-                        'organic': 2,
-                        '100-percent-organic': 3,
-                      };
-                      const availableTargets = targets.filter(t => tierRank[t.tier] > tierRank[currentTier]);
-                      if (availableTargets.length === 0) return null;
-
-                      // Preview each target's cost delta (dry-run, no state update)
-                      const previews = availableTargets.map(target => {
-                        const preview = upgradeToOrganicTier(ingredients, INDUSTRIAL_DB, target.tier);
-                        return { ...target, preview };
-                      });
-
-                      const handleUpgrade = (target: OrganicClaimTier) => {
-                        const result = upgradeToOrganicTier(ingredients, INDUSTRIAL_DB, target);
-                        const targetLabel = targets.find(t => t.tier === target)?.label || target;
-                        if (!result.targetReached) {
-                          alert(`Could not reach "${targetLabel}" with organic-available ingredients only. Converted ${result.conversions.length} ingredient${result.conversions.length !== 1 ? 's' : ''}, reached "${result.reachedTier}" tier. Some ingredients in your formula don't have organic variants (e.g., curing salts, phosphates, synthetic preservatives).`);
-                        }
-                        const summary = result.conversions.map(c => `  ${c.originalName} → ${c.ingredient.name}`).join('\n');
-                        const deltaStr = result.costDeltaTotal >= 0 ? `+$${result.costDeltaTotal.toFixed(2)}` : `−$${Math.abs(result.costDeltaTotal).toFixed(2)}`;
-                        const confirmed = window.confirm(
-                          `Convert ${result.conversions.length} ingredient${result.conversions.length !== 1 ? 's' : ''} to organic?\n\n${summary}\n\nBatch cost change: ${deltaStr}\nFinal tier: ${result.reachedTier}`,
-                        );
-                        if (confirmed) {
-                          setIngredients(result.upgradedIngredients);
-                          recalculate(result.upgradedIngredients);
-                        }
-                      };
-
-                      return (
-                        <div className="mb-4 bg-brand-50 border border-brand-200 rounded-lg p-3" style={{ background: 'var(--color-brand-50)', borderColor: 'var(--color-brand-200)' }}>
-                          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
-                            <div className="text-xs font-bold text-gray-800 uppercase tracking-wide">🌱 Convert to Organic — one-click upgrade</div>
-                            <div className="text-[10px] text-gray-500">USDA NOP 21 CFR 205 thresholds</div>
-                          </div>
-                          <p className="text-[10px] text-gray-600 mb-3 leading-relaxed">
-                            Converts eligible ingredients to their organic variants (matches existing DB SKU if available, otherwise applies category premium). Ingredients without organic variants (e.g., curing salts, synthetic preservatives) are skipped. You&apos;ll be asked to confirm before changes apply.
-                          </p>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            {previews.map(({ tier, label, icon, nopSection, preview }) => {
-                              const willSucceed = preview.targetReached;
-                              const delta = preview.costDeltaTotal;
-                              const deltaColor = delta > 0 ? 'text-rose-600' : delta < 0 ? 'text-emerald-700' : 'text-gray-600';
-                              const deltaStr = delta >= 0 ? `+$${delta.toFixed(2)}` : `−$${Math.abs(delta).toFixed(2)}`;
-                              return (
-                                <button
-                                  key={tier}
-                                  onClick={() => handleUpgrade(tier)}
-                                  className={`text-left p-3 rounded-lg border-2 transition hover:shadow-md ${willSucceed ? 'bg-white border-emerald-300 hover:border-emerald-500' : 'bg-gray-50 border-gray-300 hover:border-amber-400 cursor-pointer'}`}
-                                >
-                                  <div className="flex items-center gap-1.5 mb-1">
-                                    <span className="text-lg">{icon}</span>
-                                    <span className="text-xs font-bold text-gray-800">{label}</span>
-                                  </div>
-                                  <div className="text-[10px] text-gray-500 mb-2">{nopSection}</div>
-                                  <div className="flex items-center justify-between text-[11px]">
-                                    <span className="text-gray-600">
-                                      {preview.conversions.length} swap{preview.conversions.length !== 1 ? 's' : ''}
-                                    </span>
-                                    <span className={`font-mono font-semibold ${deltaColor}`}>{deltaStr}/batch</span>
-                                  </div>
-                                  {!willSucceed && (
-                                    <div className="text-[9px] text-amber-700 mt-1 italic">
-                                      Max reach: {preview.reachedTier.replace(/-/g, ' ')}
-                                    </div>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* ───── Bulk Revert All to Conventional ───── */}
-                    {(() => {
-                      const currentlyOrganicCount = ingredients.filter(i => /\borganic\b/i.test(i.name)).length;
-                      if (currentlyOrganicCount === 0) return null;
-                      const preview = revertAllToConventional(ingredients, INDUSTRIAL_DB);
-                      const delta = preview.costDeltaTotal;
-                      const deltaStr = delta >= 0 ? `+$${delta.toFixed(2)}` : `−$${Math.abs(delta).toFixed(2)}`;
-                      return (
-                        <div className="mb-4 bg-gray-50 border border-gray-300 rounded-lg p-3">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div>
-                              <div className="text-xs font-bold text-gray-700 uppercase tracking-wide">↩ Revert to Conventional</div>
-                              <div className="text-[10px] text-gray-500 mt-0.5">
-                                {currentlyOrganicCount} ingredient{currentlyOrganicCount !== 1 ? 's' : ''} currently organic — revert all in one click.
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                const summary = preview.conversions.map(c => `  ${c.originalName} → ${c.ingredient.name}`).join('\n');
-                                if (window.confirm(
-                                  `Revert ${preview.conversions.length} ingredient${preview.conversions.length !== 1 ? 's' : ''} to conventional?\n\n${summary}\n\nBatch cost change: ${deltaStr}`,
-                                )) {
-                                  setIngredients(preview.revertedIngredients);
-                                  recalculate(preview.revertedIngredients);
-                                }
-                              }}
-                              className="px-3 py-1.5 bg-white text-gray-700 border border-gray-300 rounded text-xs font-medium hover:bg-gray-100 hover:border-gray-400 transition flex items-center gap-2"
-                            >
-                              <span>↩ Revert all</span>
-                              <span className={`font-mono ${delta < 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{deltaStr}/batch</span>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* ───── Per-ingredient table (expandable) ───── */}
-                    <details className="text-xs">
-                      <summary className="cursor-pointer font-semibold text-gray-700 hover:text-emerald-700 py-1">
-                        📋 Per-ingredient sustainability profile ({perIng.length} rows)
-                      </summary>
-                      <div className="mt-2 overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="border-b border-gray-400 text-left text-[10px] uppercase tracking-wide text-gray-500">
-                              <th className="py-1">Ingredient</th>
-                              <th className="py-1 text-center">GMO risk</th>
-                              <th className="py-1 text-center">Organic?</th>
-                              <th className="py-1 text-center">Non-GMO?</th>
-                              <th className="py-1 text-right">kg CO₂e/kg</th>
-                              <th className="py-1">Certs available</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {perIng.map((r, i) => {
-                              const p = r.profile;
-                              const gmoColor =
-                                p.gmoRisk === 'high' ? 'bg-rose-100 text-rose-700' :
-                                p.gmoRisk === 'medium' ? 'bg-amber-100 text-amber-700' :
-                                p.gmoRisk === 'low' ? 'bg-emerald-100 text-emerald-700' :
-                                'bg-gray-100 text-gray-600';
-                              return (
-                                <tr key={i} className="border-b border-gray-100">
-                                  <td className="py-1 text-gray-800">{r.name}</td>
-                                  <td className="py-1 text-center">
-                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${gmoColor}`}>
-                                      {p.gmoRisk}
-                                    </span>
-                                  </td>
-                                  <td className="py-1 text-center">
-                                    {p.organicAvailable ? (
-                                      <span className="text-emerald-600 font-semibold" title={`+${Math.round((p.organicPricePremium - 1) * 100)}% premium`}>
-                                        ✓ +{Math.round((p.organicPricePremium - 1) * 100)}%
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">—</span>
-                                    )}
-                                  </td>
-                                  <td className="py-1 text-center">
-                                    {p.nonGmoAvailable && p.nonGmoPricePremium > 1.0 ? (
-                                      <span className="text-sky-600 font-semibold">✓ +{Math.round((p.nonGmoPricePremium - 1) * 100)}%</span>
-                                    ) : p.gmoRisk === 'low' || p.gmoRisk === 'none' ? (
-                                      <span className="text-emerald-600 font-semibold" title="Inherently non-GMO">✓ inherent</span>
-                                    ) : (
-                                      <span className="text-gray-400">—</span>
-                                    )}
-                                  </td>
-                                  <td className="py-1 text-right font-mono text-gray-700">{p.carbonKgCo2ePerKg.toFixed(1)}</td>
-                                  <td className="py-1 text-[10px] text-gray-600">
-                                    {p.suggestedCerts.length > 0
-                                      ? p.suggestedCerts.slice(0, 3).map(c => CERT_LABELS[c] || c).join(', ')
-                                      : '—'}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </details>
-
-                    <p className="text-[10px] text-gray-400 mt-3 italic">
-                      Estimates from published LCA literature (Poore & Nemecek 2018, Mekonnen & Hoekstra water footprint). Not audit-grade — verify with supplier COAs for regulatory or retailer submissions.
-                    </p>
-                  </div>
-                );
-              })()}
-
               {/* Cost Summary — unit economics for the formulation (not production batch) */}
               {/* Identity → Formula → Determination → Packaging/Dosage/Serving → Sustainability → Cost.
                   Decisions flow downward; consequences appear in real-time. Cost is LAST so the user
@@ -5242,6 +4021,386 @@ export default function FormulationWizard() {
 
             {/* RIGHT COLUMN - FDA Label */}
             <div className="space-y-6">
+              {/* ═══════════════════════════════════════════════════════════
+                  DETERMINATION ENGINE — live regulatory classification
+                  Identity → Formula → Determination → Packaging/Dosage/Serving → Sustainability → Cost.
+                  Decisions flow downward; consequences appear in real-time.
+                  ═══════════════════════════════════════════════════════════ */}
+              <DeterminationEngineCard
+                modeId={mode}
+                specs={specs}
+                filing={filingReq}
+                hasIngredients={ingredients.length > 0}
+                onOpenProcessAuthorities={() => setActiveTab('authorities')}
+              />
+
+              {/* Regulatory Compliance */}
+              {complianceFindings.length > 0 && (
+                <div className={`rounded-xl border-2 p-6 ${complianceViolations.length > 0 ? 'bg-red-50 border-red-400' : 'bg-emerald-50 border-emerald-300'}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className={`text-lg font-bold flex items-center gap-2 ${complianceViolations.length > 0 ? 'text-red-800' : 'text-emerald-800'}`}>
+                      {complianceViolations.length > 0 ? (
+                        <>
+                          <Ban className="h-4 w-4 text-rose-700" aria-hidden="true" />
+                          <span>{complianceViolations.length} Regulatory Violation{complianceViolations.length !== 1 ? 's' : ''}</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                          <span>{complianceFindings.length} Regulated Ingredient{complianceFindings.length !== 1 ? 's' : ''} — All Within Limits</span>
+                        </>
+                      )}
+                    </h2>
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">FDA / USDA-FSIS</span>
+                  </div>
+                  <div className="space-y-2">
+                    {complianceFindings.map((f, i) => (
+                      <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${f.violated ? 'bg-red-100 border border-red-300' : 'bg-white border border-emerald-200'}`}>
+                        <span className="shrink-0 mt-0.5">
+                          {f.violated
+                            ? <XIcon className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                            : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />}
+                        </span>
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="font-semibold text-gray-800">{f.limit.shortName}</span>
+                            <span className="text-gray-500">— currently</span>
+                            <span className={`font-mono font-bold ${f.violated ? 'text-red-700' : 'text-emerald-700'}`}>
+                              {formatAmount(f.currentPercent, f.currentPpm)}
+                            </span>
+                            <span className="text-gray-500">vs max</span>
+                            <span className="font-mono font-bold text-gray-700">
+                              {f.limit.maxPercent !== undefined ? `${f.limit.maxPercent}%` : `${f.limit.maxPpm} ppm`}
+                            </span>
+                            <span className="text-gray-500">({f.utilization.toFixed(0)}% of cap)</span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 mt-0.5">
+                            {f.limit.authority} {f.limit.citation} — {f.limit.summary}
+                          </p>
+                          {f.activeSpeciesPpm !== undefined && f.limit.activeName && (
+                            <p className={`text-[10px] mt-0.5 font-semibold inline-flex items-center gap-1 ${f.activeViolated ? 'text-red-700' : 'text-emerald-700'}`}>
+                              <span>↳ Active {f.limit.activeName}: {f.activeSpeciesPpm.toFixed(1)} ppm (max {f.limit.activeMaxPpm} ppm)</span>
+                              {f.activeViolated
+                                ? <span>— OVER</span>
+                                : <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {complianceViolations.length > 0 && (
+                    <p className="text-xs text-red-800 mt-3 font-semibold inline-flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                      <span>This formulation exceeds one or more US regulatory limits. Reduce the flagged ingredient(s) before producing — non-compliant products are misbranded under federal law.</span>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  DOSAGE SAFETY CHECK (supplements mode only)
+                  Tiered warnings — mirrors the regulatory compliance card
+                  pattern used for cure-ppm / sodium benzoate / sorbate etc.
+                  Scans every ingredient against the IOM Tolerable Upper
+                  Intake Levels table and the FDA banned/restricted list,
+                  plus high-risk interaction herbs.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                // Compute per-serving mg for every ingredient so the checker can
+                // compare against UL thresholds. Serving-scale the batch mass.
+                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const perServingMgByName = new Map<string, number>();
+                for (const ing of ingredients) {
+                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
+                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
+                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
+                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+                    ? ing.foodData.data.potencyFactor : 1;
+                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
+                }
+                const findings = checkSupplementSafety(ingredients, perServingMgByName, suppAudience);
+                const summary = summarizeFindings(findings);
+                if (findings.length === 0) return null;
+
+                // Overall card color reflects the worst tier present.
+                const cardColor =
+                  summary.banned > 0 || summary.critical > 0
+                    ? 'bg-red-50 border-red-500'
+                    : summary.warning > 0
+                      ? 'bg-orange-50 border-orange-400'
+                      : summary.caution > 0
+                        ? 'bg-amber-50 border-amber-300'
+                        : summary.interaction > 0
+                          ? 'bg-sky-50 border-sky-300'
+                          : 'bg-emerald-50 border-emerald-300';
+
+                const headerIcon: ReactNode =
+                  summary.banned > 0 ? <Ban className="h-4 w-4 text-rose-700" aria-hidden="true" />
+                  : summary.critical > 0 ? <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                  : summary.warning > 0 ? <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                  : summary.caution > 0 ? <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden="true" />
+                  : <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />;
+
+                const headerText =
+                  summary.banned > 0
+                    ? `${summary.banned} Banned / Restricted Ingredient${summary.banned !== 1 ? 's' : ''} — Do Not Ship`
+                  : summary.critical > 0
+                    ? `${summary.critical} Critical Dose${summary.critical !== 1 ? 's' : ''} — Hazardous`
+                  : summary.warning > 0
+                    ? `${summary.warning} Dose${summary.warning !== 1 ? 's' : ''} Over Upper Limit — Reformulate`
+                  : summary.caution > 0
+                    ? `${summary.caution} Dose${summary.caution !== 1 ? 's' : ''} Approaching Upper Limit`
+                  : `${findings.length} Dosage Check${findings.length !== 1 ? 's' : ''} — All Within Safe Range`;
+
+                const headerColor =
+                  summary.banned > 0 || summary.critical > 0 ? 'text-red-800'
+                  : summary.warning > 0 ? 'text-orange-800'
+                  : summary.caution > 0 ? 'text-amber-800'
+                  : 'text-emerald-800';
+
+                // Collapsible logic: card expands by default when any findings are
+                // non-OK. User click on the header overrides. Status-strip pills
+                // force-expand the card they correspond to.
+                const defaultExpanded = (summary.banned + summary.critical + summary.warning + summary.caution + summary.interaction) > 0;
+                const manual = suppCardsManuallyToggled['safety'];
+                const expanded = manual !== undefined ? manual : defaultExpanded;
+                return (
+                  <div id="supp-card-safety" className={`rounded-xl border-2 p-6 ${cardColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('safety', expanded)}
+                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className={`text-lg font-bold ${headerColor} flex items-center gap-2`}>
+                        <span className="text-xs opacity-60">{expanded ? '▼' : '▶'}</span>
+                        {headerIcon}
+                        <span>{headerText}</span>
+                      </h2>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-wide text-gray-500">IOM / FDA / DSHEA</span>
+                        {suppAudience !== 'general' && (
+                          <span className="text-[10px] uppercase tracking-wide bg-gray-800 text-white px-2 py-0.5 rounded">
+                            {suppAudience === 'pregnancy' ? 'Prenatal rules active' : suppAudience === 'pediatric' ? 'Pediatric rules active' : 'NCAA / Sport rules active'}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    {expanded && (<>
+                    {/* Full-detail rows only for findings that need attention. "ok" findings
+                        get a compact summary line at the bottom so the hazard/mitigation text
+                        doesn't read as a warning when the ingredient is actually within safe range. */}
+                    <div className="space-y-2">
+                      {findings.filter(f => f.tier !== 'ok').map((f, i) => {
+                        const rowColor =
+                          f.tier === 'banned' || f.tier === 'critical' ? 'bg-red-100 border border-red-400'
+                          : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
+                          : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
+                          : 'bg-sky-100 border border-sky-300';
+                        const mark: ReactNode =
+                          f.tier === 'banned' ? <Ban className="h-3.5 w-3.5 text-rose-700" aria-hidden="true" />
+                          : f.tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                          : f.tier === 'warning' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                          : f.tier === 'caution' ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                          : <span className="font-mono font-bold text-sky-700">⇄</span>;
+                        const markColor =
+                          f.tier === 'banned' || f.tier === 'critical' ? 'text-red-700'
+                          : f.tier === 'warning' ? 'text-orange-700'
+                          : f.tier === 'caution' ? 'text-amber-700'
+                          : 'text-sky-700';
+                        return (
+                          <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${rowColor}`}>
+                            <span className="shrink-0 mt-0.5">{mark}</span>
+                            <div className="flex-1">
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="font-semibold text-gray-800">{f.limitName}</span>
+                                <span className="text-gray-500 text-[11px]">— ingredient:</span>
+                                <span className="font-medium text-gray-700 text-[11px]">{f.ingredientName}</span>
+                                {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
+                                  <>
+                                    <span className="text-gray-500">·</span>
+                                    <span className={`font-mono font-bold ${markColor}`}>
+                                      {f.amountPerServing.toFixed(f.amountPerServing >= 10 ? 0 : 1)}{f.unit}/serving
+                                    </span>
+                                    <span className="text-gray-500">vs UL</span>
+                                    <span className="font-mono font-bold text-gray-700">
+                                      {f.effectiveUL}{f.unit}
+                                    </span>
+                                    <span className="text-gray-500">({f.percentOfUL.toFixed(0)}% of UL)</span>
+                                  </>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-gray-600 mt-0.5 leading-snug">
+                                <span className="font-semibold">{f.authority}</span> {f.citation} — {f.hazard}
+                              </p>
+                              {f.mitigation && (
+                                <p className="text-[10px] text-gray-700 mt-0.5 leading-snug italic">
+                                  → {f.mitigation}
+                                </p>
+                              )}
+                              {f.populationNote && (
+                                <p className="text-[10px] text-red-700 mt-0.5 leading-snug font-semibold">
+                                  {f.populationNote}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Compact safe-range summary — shows which actives were checked and passed. */}
+                    {findings.some(f => f.tier === 'ok') && (
+                      <details className="mt-3 text-xs text-emerald-800">
+                        <summary className="cursor-pointer font-medium inline-flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                          <span>{findings.filter(f => f.tier === 'ok').length} active{findings.filter(f => f.tier === 'ok').length !== 1 ? 's' : ''} checked and within safe range (click to expand)</span>
+                        </summary>
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1">
+                          {findings.filter(f => f.tier === 'ok').map((f, i) => (
+                            <div key={i} className="flex items-center gap-2 py-0.5">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" aria-hidden="true" />
+                              <span className="font-medium text-gray-700">{f.limitName}</span>
+                              {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
+                                <span className="text-[11px] text-gray-500 font-mono">
+                                  {f.amountPerServing.toFixed(f.amountPerServing >= 10 ? 0 : 1)}{f.unit} ({f.percentOfUL.toFixed(0)}% of UL)
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Hard-stop language — mirrors the regulatory compliance card */}
+                    {summary.hardStop && (
+                      <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
+                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
+                          <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                          <span>HARD STOP — Do Not Ship</span>
+                        </p>
+                        <p className="text-xs leading-snug text-rose-800">
+                          This formulation {summary.banned > 0 ? 'contains an FDA-banned or import-restricted ingredient' : 'exceeds one or more Tolerable Upper Intake Levels'}.
+                          Selling a product in this state is misbranding under DSHEA and creates unreasonable
+                          risk of injury — the strict-liability standard under FDA enforcement.
+                          Reduce the flagged ingredient(s) or remove them before any production batch is released.
+                        </p>
+                      </div>
+                    )}
+                    {!summary.hardStop && summary.caution > 0 && (
+                      <p className="mt-3 text-xs text-amber-800 font-medium">
+                        Caution level — one or more actives are within 20% of their UL. Not a violation, but worth scrutiny if your label targets chronic daily use.
+                      </p>
+                    )}
+                    {!summary.hardStop && summary.caution === 0 && summary.interaction > 0 && (
+                      <p className="mt-3 text-xs text-sky-800 font-medium">
+                        No dosage violations — but one or more ingredients carry clinically significant drug-interaction risks. Label should include an interaction warning.
+                      </p>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  NDI (NEW DIETARY INGREDIENT) COMPLIANCE (supplements mode)
+                  Classifies each ingredient as grandfathered / notified /
+                  GRAS-food / NDI-required / unknown. Surfaces compliance
+                  risk for post-1994 ingredients without accepted notification.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const ndi = analyzeNDI(ingredients.map(i => i.name));
+                const statusColor = ndi.required > 0 ? 'bg-red-50 border-red-400'
+                  : ndi.unknown > 0 ? 'bg-amber-50 border-amber-300'
+                  : 'bg-emerald-50 border-emerald-300';
+                const ndiDefaultExpanded = ndi.required > 0 || ndi.unknown > 0;
+                const ndiManual = suppCardsManuallyToggled['ndi'];
+                const ndiExpanded = ndiManual !== undefined ? ndiManual : ndiDefaultExpanded;
+                return (
+                  <div id="supp-card-ndi" className={`rounded-xl border-2 p-6 ${statusColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('ndi', ndiExpanded)}
+                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className={`text-lg font-bold ${ndi.required > 0 ? 'text-red-800' : ndi.unknown > 0 ? 'text-amber-800' : 'text-emerald-800'} flex items-center gap-2`}>
+                        <span className="text-xs opacity-60">{ndiExpanded ? '▼' : '▶'}</span>
+                        {ndi.required > 0
+                          ? <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                          : ndi.unknown > 0
+                            ? <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden="true" />
+                            : <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />}
+                        <span>NDI Compliance Check</span>
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">DSHEA §8 · 21 CFR 190.6</span>
+                    </button>
+                    {ndiExpanded && (<>
+                    {/* Summary row */}
+                    <div className="flex flex-wrap gap-3 mb-3 text-xs">
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Pre-1994 ODI: <strong>{ndi.grandfathered}</strong></span>
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-500" /> NDI notified: <strong>{ndi.notified}</strong></span>
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-teal-500" /> GRAS food: <strong>{ndi.grasFood}</strong></span>
+                      {ndi.required > 0 && (
+                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600" /> NDI required: <strong>{ndi.required}</strong></span>
+                      )}
+                      {ndi.unknown > 0 && (
+                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> Unknown: <strong>{ndi.unknown}</strong></span>
+                      )}
+                    </div>
+
+                    {/* Only show problematic findings (required / unknown / notified-with-note) */}
+                    {ndi.findings.filter(f => f.status === 'required' || f.status === 'unknown' || (f.status === 'notified' && f.match?.note)).length > 0 && (
+                      <div className="space-y-2">
+                        {ndi.findings
+                          .filter(f => f.status === 'required' || f.status === 'unknown' || (f.status === 'notified' && f.match?.note))
+                          .map((f, i) => {
+                            const rowColor = f.status === 'required' ? 'bg-red-100 border border-red-400'
+                              : f.status === 'unknown' ? 'bg-amber-100 border border-amber-300'
+                              : 'bg-sky-100 border border-sky-300';
+                            const mark: ReactNode = f.status === 'required'
+                              ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                              : f.status === 'unknown'
+                                ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                                : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />;
+                            return (
+                              <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
+                                <div className="flex items-start gap-2">
+                                  <span className="shrink-0 mt-0.5">{mark}</span>
+                                  <div className="flex-1">
+                                    <div className="font-semibold text-gray-800">{f.ingredientName}</div>
+                                    <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.advisory}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                    {ndi.required > 0 && (
+                      <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
+                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
+                          <OctagonX className="h-4 w-4 text-rose-600" aria-hidden="true" />
+                          <span>NDI Compliance Risk</span>
+                        </p>
+                        <p className="text-xs leading-snug text-rose-800">
+                          This formulation contains one or more post-1994 ingredients without a known FDA-accepted NDI notification.
+                          21 USC §350b requires a 75-day pre-market notification before marketing. Without it, the product is misbranded.
+                          Consult FDA&apos;s NDI database and legal counsel before release.
+                        </p>
+                      </div>
+                    )}
+                    {ndi.required === 0 && ndi.unknown === 0 && (
+                      <p className="text-xs text-emerald-700 mt-2 inline-flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                        <span>All ingredients classified. Verify your specific supplier forms match accepted NDI filings where applicable.</span>
+                      </p>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
               <div id="printable-label" className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4 flex-wrap gap-2 print:hidden">
                   <h2 className="text-lg font-semibold text-gray-800">
@@ -5777,6 +4936,173 @@ export default function FormulationWizard() {
                 </div>
               </div>
 
+              {/* ═══════════════════════════════════════════════════════════
+                  CLAIMS VALIDATOR (supplements mode only)
+                  Nutrient-content claims auto-detected from %DV rollup,
+                  defensible structure/function claim library per ingredient,
+                  disease-claim language detector on the draft copy box,
+                  required disclaimers auto-generated.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                // Build %DV table from Supplement Facts data for nutrient content claims
+                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const perServingMgByName = new Map<string, number>();
+                for (const ing of ingredients) {
+                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
+                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
+                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
+                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+                    ? ing.foodData.data.potencyFactor : 1;
+                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
+                }
+                // Reuse the supplement-facts data for vitamin/mineral rows
+                const facts = buildSupplementFacts({
+                  ingredients,
+                  servingSizeInGrams,
+                  totalBatchGrams,
+                  servingsPerContainer,
+                  servingSizeLabel: `${servingSize}${servingUnit}`,
+                  caloriesPerServing: perServing(nutrition.calories),
+                  macroPerServing: {
+                    totalFat: perServing(nutrition.totalFat),
+                    totalCarbs: perServing(nutrition.totalCarbs),
+                    protein: perServing(nutrition.protein),
+                    sodium: perServing(nutrition.sodium),
+                    totalSugars: perServing(nutrition.totalSugars),
+                  },
+                });
+                const contentClaims = detectNutrientContentClaims(
+                  facts.vitaminMineralRows
+                    .filter(r => r.percentDV !== null)
+                    .map(r => ({
+                      nutrient: r.displayName.replace(/\s*\(as[^)]+\)/, '').trim(),
+                      percentDV: r.percentDV ?? 0,
+                    }))
+                );
+                const sfClaims = detectStructureFunctionClaims(ingredients.map(i => i.name));
+                const draftFlags = analyzeDraftClaim(suppDraftClaim);
+                const disclaimers = buildDisclaimers(sfClaims.length > 0, ingredients.map(i => i.name));
+
+                const claimsDefaultExpanded = draftFlags.length > 0 || suppDraftClaim.trim().length > 0;
+                const claimsManual = suppCardsManuallyToggled['claims'];
+                const claimsExpanded = claimsManual !== undefined ? claimsManual : claimsDefaultExpanded;
+                return (
+                  <div id="supp-card-claims" className="bg-white rounded-xl border border-gray-200 p-6">
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('claims', claimsExpanded)}
+                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{claimsExpanded ? '▼' : '▶'}</span>
+                        📝 Claims Validator
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.54 · 101.93 (DSHEA)</span>
+                    </button>
+                    {claimsExpanded && (<>
+
+                    {/* Nutrient content claims (auto) */}
+                    {contentClaims.length > 0 && (
+                      <div className="mb-5">
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Available nutrient-content claims</h3>
+                        <div className="space-y-1.5">
+                          {contentClaims.map((c, i) => (
+                            <div key={i} className="text-xs bg-emerald-50 border border-emerald-200 rounded p-2">
+                              <div className="font-semibold text-emerald-800">{c.claimLabel} · {c.nutrient}</div>
+                              <div className="text-gray-700 mt-0.5 italic">
+                                {c.templates.slice(0, 2).map((t, k) => (
+                                  <span key={k} className="inline-block mr-3">&ldquo;{t}&rdquo;</span>
+                                ))}
+                              </div>
+                              <div className="text-[10px] text-gray-500 mt-0.5">Qualifies at ≥ {c.minPercentDV}% DV per serving</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Structure/function claims (library) */}
+                    {sfClaims.length > 0 && (
+                      <div className="mb-5">
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Defensible structure/function claims</h3>
+                        <div className="space-y-2">
+                          {sfClaims.map((c, i) => (
+                            <details key={i} className="text-xs bg-sky-50 border border-sky-200 rounded p-2" open={i < 3}>
+                              <summary className="cursor-pointer font-semibold text-sky-800">{c.ingredient}</summary>
+                              <ul className="mt-1.5 ml-4 list-disc text-gray-700 space-y-0.5">
+                                {c.claims.map((claim, k) => (
+                                  <li key={k}>&ldquo;{claim}&rdquo;</li>
+                                ))}
+                              </ul>
+                              <div className="text-[10px] text-gray-500 mt-1">
+                                Min dose: <span className="font-mono">{c.minDose}</span> · {c.citation}
+                              </div>
+                              {c.note && <div className="text-[10px] text-amber-700 mt-0.5 italic">{c.note}</div>}
+                            </details>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Draft-claim analyzer */}
+                    <div className="mb-5">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Draft label copy — paste to check for disease-claim language</h3>
+                      <textarea
+                        rows={3}
+                        value={suppDraftClaim}
+                        onChange={(e) => setSuppDraftClaim(e.target.value)}
+                        placeholder="Paste your proposed label language, product description, or marketing copy here to scan for FDA-flagged disease claims, drug claims, and puffery."
+                        className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:outline-none focus:border-emerald-500"
+                      />
+                      {draftFlags.length > 0 && (
+                        <div className="mt-3 space-y-1.5">
+                          {draftFlags.map((f, i) => {
+                            const rowColor = f.tier === 'disease' ? 'bg-red-100 border-red-400 text-red-800'
+                              : f.tier === 'drug-claim' ? 'bg-orange-100 border-orange-300 text-orange-800'
+                              : 'bg-amber-100 border-amber-300 text-amber-800';
+                            return (
+                              <div key={i} className={`text-xs p-2 rounded border ${rowColor}`}>
+                                <div className="font-semibold">&ldquo;{f.match}&rdquo;</div>
+                                <div className="mt-0.5">{f.explanation}</div>
+                                {f.suggestion && <div className="italic mt-0.5">→ {f.suggestion}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {suppDraftClaim.trim() && draftFlags.length === 0 && (
+                        <p className="mt-2 text-xs text-emerald-700 inline-flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                          <span>No disease-claim or drug-claim language detected. Still have legal counsel review before print.</span>
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Required disclaimers */}
+                    {(disclaimers.dsheaDisclaimer || disclaimers.additionalWarnings.length > 0) && (
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">Required disclaimers for this formula</h3>
+                        <div className="space-y-2">
+                          {disclaimers.dsheaDisclaimer && (
+                            <div className="text-xs bg-gray-50 border border-gray-200 rounded p-2 italic text-gray-700">
+                              {disclaimers.dsheaDisclaimer}
+                            </div>
+                          )}
+                          {disclaimers.additionalWarnings.map((w, i) => (
+                            <div key={i} className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900 flex items-start gap-1.5">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                              <span>{w}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
               {/* Spec Analysis Panel */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -6015,6 +5341,262 @@ export default function FormulationWizard() {
                 )}
               </div>
 
+              {/* ═══════════════════════════════════════════════════════════
+                  STABILITY & OVERAGE (supplements mode only)
+                  Per-ingredient degradation prediction over the target shelf
+                  life, with storage + packaging modifiers. Output: required
+                  formulate-at amounts so the Supplement Facts label claim
+                  stays true through expiry — 21 CFR 101.36(b)(3)(iv).
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const perServingMgByName = new Map<string, number>();
+                for (const ing of ingredients) {
+                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
+                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
+                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
+                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+                    ? ing.foodData.data.potencyFactor : 1;
+                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
+                }
+                const overage = computeOverages(ingredients, perServingMgByName, {
+                  shelfLifeMonths: suppShelfLifeMonths,
+                  storage: suppStorage,
+                  amberPackaging: suppAmberPkg,
+                  desiccant: suppDesiccant,
+                  nitrogenFlush: suppNitrogen,
+                  tocopherolAntioxidant: suppTocopherol,
+                });
+                if (overage.rows.length === 0) return null;
+
+                // Overall worst loss drives the card color.
+                const worst = overage.worstLossPct;
+                const cardColor =
+                  worst > 50 ? 'bg-red-50 border-red-400'
+                  : worst > 30 ? 'bg-orange-50 border-orange-300'
+                  : worst > 15 ? 'bg-amber-50 border-amber-300'
+                  : 'bg-emerald-50 border-emerald-300';
+
+                const stabDefaultExpanded = worst > 15;
+                const stabManual = suppCardsManuallyToggled['stability'];
+                const stabExpanded = stabManual !== undefined ? stabManual : stabDefaultExpanded;
+                return (
+                  <div id="supp-card-stability" className={`rounded-xl border-2 p-6 ${cardColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('stability', stabExpanded)}
+                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{stabExpanded ? '▼' : '▶'}</span>
+                        🧪 Stability & Overage — {suppShelfLifeMonths}mo shelf life
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.36(b)(3)(iv) · USP &lt;1150&gt;</span>
+                    </button>
+                    {stabExpanded && (<>
+                    {/* Condition controls */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Target Shelf Life</label>
+                        <select
+                          value={suppShelfLifeMonths}
+                          onChange={(e) => setSuppShelfLifeMonths(parseInt(e.target.value))}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none"
+                        >
+                          <option value={12}>12 months (1 yr)</option>
+                          <option value={18}>18 months</option>
+                          <option value={24}>24 months (2 yr — industry standard)</option>
+                          <option value={36}>36 months (3 yr — premium)</option>
+                          <option value={60}>60 months (5 yr — pharma)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Storage Condition</label>
+                        <select
+                          value={suppStorage}
+                          onChange={(e) => setSuppStorage(e.target.value as StorageCondition)}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none"
+                        >
+                          <option value="ambient">Ambient (room temperature)</option>
+                          <option value="refrigerated">Refrigerated (2-8°C)</option>
+                          <option value="frozen">Frozen (-20°C)</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-2 items-end text-xs">
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppAmberPkg} onChange={(e) => setSuppAmberPkg(e.target.checked)} className="accent-emerald-600" />
+                          Amber / opaque
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppDesiccant} onChange={(e) => setSuppDesiccant(e.target.checked)} className="accent-emerald-600" />
+                          Desiccant
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppNitrogen} onChange={(e) => setSuppNitrogen(e.target.checked)} className="accent-emerald-600" />
+                          N₂ flush
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          <input type="checkbox" checked={suppTocopherol} onChange={(e) => setSuppTocopherol(e.target.checked)} className="accent-emerald-600" />
+                          Tocopherol antioxidant
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Bottleneck callout */}
+                    {overage.bottleneck && (
+                      <div className="mb-3 text-sm text-gray-700">
+                        <span className="font-semibold">Stability bottleneck:</span>{' '}
+                        <span className="font-medium">{overage.bottleneck.ingredientName}</span>{' '}
+                        <span className="text-gray-500">({CATEGORY_LABEL[overage.bottleneck.category]})</span>{' '}
+                        <span className="text-gray-500">— </span>
+                        <span className={`font-bold ${overage.bottleneck.lossPct > 30 ? 'text-red-700' : overage.bottleneck.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                          {overage.bottleneck.lossPct.toFixed(0)}% loss projected
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left border-b-2 border-gray-300">
+                            <th className="py-2 pr-2 font-semibold text-gray-600">Ingredient</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600">Category</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Label Claim</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Loss %</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Predicted EOSL</th>
+                            <th className="py-2 px-2 font-semibold text-gray-600 text-right">Formulate At</th>
+                            <th className="py-2 pl-2 font-semibold text-gray-600 text-right">Overage</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overage.rows.map((r, i) => {
+                            const lossColor = r.lossPct > 30 ? 'text-red-700' : r.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700';
+                            return (
+                              <tr key={i} className="border-b border-gray-200">
+                                <td className="py-1.5 pr-2 font-medium text-gray-800">{r.ingredientName}</td>
+                                <td className="py-1.5 px-2 text-gray-500 text-[11px]">{CATEGORY_LABEL[r.category]}</td>
+                                <td className="py-1.5 px-2 text-right font-mono">{formatDose(r.labelClaimMg)}</td>
+                                <td className={`py-1.5 px-2 text-right font-mono font-bold ${lossColor}`}>{r.lossPct.toFixed(0)}%</td>
+                                <td className="py-1.5 px-2 text-right font-mono text-gray-600">{formatDose(r.predictedEOSLMg)}</td>
+                                <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-700">{formatDose(r.requiredFormulateAtMg)}</td>
+                                <td className="py-1.5 pl-2 text-right font-mono text-gray-700">+{r.overagePct.toFixed(0)}%</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Advice */}
+                    {worst > 30 && (
+                      <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900">
+                        <p className="text-sm font-bold mb-1 inline-flex items-center gap-1.5">
+                          <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                          <span>Stability concern</span>
+                        </p>
+                        <p className="text-xs leading-snug text-rose-800">
+                          At least one active is projected to lose more than 30% of label claim over this shelf life.
+                          Options: shorten claimed shelf life, add protective packaging (amber + desiccant + N₂ flush),
+                          reformulate with a more stable ingredient form, or substantially increase the overage.
+                          Real stability data from accelerated + long-term ICH Q1A protocols should validate these predictions before release.
+                        </p>
+                      </div>
+                    )}
+                    {worst > 15 && worst <= 30 && (
+                      <p className="mt-3 text-xs text-amber-800 leading-snug">
+                        Moderate degradation expected. The Formulate-At column shows what to weigh to keep the label claim true through {suppShelfLifeMonths} months.
+                        Real stability data is still required — these are conservative industry estimates, not product-specific.
+                      </p>
+                    )}
+                    {worst <= 15 && (
+                      <p className="mt-3 text-xs text-emerald-800 leading-snug">
+                        Good stability profile for the target shelf life. Still plan to run accelerated (40°C/75% RH) + real-time stability per ICH Q1A to confirm.
+                      </p>
+                    )}
+                    <p className="mt-2 text-[10px] text-gray-500 italic leading-tight">
+                      Degradation rates are industry-conservative estimates derived from USP, CRN, and IFOS literature.
+                      Real stability data from your own accelerated + long-term program should replace these predictions for production.
+                    </p>
+                    </>)}
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  INGREDIENT COMPATIBILITY (supplements mode only)
+                  Detects formulation-science incompatibilities — pro-oxidant
+                  pairs, mineral antagonisms, capsule-shell conflicts,
+                  packaging-mismatch issues. Mirrors the safety-card tiering.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const compatFindings = checkCompatibility(ingredients, {
+                  deliveryForm: suppDeliveryForm,
+                  capsuleShell: suppDeliveryForm === 'softgel' ? 'gelatin' : suppDeliveryForm === 'capsule' ? 'gelatin' : 'none',
+                  hasDesiccant: suppDesiccant,
+                  hasNitrogenFlush: suppNitrogen,
+                  hasAmberPackaging: suppAmberPkg,
+                  storage: suppStorage,
+                });
+                const compatSummary = summarizeCompatibility(compatFindings);
+                if (compatFindings.length === 0) return null;
+                const cardColor =
+                  compatSummary.critical > 0 ? 'bg-red-50 border-red-400'
+                  : compatSummary.warning > 0 ? 'bg-orange-50 border-orange-300'
+                  : compatSummary.caution > 0 ? 'bg-amber-50 border-amber-300'
+                  : 'bg-sky-50 border-sky-300';
+                const compatDefaultExpanded = (compatSummary.critical + compatSummary.warning + compatSummary.caution) > 0;
+                const compatManual = suppCardsManuallyToggled['compat'];
+                const compatExpanded = compatManual !== undefined ? compatManual : compatDefaultExpanded;
+                return (
+                  <div id="supp-card-compat" className={`rounded-xl border-2 p-6 ${cardColor}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('compat', compatExpanded)}
+                      className="w-full flex items-center justify-between mb-3 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{compatExpanded ? '▼' : '▶'}</span>
+                        🧬 Ingredient Compatibility — {compatFindings.length} finding{compatFindings.length !== 1 ? 's' : ''}
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">USP &lt;1151&gt; · CRN Handbook · formulation science</span>
+                    </button>
+                    {compatExpanded && (
+                    <div className="space-y-2">
+                      {compatFindings.map((f, i) => {
+                        const rowColor =
+                          f.tier === 'critical' ? 'bg-red-100 border border-red-400'
+                          : f.tier === 'warning' ? 'bg-orange-100 border border-orange-300'
+                          : f.tier === 'caution' ? 'bg-amber-100 border border-amber-300'
+                          : 'bg-sky-100 border border-sky-300';
+                        const mark: ReactNode = f.tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                          : f.tier === 'warning' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                          : f.tier === 'caution' ? <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                          : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />;
+                        return (
+                          <div key={i} className={`text-xs p-2 rounded ${rowColor}`}>
+                            <div className="flex items-start gap-2">
+                              <span className="shrink-0 mt-0.5">{mark}</span>
+                              <div className="flex-1">
+                                <div className="font-semibold text-gray-800">{f.title}</div>
+                                <div className="text-[11px] text-gray-600 mt-0.5">
+                                  {f.ingredients.join(' + ')}
+                                </div>
+                                <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.issue}</p>
+                                <p className="text-[11px] text-gray-800 mt-1 leading-snug italic">→ {f.remedy}</p>
+                                {f.citation && <p className="text-[10px] text-gray-500 mt-0.5 italic">{f.citation}</p>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Suggested HACCP Program */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -6184,6 +5766,424 @@ export default function FormulationWizard() {
                   </>
                 )}
               </div>
+              {/* ──────────────────────────────────────────────────────────
+                  SUSTAINABILITY & SOURCING PANEL
+                  Auto-inferred from name + category on every ingredient.
+                  ────────────────────────────────────────────────────────── */}
+              {ingredients.length > 0 && (() => {
+                const rows = ingredients.map(ing => {
+                  const massG = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  const category = ing.foodData?.type === 'industrial'
+                    ? (ing.foodData.data as IndustrialIngredient).category
+                    : '';
+                  return { name: ing.name, category, massG };
+                });
+                const sust = computeFormulationSustainability(rows);
+                const organicCompliance = computeOrganicCompliance(rows);
+                const perUnitScale = packageSizeInGrams > 0 && totalBatchGrams > 0
+                  ? packageSizeInGrams / totalBatchGrams
+                  : 0;
+                const carbonPerUnit = sust.avgCarbonKgCo2ePerUnit * (totalBatchGrams / 1000) * perUnitScale;
+                const waterPerUnit = sust.avgWaterLitersPerUnit * (totalBatchGrams / 1000) * perUnitScale;
+
+                // Color band for headline score
+                const scoreColor = sust.score >= 75 ? 'emerald' : sust.score >= 55 ? 'amber' : sust.score >= 35 ? 'orange' : 'rose';
+
+                // Per-ingredient sustainability profile (for the details table)
+                const perIng = rows.map(r => ({ ...r, profile: getSustainabilityProfile(r) }));
+
+                return (
+                  <div className="bg-white rounded-xl border border-emerald-200 p-6">
+                    <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+                      <h2 className="text-lg font-semibold text-gray-800">🌱 Sustainability & Sourcing</h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400">Organic / Non-GMO / Footprint</span>
+                    </div>
+
+                    {/* ───── Headline score ───── */}
+                    <div className={`rounded-xl p-4 mb-4 border-2 bg-${scoreColor}-50 border-${scoreColor}-300`}>
+                      <div className="flex items-baseline justify-between flex-wrap gap-3">
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wide text-gray-600">Formula Sustainability Score</div>
+                          <div className={`text-5xl font-bold text-${scoreColor}-700 leading-none`}>{sust.score}<span className="text-xl text-gray-500">/100</span></div>
+                        </div>
+                        <div className="text-right text-xs text-gray-600 space-y-1">
+                          <div><span className="font-semibold text-gray-800">{sust.organicCoveragePct.toFixed(0)}%</span> organic-available mass</div>
+                          <div><span className="font-semibold text-gray-800">{sust.nonGmoCoveragePct.toFixed(0)}%</span> inherently non-GMO</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ───── Footprint tiles ───── */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Carbon / unit</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">
+                          {carbonPerUnit < 1 ? `${(carbonPerUnit * 1000).toFixed(0)}g` : `${carbonPerUnit.toFixed(2)}kg`}
+                        </div>
+                        <div className="text-[10px] text-gray-400">CO₂e</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Water / unit</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">
+                          {waterPerUnit < 1 ? `${(waterPerUnit * 1000).toFixed(0)}mL` : `${waterPerUnit.toFixed(1)}L`}
+                        </div>
+                        <div className="text-[10px] text-gray-400">blue+green</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">GMO-risk items</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">{sust.highGmoRiskIngredients.length}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {sust.highGmoRiskIngredients.length === 0 ? 'clean' : 'need non-GMO variant'}
+                        </div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Sector flags</div>
+                        <div className="text-xl font-bold text-gray-800 mt-1">
+                          {[sust.palmOilPresent && '🌴', sust.seafoodPresent && '🐟', sust.cocoaPresent && '🍫'].filter(Boolean).join(' ') || '—'}
+                        </div>
+                        <div className="text-[10px] text-gray-400">
+                          {(sust.palmOilPresent || sust.seafoodPresent || sust.cocoaPresent) ? 'cert needed' : 'none flagged'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ───── NOP Organic Claim Validator ───── */}
+                    {(() => {
+                      const tier = organicCompliance.claimTier;
+                      const tierColor =
+                        tier === '100-percent-organic' ? 'emerald' :
+                        tier === 'organic' ? 'emerald' :
+                        tier === 'made-with-organic' ? 'amber' :
+                        'gray';
+                      const icon =
+                        tier === '100-percent-organic' ? '💯' :
+                        tier === 'organic' ? '🌱' :
+                        tier === 'made-with-organic' ? '🌿' :
+                        '🚫';
+                      return (
+                        <div className={`mb-4 rounded-lg p-3 border-2 bg-${tierColor}-50 border-${tierColor}-300`}>
+                          <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">{icon}</span>
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-gray-600">USDA NOP Organic Claim</div>
+                                <div className={`text-base font-bold text-${tierColor}-700`}>{organicCompliance.claimLabel}</div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[10px] uppercase tracking-wide text-gray-500">Organic % of eligible mass</div>
+                              <div className={`text-2xl font-bold font-mono text-${tierColor}-700`}>
+                                {organicCompliance.percentOrganic.toFixed(1)}%
+                              </div>
+                              <div className="text-[10px] text-gray-500">
+                                ({(organicCompliance.organicMassG / 1000).toFixed(3)} kg organic / {(organicCompliance.eligibleMassG / 1000).toFixed(3)} kg eligible)
+                              </div>
+                            </div>
+                          </div>
+                          {organicCompliance.thresholdGap > 0 && tier !== 'specific-organic' && (
+                            <div className="text-xs text-gray-700 border-t border-gray-300 pt-2 mt-1">
+                              <span className="font-semibold">Gap to next tier: </span>
+                              <span className="font-mono">+{organicCompliance.thresholdGap.toFixed(1)} pp</span>
+                              <span className="text-gray-500"> to reach {tier === 'organic' ? '100% Organic' : tier === 'made-with-organic' ? 'Organic' : 'Made with Organic'}.</span>
+                            </div>
+                          )}
+                          <details className="text-[10px] text-gray-600 mt-2">
+                            <summary className="cursor-pointer font-semibold hover:text-gray-800">📋 NOP compliance details ({organicCompliance.notes.length} notes)</summary>
+                            <ul className="mt-1 space-y-0.5 pl-3">
+                              {organicCompliance.notes.map((n, i) => (
+                                <li key={i}>• {n}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ───── Recommendations ───── */}
+                    {sust.recommendations.length > 0 && (
+                      <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        <div className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2">💡 Recommendations</div>
+                        <ul className="space-y-1">
+                          {sust.recommendations.map((r, i) => (
+                            <li key={i} className="text-xs text-amber-900 leading-relaxed">• {r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* ───── Organic Conversion Quick Actions ───── */}
+                    {(() => {
+                      // Preview cost of each upgrade tier
+                      const currentTier = organicCompliance.claimTier;
+                      const targets: { tier: OrganicClaimTier; label: string; icon: string; nopSection: string }[] = [
+                        { tier: 'made-with-organic', label: 'Made with Organic (70%+)', icon: '🌿', nopSection: '§ 205.304' },
+                        { tier: 'organic', label: 'Organic (95%+)', icon: '🌱', nopSection: '§ 205.301(b)' },
+                        { tier: '100-percent-organic', label: '100% Organic', icon: '💯', nopSection: '§ 205.301(a)' },
+                      ];
+                      const tierRank: Record<OrganicClaimTier, number> = {
+                        'specific-organic': 0,
+                        'made-with-organic': 1,
+                        'organic': 2,
+                        '100-percent-organic': 3,
+                      };
+                      const availableTargets = targets.filter(t => tierRank[t.tier] > tierRank[currentTier]);
+                      if (availableTargets.length === 0) return null;
+
+                      // Preview each target's cost delta (dry-run, no state update)
+                      const previews = availableTargets.map(target => {
+                        const preview = upgradeToOrganicTier(ingredients, INDUSTRIAL_DB, target.tier);
+                        return { ...target, preview };
+                      });
+
+                      const handleUpgrade = (target: OrganicClaimTier) => {
+                        const result = upgradeToOrganicTier(ingredients, INDUSTRIAL_DB, target);
+                        const targetLabel = targets.find(t => t.tier === target)?.label || target;
+                        if (!result.targetReached) {
+                          alert(`Could not reach "${targetLabel}" with organic-available ingredients only. Converted ${result.conversions.length} ingredient${result.conversions.length !== 1 ? 's' : ''}, reached "${result.reachedTier}" tier. Some ingredients in your formula don't have organic variants (e.g., curing salts, phosphates, synthetic preservatives).`);
+                        }
+                        const summary = result.conversions.map(c => `  ${c.originalName} → ${c.ingredient.name}`).join('\n');
+                        const deltaStr = result.costDeltaTotal >= 0 ? `+$${result.costDeltaTotal.toFixed(2)}` : `−$${Math.abs(result.costDeltaTotal).toFixed(2)}`;
+                        const confirmed = window.confirm(
+                          `Convert ${result.conversions.length} ingredient${result.conversions.length !== 1 ? 's' : ''} to organic?\n\n${summary}\n\nBatch cost change: ${deltaStr}\nFinal tier: ${result.reachedTier}`,
+                        );
+                        if (confirmed) {
+                          setIngredients(result.upgradedIngredients);
+                          recalculate(result.upgradedIngredients);
+                        }
+                      };
+
+                      return (
+                        <div className="mb-4 bg-brand-50 border border-brand-200 rounded-lg p-3" style={{ background: 'var(--color-brand-50)', borderColor: 'var(--color-brand-200)' }}>
+                          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                            <div className="text-xs font-bold text-gray-800 uppercase tracking-wide">🌱 Convert to Organic — one-click upgrade</div>
+                            <div className="text-[10px] text-gray-500">USDA NOP 21 CFR 205 thresholds</div>
+                          </div>
+                          <p className="text-[10px] text-gray-600 mb-3 leading-relaxed">
+                            Converts eligible ingredients to their organic variants (matches existing DB SKU if available, otherwise applies category premium). Ingredients without organic variants (e.g., curing salts, synthetic preservatives) are skipped. You&apos;ll be asked to confirm before changes apply.
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            {previews.map(({ tier, label, icon, nopSection, preview }) => {
+                              const willSucceed = preview.targetReached;
+                              const delta = preview.costDeltaTotal;
+                              const deltaColor = delta > 0 ? 'text-rose-600' : delta < 0 ? 'text-emerald-700' : 'text-gray-600';
+                              const deltaStr = delta >= 0 ? `+$${delta.toFixed(2)}` : `−$${Math.abs(delta).toFixed(2)}`;
+                              return (
+                                <button
+                                  key={tier}
+                                  onClick={() => handleUpgrade(tier)}
+                                  className={`text-left p-3 rounded-lg border-2 transition hover:shadow-md ${willSucceed ? 'bg-white border-emerald-300 hover:border-emerald-500' : 'bg-gray-50 border-gray-300 hover:border-amber-400 cursor-pointer'}`}
+                                >
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <span className="text-lg">{icon}</span>
+                                    <span className="text-xs font-bold text-gray-800">{label}</span>
+                                  </div>
+                                  <div className="text-[10px] text-gray-500 mb-2">{nopSection}</div>
+                                  <div className="flex items-center justify-between text-[11px]">
+                                    <span className="text-gray-600">
+                                      {preview.conversions.length} swap{preview.conversions.length !== 1 ? 's' : ''}
+                                    </span>
+                                    <span className={`font-mono font-semibold ${deltaColor}`}>{deltaStr}/batch</span>
+                                  </div>
+                                  {!willSucceed && (
+                                    <div className="text-[9px] text-amber-700 mt-1 italic">
+                                      Max reach: {preview.reachedTier.replace(/-/g, ' ')}
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ───── Bulk Revert All to Conventional ───── */}
+                    {(() => {
+                      const currentlyOrganicCount = ingredients.filter(i => /\borganic\b/i.test(i.name)).length;
+                      if (currentlyOrganicCount === 0) return null;
+                      const preview = revertAllToConventional(ingredients, INDUSTRIAL_DB);
+                      const delta = preview.costDeltaTotal;
+                      const deltaStr = delta >= 0 ? `+$${delta.toFixed(2)}` : `−$${Math.abs(delta).toFixed(2)}`;
+                      return (
+                        <div className="mb-4 bg-gray-50 border border-gray-300 rounded-lg p-3">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div>
+                              <div className="text-xs font-bold text-gray-700 uppercase tracking-wide">↩ Revert to Conventional</div>
+                              <div className="text-[10px] text-gray-500 mt-0.5">
+                                {currentlyOrganicCount} ingredient{currentlyOrganicCount !== 1 ? 's' : ''} currently organic — revert all in one click.
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const summary = preview.conversions.map(c => `  ${c.originalName} → ${c.ingredient.name}`).join('\n');
+                                if (window.confirm(
+                                  `Revert ${preview.conversions.length} ingredient${preview.conversions.length !== 1 ? 's' : ''} to conventional?\n\n${summary}\n\nBatch cost change: ${deltaStr}`,
+                                )) {
+                                  setIngredients(preview.revertedIngredients);
+                                  recalculate(preview.revertedIngredients);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-white text-gray-700 border border-gray-300 rounded text-xs font-medium hover:bg-gray-100 hover:border-gray-400 transition flex items-center gap-2"
+                            >
+                              <span>↩ Revert all</span>
+                              <span className={`font-mono ${delta < 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{deltaStr}/batch</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ───── Per-ingredient table (expandable) ───── */}
+                    <details className="text-xs">
+                      <summary className="cursor-pointer font-semibold text-gray-700 hover:text-emerald-700 py-1">
+                        📋 Per-ingredient sustainability profile ({perIng.length} rows)
+                      </summary>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-gray-400 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                              <th className="py-1">Ingredient</th>
+                              <th className="py-1 text-center">GMO risk</th>
+                              <th className="py-1 text-center">Organic?</th>
+                              <th className="py-1 text-center">Non-GMO?</th>
+                              <th className="py-1 text-right">kg CO₂e/kg</th>
+                              <th className="py-1">Certs available</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {perIng.map((r, i) => {
+                              const p = r.profile;
+                              const gmoColor =
+                                p.gmoRisk === 'high' ? 'bg-rose-100 text-rose-700' :
+                                p.gmoRisk === 'medium' ? 'bg-amber-100 text-amber-700' :
+                                p.gmoRisk === 'low' ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-gray-100 text-gray-600';
+                              return (
+                                <tr key={i} className="border-b border-gray-100">
+                                  <td className="py-1 text-gray-800">{r.name}</td>
+                                  <td className="py-1 text-center">
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${gmoColor}`}>
+                                      {p.gmoRisk}
+                                    </span>
+                                  </td>
+                                  <td className="py-1 text-center">
+                                    {p.organicAvailable ? (
+                                      <span className="text-emerald-600 font-semibold" title={`+${Math.round((p.organicPricePremium - 1) * 100)}% premium`}>
+                                        ✓ +{Math.round((p.organicPricePremium - 1) * 100)}%
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">—</span>
+                                    )}
+                                  </td>
+                                  <td className="py-1 text-center">
+                                    {p.nonGmoAvailable && p.nonGmoPricePremium > 1.0 ? (
+                                      <span className="text-sky-600 font-semibold">✓ +{Math.round((p.nonGmoPricePremium - 1) * 100)}%</span>
+                                    ) : p.gmoRisk === 'low' || p.gmoRisk === 'none' ? (
+                                      <span className="text-emerald-600 font-semibold" title="Inherently non-GMO">✓ inherent</span>
+                                    ) : (
+                                      <span className="text-gray-400">—</span>
+                                    )}
+                                  </td>
+                                  <td className="py-1 text-right font-mono text-gray-700">{p.carbonKgCo2ePerKg.toFixed(1)}</td>
+                                  <td className="py-1 text-[10px] text-gray-600">
+                                    {p.suggestedCerts.length > 0
+                                      ? p.suggestedCerts.slice(0, 3).map(c => CERT_LABELS[c] || c).join(', ')
+                                      : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+
+                    <p className="text-[10px] text-gray-400 mt-3 italic">
+                      Estimates from published LCA literature (Poore & Nemecek 2018, Mekonnen & Hoekstra water footprint). Not audit-grade — verify with supplier COAs for regulatory or retailer submissions.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* ═══════════════════════════════════════════════════════════
+                  RETAIL CHANNEL FIT (supplements mode only)
+                  Scan formulation against each retailer's unacceptable-
+                  ingredient list and score readiness for that channel.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const reports = analyzeRetailFit(ingredients.map(i => i.name));
+                const hasAnyConcerns = reports.some(r => r.status !== 'ready');
+                const retailDefaultExpanded = reports.some(r => r.status === 'blocked');
+                const retailManual = suppCardsManuallyToggled['retail'];
+                const retailExpanded = retailManual !== undefined ? retailManual : retailDefaultExpanded;
+                return (
+                  <div id="supp-card-retail" className="bg-white rounded-xl border border-gray-200 p-6">
+                    <button
+                      type="button"
+                      onClick={() => toggleSuppCard('retail', retailExpanded)}
+                      className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left"
+                    >
+                      <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{retailExpanded ? '▼' : '▶'}</span>
+                        🛒 Retail Channel Fit
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">retailer standards · Prop 65</span>
+                    </button>
+                    {retailExpanded && (<>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {reports.map((r, i) => {
+                        const badge = r.status === 'ready' ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                          : r.status === 'caution' ? 'bg-amber-100 text-amber-700 border-amber-300'
+                          : 'bg-red-100 text-red-700 border-red-300';
+                        const barColor = r.score >= 90 ? 'bg-emerald-500' : r.score >= 70 ? 'bg-amber-500' : 'bg-red-500';
+                        return (
+                          <div key={i} className="border border-gray-200 rounded-lg p-3 flex flex-col">
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                              <div className="flex-1">
+                                <div className="font-semibold text-sm text-gray-800">{r.retailer.name}</div>
+                                <div className="text-[11px] text-gray-500 leading-tight">{r.retailer.blurb}</div>
+                              </div>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 border rounded ${badge} uppercase inline-flex items-center gap-1`}>
+                                {r.status === 'ready'
+                                  ? <><CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" /><span>Ready</span></>
+                                  : r.status === 'caution'
+                                    ? <><AlertCircle className="h-3 w-3 text-amber-500" aria-hidden="true" /><span>Caution</span></>
+                                    : <><XIcon className="h-3 w-3 text-rose-600" aria-hidden="true" /><span>Blocked</span></>}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 my-1">
+                              <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                                <div className={`h-full ${barColor}`} style={{ width: `${r.score}%` }} />
+                              </div>
+                              <span className="text-xs font-mono font-bold text-gray-700 w-10 text-right">{r.score}%</span>
+                            </div>
+                            {r.disqualifyingIngredients.length > 0 && (
+                              <div className="text-[11px] text-red-700 mt-1 leading-tight">
+                                <span className="font-semibold">Disqualifies: </span>
+                                {r.disqualifyingIngredients.join(', ')}
+                              </div>
+                            )}
+                            {r.cautionIngredients.length > 0 && (
+                              <div className="text-[11px] text-amber-700 mt-1 leading-tight">
+                                <span className="font-semibold">Watch: </span>
+                                {r.cautionIngredients.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {!hasAnyConcerns && (
+                      <p className="text-xs text-emerald-700 mt-3 inline-flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                        <span>Formula is ready for every channel checked. Still verify current retailer standards before listing submission.</span>
+                      </p>
+                    )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
             </div>
           </div>
         </div>
