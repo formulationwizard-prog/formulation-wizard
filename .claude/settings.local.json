@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir app/workspace)",
+      "Bash(git mv *)"
+    ]
+  }
+}
