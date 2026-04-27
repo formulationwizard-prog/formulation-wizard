@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(mkdir app/workspace)",
-      "Bash(git mv *)"
+      "Bash(git mv *)",
+      "Bash(cp \"C:/Users/chefc/Downloads/fw-preview-bundle_35/fw-preview/\"*.jpg public/marketing/)",
+      "Bash(cp \"C:/Users/chefc/Downloads/fw-preview-bundle_35/fw-preview/\"*.svg public/marketing/)"
     ]
   }
 }
