@@ -1,39 +1,49 @@
-import { createServerClient } from "@supabase/ssr";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+
+function verifyCookie(value: string, secret: string): boolean {
+  try {
+    const lastDot = value.lastIndexOf(".");
+    if (lastDot <= 0 || lastDot === value.length - 1) return false;
+
+    const payload = value.slice(0, lastDot);
+    const signature = value.slice(lastDot + 1);
+
+    const expected = createHmac("sha256", secret).update(payload).digest("hex");
+
+    const a = Buffer.from(signature, "hex");
+    const b = Buffer.from(expected, "hex");
+    if (a.length === 0 || a.length !== b.length) return false;
+
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
 export async function proxy(request: NextRequest) {
-  const response = await updateSession(request);
+  if (!request.nextUrl.pathname.startsWith("/workspace")) {
+    return NextResponse.next();
+  }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Read-only here: updateSession already wrote refreshed cookies onto `response`.
-        },
-      },
-    },
+  const loginUrl = new URL("/login", request.nextUrl.origin);
+  loginUrl.searchParams.set(
+    "next",
+    request.nextUrl.pathname + request.nextUrl.search,
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (request.nextUrl.pathname.startsWith("/workspace") && !user) {
-    const loginUrl = new URL("/login", request.nextUrl.origin);
-    loginUrl.searchParams.set(
-      "next",
-      request.nextUrl.pathname + request.nextUrl.search,
-    );
+  const secret = process.env.COOKIE_SECRET;
+  if (!secret) {
+    loginUrl.searchParams.set("error", "server_misconfigured");
     return NextResponse.redirect(loginUrl);
   }
 
-  return response;
+  const cookie = request.cookies.get("fw_access");
+  if (!cookie || !verifyCookie(cookie.value, secret)) {
+    return NextResponse.redirect(loginUrl);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {
