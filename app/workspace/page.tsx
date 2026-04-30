@@ -5196,12 +5196,17 @@ export default function FormulationWizard() {
                       const aw = specs.aw;
 
                       // Headline color & icon by classification
+                      // SCOPE NOTE: 'insufficient-data' and 'undetermined' entries added 2026-04-30
+                      // alongside the verified-data gate in lib/foodScience.ts. Existing labels still
+                      // use certainty language; hedging cleanup pending in follow-up PR.
                       const conf = {
                         'acid':                 { color: 'emerald', icon: '🍋', label: 'ACID FOOD',               filing: 'No FDA filing',                      cfr: '21 CFR 114.3(b)(1)' },
                         'acidified':            { color: 'amber',   icon: '🧪', label: 'ACIDIFIED FOOD',          filing: 'FDA Form 2541a REQUIRED',            cfr: '21 CFR 114' },
                         'acidified-in-process': { color: 'amber',   icon: '⚗️', label: 'ACIDIFIED (IN PROCESS)',   filing: 'Add more acid → then 2541a',         cfr: '21 CFR 114' },
                         'lacf':                 { color: 'rose',    icon: '🚨', label: 'LOW-ACID CANNED FOOD',     filing: 'FDA Form 2541a REQUIRED + Retort',   cfr: '21 CFR 113' },
                         'shelf-stable-dry':     { color: 'emerald', icon: '🌾', label: 'SHELF-STABLE (DRY)',       filing: 'No FDA filing',                      cfr: '21 CFR 117' },
+                        'insufficient-data':    { color: 'amber',   icon: '⚠️', label: 'INSUFFICIENT DATA — Regulatory classification unavailable. Add lab-verified or supplier-COA values for the listed ingredients. Confirm with FDA-recognized Process Authority.', filing: 'Pending verified data', cfr: '21 CFR 113 / 114' },
+                        'undetermined':         { color: 'amber',   icon: '⚠️', label: 'UNDETERMINED — classification could not be computed', filing: 'Pending classification', cfr: '—' },
                       }[cls];
 
                       // Distance-to-threshold math — shows how close to the next classification flip

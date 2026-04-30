@@ -736,7 +736,7 @@ export function suggestHaccpCategory(
   specs: {
     pH?: number;
     aw?: number;
-    productClassification?: 'acid' | 'acidified' | 'acidified-in-process' | 'lacf' | 'shelf-stable-dry' | '—';
+    productClassification?: 'acid' | 'acidified' | 'acidified-in-process' | 'lacf' | 'shelf-stable-dry' | 'insufficient-data' | '—';
   } | undefined,
   mode?: string
 ): HaccpCategory | null {

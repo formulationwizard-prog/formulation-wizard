@@ -3,11 +3,17 @@
 // ------------------------------------------------------------
 // Supports the FDA Food Canning Establishment (FCE) + Submission
 // Identifier (SID) process filing family for shelf-stable
-// low-acid and acidified foods:
+// low-acid and acidified foods. Form numbers per FDA.gov current
+// guidance (Forms 2541a and 2541c are obsolete in current
+// practice and have been replaced by method-specific forms):
 //
-//   • Form FDA 2541   — Registration of Food Canning Establishment
-//   • Form FDA 2541a  — Process Filing, all methods except aseptic
-//   • Form FDA 2541c  — Process Filing for aseptic processing
+//   • Form FDA 2541   — Food Canning Establishment Registration
+//                       (one-time, both AF and LACF)
+//   • Form FDA 2541d  — LACF Process Filing (retort)
+//   • Form FDA 2541e  — Acidified Food Process Filing
+//   • Form FDA 2541f  — LACF Process Filing (water activity /
+//                       formulation control)
+//   • Form FDA 2541g  — LACF Process Filing (aseptic)
 //
 // This module determines which filing (if any) applies to the
 // current formulation and supplies structural metadata, default
@@ -15,11 +21,16 @@
 // UI can pre-populate a draft for the customer's Process Authority.
 // ============================================================
 
+import { REGULATORY_DISCLAIMER } from './foodScience';
+
 export type FormName =
-  | 'FDA 2541a'
-  | 'FDA 2541c'
+  | 'FDA 2541d'
+  | 'FDA 2541e'
+  | 'FDA 2541f or 2541g (method-dependent)'
+  | 'FDA 2541d, 2541f, or 2541g (method-dependent)'
   | 'FSIS HACCP (no FDA Scheduled Process)'
   | 'None — GRAS / GMP only'
+  | 'Pending verified data — confirm with Process Authority'
   | 'Process Authority review strongly recommended';
 
 export interface FilingRequirement {
@@ -42,13 +53,18 @@ export interface QaTest {
 /**
  * Determine whether a Scheduled Process filing is required.
  *
- * Uses `productClassification` (from the spec estimator) as the primary signal —
- * this distinguishes the three 21 CFR categories cleanly:
- *   • 'acid'                   — 21 CFR 114.3(b)(1) — naturally acid, no filing
- *   • 'acidified'              — 21 CFR 114 — filing REQUIRED on 2541a
- *   • 'acidified-in-process'   — intent is acidified, pH not yet ≤ 4.6 → add more acid
- *   • 'lacf'                   — 21 CFR 113 — retort + filing REQUIRED on 2541a
- *   • 'shelf-stable-dry'       — aw ≤ 0.85, no filing
+ * Uses `productClassification` (from the spec estimator) as the primary signal.
+ * Output strings are HEDGED ("likely required — confirm with Process Authority")
+ * because the underlying ingredient-spec lookup tables contain unverified data;
+ * see classifyFormulation() in lib/foodScience.ts for the provenance gate.
+ * Every reason string ends with REGULATORY_DISCLAIMER.
+ *
+ *   • 'acid'                  — 21 CFR 114.3(b)(1) — naturally acid, no filing
+ *   • 'acidified'             — 21 CFR 114 — Form FDA 2541e likely required
+ *   • 'acidified-in-process'  — intent is acidified, pH not yet ≤ 4.6 → add more acid
+ *   • 'lacf'                  — 21 CFR 113 — Form 2541d/f/g (method-dependent)
+ *   • 'shelf-stable-dry'      — aw ≤ 0.85, no filing
+ *   • 'insufficient-data'     — verified-mass coverage too low to classify
  *
  * HACCP category (FSIS meat) short-circuits to USDA pathway.
  */
@@ -58,7 +74,7 @@ export function determineFilingRequirement(
     pH?: number;
     aw?: number;
     lowAcidComponentPct?: number;
-    productClassification?: 'acid' | 'acidified' | 'acidified-in-process' | 'lacf' | 'shelf-stable-dry' | '—';
+    productClassification?: 'acid' | 'acidified' | 'acidified-in-process' | 'lacf' | 'shelf-stable-dry' | 'insufficient-data' | '—';
   }
 ): FilingRequirement {
   // USDA FSIS meat products short-circuit FDA logic entirely.
@@ -67,7 +83,7 @@ export function determineFilingRequirement(
       required: true,
       formName: 'FSIS HACCP (no FDA Scheduled Process)',
       citations: ['9 CFR 417 (HACCP)', '9 CFR 430 (Listeria)', '9 CFR 424.21 (Cure limits)'],
-      reason: 'USDA-FSIS inspected meat product. No FDA filing — a validated HACCP plan on file with USDA district office + Grant of Inspection required before production.',
+      reason: `USDA-FSIS inspected meat product. No FDA filing — a validated HACCP plan on file with USDA district office + Grant of Inspection required before production.\n\n${REGULATORY_DISCLAIMER}`,
       processAuthorityRequired: true,
       urgency: 'critical',
     };
@@ -78,74 +94,86 @@ export function determineFilingRequirement(
   const aw = specs.aw;
   const lowAcidPct = specs.lowAcidComponentPct;
 
-  // ═══ ACIDIFIED FOOD (21 CFR 114) — final pH ≤ 4.6 WITH low-acid base ═══
+  // ═══ INSUFFICIENT DATA — verification gate failed ═══
+  if (classification === 'insufficient-data') {
+    return {
+      required: false,
+      formName: 'Pending verified data — confirm with Process Authority',
+      citations: ['21 CFR 113', '21 CFR 114'],
+      reason: `Insufficient verified data to compute regulatory classification. Add lab-verified or supplier-COA values for the ingredients listed below to receive a classification. Until then, this formulation cannot be classified per 21 CFR 113/114.\n\n${REGULATORY_DISCLAIMER}`,
+      processAuthorityRequired: true,
+      urgency: 'critical',
+    };
+  }
+
+  // ═══ LIKELY ACIDIFIED FOOD (21 CFR 114) — final pH ≤ 4.6 WITH low-acid base ═══
   if (classification === 'acidified') {
     return {
       required: true,
-      formName: 'FDA 2541a',
-      citations: ['21 CFR 114', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541a (Process Filing)'],
-      reason: `ACIDIFIED FOOD (21 CFR 114). Finished pH ${pH?.toFixed(2)} ≤ 4.6 with ${lowAcidPct?.toFixed(1)}% low-acid components — an otherwise-low-acid base acidified to shelf-stable pH. Scheduled Process + Process Authority review MANDATORY before first commercial batch.`,
+      formName: 'FDA 2541e',
+      citations: ['21 CFR 114', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541e (Acidified Process Filing)'],
+      reason: `LIKELY ACIDIFIED FOOD (assessment based on available data) — 21 CFR 114. Finished pH ${pH?.toFixed(2)} ≤ 4.6 with ${lowAcidPct?.toFixed(1)}% low-acid components — an otherwise-low-acid base acidified to shelf-stable pH. Form FDA 2541e likely required (Process Filing for Acidified Method) — confirm with Process Authority before first commercial batch. Facility must also be registered using Form FDA 2541 (Food Canning Establishment Registration).\n\n${REGULATORY_DISCLAIMER}`,
       processAuthorityRequired: true,
       urgency: 'critical',
     };
   }
 
-  // ═══ ACIDIFIED-IN-PROCESS — intent is acidified, pH not there yet ═══
+  // ═══ LIKELY ACIDIFIED-IN-PROCESS — intent is acidified, pH not there yet ═══
   if (classification === 'acidified-in-process') {
     return {
       required: true,
-      formName: 'FDA 2541a',
-      citations: ['21 CFR 114', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541a (Process Filing)'],
-      reason: `ACIDIFIED FOOD (21 CFR 114) — intent detected (acidulant present + ${lowAcidPct?.toFixed(1)}% low-acid base), but FINISHED pH ${pH?.toFixed(2)} is NOT YET ≤ 4.6. Add more acidulant (vinegar, citric acid, lime juice) until equilibrium pH ≤ 4.6 (target ≤ 4.2 for safety margin). Once properly acidified, Scheduled Process + Process Authority review MANDATORY.`,
+      formName: 'FDA 2541e',
+      citations: ['21 CFR 114', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541e (Acidified Process Filing)'],
+      reason: `LIKELY ACIDIFIED FOOD (assessment based on available data) — 21 CFR 114, intent detected (acidulant present + ${lowAcidPct?.toFixed(1)}% low-acid base), but finished pH ${pH?.toFixed(2)} NOT yet ≤ 4.6. Add more acidulant (vinegar, citric acid, lime juice) until equilibrium pH ≤ 4.6 (target ≤ 4.2 for safety margin). Once properly acidified, Form FDA 2541e likely required (Process Filing for Acidified Method) — confirm with Process Authority. Facility must also be registered using Form FDA 2541 (Food Canning Establishment Registration).\n\n${REGULATORY_DISCLAIMER}`,
       processAuthorityRequired: true,
       urgency: 'critical',
     };
   }
 
-  // ═══ LACF (21 CFR 113) — genuinely low-acid, no acidification intent ═══
+  // ═══ LIKELY LACF (21 CFR 113) — genuinely low-acid, no acidification intent ═══
   if (classification === 'lacf') {
     return {
       required: true,
-      formName: 'FDA 2541a',
-      citations: ['21 CFR 113', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541a (Process Filing)'],
-      reason: `LOW-ACID CANNED FOOD / LACF (21 CFR 113). pH ${pH?.toFixed(2)} > 4.6 and a_w ${aw?.toFixed(2)} > 0.85 with no acidulant present. Requires thermal processing to commercial sterility (retort) and Scheduled Process filing. This is the highest-risk FDA process category — 12D Clostridium botulinum inactivation mandatory.`,
+      formName: 'FDA 2541d, 2541f, or 2541g (method-dependent)',
+      citations: ['21 CFR 113', 'Form FDA 2541 (FCE registration)', 'Form FDA 2541d (Retort)', 'Form FDA 2541f (Water Activity / Formulation)', 'Form FDA 2541g (Aseptic)'],
+      reason: `LIKELY LOW-ACID CANNED FOOD (assessment based on available data) — 21 CFR 113, pH ${pH?.toFixed(2)} > 4.6 and a_w ${aw?.toFixed(2)} > 0.85 with no acidulant present. Highest-risk FDA process category — typically requires thermal processing to commercial sterility (12D Clostridium botulinum inactivation). LACF process filing likely required — Form FDA 2541d (retort), 2541f (water activity/formulation), or 2541g (aseptic) depending on processing method. Confirm appropriate form with Process Authority. Facility must also be registered using Form FDA 2541 (Food Canning Establishment Registration).\n\n${REGULATORY_DISCLAIMER}`,
       processAuthorityRequired: true,
       urgency: 'critical',
     };
   }
 
-  // ═══ ACID FOOD (21 CFR 114.3(b)(1)) — naturally acid, GMP only ═══
+  // ═══ LIKELY ACID FOOD (21 CFR 114.3(b)(1)) — naturally acid, GMP only ═══
   if (classification === 'acid') {
     return {
       required: false,
       formName: 'None — GRAS / GMP only',
       citations: ['21 CFR 114.3(b)(1)', '21 CFR 117 (Preventive Controls)'],
-      reason: `ACID FOOD (21 CFR 114.3(b)(1)) — naturally pH ${pH?.toFixed(2)} ≤ 4.6 with only ${lowAcidPct?.toFixed(1)}% low-acid components. No FDA Scheduled Process filing required. Follow 21 CFR 117 Preventive Controls. Typical examples: fruit, tomato products, fermented products.`,
+      reason: `LIKELY ACID FOOD (assessment based on available data) — 21 CFR 114.3(b)(1), naturally pH ${pH?.toFixed(2)} ≤ 4.6 with only ${lowAcidPct?.toFixed(1)}% low-acid components. No FDA scheduled-process filing appears to apply based on available data — confirm with Process Authority. Acid foods (per 21 CFR 114.3(b)(1)) are not subject to 21 CFR 113 or 114 process filing requirements. Follow 21 CFR 117 Preventive Controls. Typical examples: fruit, tomato products, fermented products.\n\n${REGULATORY_DISCLAIMER}`,
       processAuthorityRequired: false,
       urgency: 'not-required',
     };
   }
 
-  // ═══ SHELF-STABLE DRY — a_w ≤ 0.85 ═══
+  // ═══ LIKELY SHELF-STABLE BY LOW WATER ACTIVITY — a_w ≤ 0.85 ═══
   if (classification === 'shelf-stable-dry') {
     return {
       required: false,
       formName: 'None — GRAS / GMP only',
       citations: ['21 CFR 117'],
-      reason: `Shelf-stable by water activity (a_w ${aw?.toFixed(2)} ≤ 0.85). No FDA Scheduled Process filing required. Follow 21 CFR 117 Preventive Controls + low-moisture foods environmental Salmonella program.`,
+      reason: `LIKELY SHELF-STABLE BY LOW WATER ACTIVITY (assessment based on available data) — a_w ${aw?.toFixed(2)} ≤ 0.85. No FDA scheduled-process filing appears to apply based on available data — confirm with Process Authority. Foods with water activity at or below 0.85 are excluded from 21 CFR 113 and 114 (per the regulations' scope). Follow 21 CFR 117 Preventive Controls + low-moisture foods environmental Salmonella program.\n\n${REGULATORY_DISCLAIMER}`,
       processAuthorityRequired: false,
       urgency: 'not-required',
     };
   }
 
-  // Fallback (insufficient data)
+  // Fallback ('—' / empty / unknown) — treat as insufficient data.
   return {
     required: false,
-    formName: 'None — GRAS / GMP only',
-    citations: ['21 CFR 117'],
-    reason: 'Insufficient spec data to determine filing requirement. Add more ingredients with known pH/a_w data, or consult a Process Authority.',
-    processAuthorityRequired: false,
-    urgency: 'not-required',
+    formName: 'Pending verified data — confirm with Process Authority',
+    citations: ['21 CFR 113', '21 CFR 114'],
+    reason: `Insufficient verified data to compute regulatory classification. Add lab-verified or supplier-COA values for the ingredients listed below to receive a classification. Until then, this formulation cannot be classified per 21 CFR 113/114.\n\n${REGULATORY_DISCLAIMER}`,
+    processAuthorityRequired: true,
+    urgency: 'critical',
   };
 }
 

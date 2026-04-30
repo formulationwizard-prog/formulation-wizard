@@ -13,9 +13,33 @@
 //
 // All values are ESTIMATES for formulation scoping. Final product
 // specs MUST be verified by lab measurement before release.
+//
+// PROVENANCE GATE (added 2026-04-30): a prior audit confirmed every
+// numeric value in INGREDIENT_SPECS / CATEGORY_SPECS was AI-generated
+// during scaffolding without provenance. Two confirmed regulatory
+// bugs followed (false "Acidified Food" labels on un-acidified raw
+// vegetables; false "Shelf-Stable Dry" on high-water raw produce).
+// classifyFormulation() now refuses to classify when verified-mass
+// coverage is below threshold. See its JSDoc and ARCHITECTURE.md.
 // ============================================================
 import type { IndustrialIngredient } from '../types';
 import { UNIT_TO_GRAMS } from './utils';
+
+// ----- Locked regulatory disclaimer -----------------------------------------
+// Appended to every regulatory classification output (success OR refusal).
+// Do not modify the wording without consulting a Process Authority and
+// updating ARCHITECTURE.md.
+export const REGULATORY_DISCLAIMER =
+  'This information is for general educational purposes and does not constitute a legal or definitive safety process. Always consult an FDA-recognized Process Authority to verify your specific formula.';
+
+// ----- Provenance metadata --------------------------------------------------
+export type SpecSource =
+  | 'commodity-standard'   // chemical/regulatory definition (e.g., USP, GRAS, FCC monograph)
+  | 'cited-reference'      // industry-standard concentration / derived from cited science
+  | 'ai-estimate'          // AI-generated during scaffolding; no provenance
+  | 'category-default';    // generic per-category fallback in CATEGORY_SPECS
+
+export type SpecConfidence = 'verified' | 'unverified';
 
 // ----- Types -----------------------------------------------------------------
 
@@ -32,6 +56,16 @@ export interface IngredientSpec {
   aceticAcid?: number;
   /** Qualitative contribution to thickness. */
   viscosityContrib?: 'none' | 'low' | 'medium' | 'high' | 'very high';
+  /** Where this entry's numeric values came from. Required. */
+  source: SpecSource;
+  /** Citation for the values. Required when source is 'commodity-standard' or 'cited-reference'. */
+  citation?: string;
+  /** Whether the values have been verified against an authoritative source. Required. */
+  confidence: SpecConfidence;
+  /** ISO date (YYYY-MM-DD) the entry was last verified. Required when confidence === 'verified'. */
+  last_verified?: string;
+  /** Optional freeform clarifying notes. */
+  notes?: string;
 }
 
 export interface FormulationSpecs {
@@ -68,222 +102,253 @@ export interface FormulationSpecs {
    */
   hasAcidulant: boolean;
   /**
-   * Regulatory product classification:
-   *   • 'acid'       — naturally pH ≤ 4.6, minimal low-acid content (21 CFR 114.3(b)(1))
-   *   • 'acidified'  — low-acid base + added acid, final pH ≤ 4.6 (21 CFR 114)
-   *   • 'acidified-in-process' — intent is acidified (acidulant present, low-acid base) but
-   *     current pH still > 4.6. Needs more acid.
-   *   • 'lacf'       — pH > 4.6 and aw > 0.85, no acidification intent (21 CFR 113)
-   *   • 'shelf-stable-dry' — aw ≤ 0.85
-   *   • '—'          — not enough data
+   * Regulatory product classification. See classifyFormulation() JSDoc for the gate logic.
+   *   • 'acid'                — naturally pH ≤ 4.6, minimal low-acid content (21 CFR 114.3(b)(1))
+   *   • 'acidified'           — low-acid base + added acid, final pH ≤ 4.6 (21 CFR 114)
+   *   • 'acidified-in-process'— intent acidified (acidulant + low-acid base) but pH still > 4.6
+   *   • 'lacf'                — pH > 4.6 and aw > 0.85, no acidification intent (21 CFR 113)
+   *   • 'shelf-stable-dry'    — aw ≤ 0.85
+   *   • 'insufficient-data'   — verified-mass coverage too low to classify safely
+   *   • '—'                   — empty formulation / no input
    */
-  productClassification: 'acid' | 'acidified' | 'acidified-in-process' | 'lacf' | 'shelf-stable-dry' | '—';
-  /** Inferred regulatory class based on pH and aw. */
+  productClassification:
+    | 'acid'
+    | 'acidified'
+    | 'acidified-in-process'
+    | 'lacf'
+    | 'shelf-stable-dry'
+    | 'insufficient-data'
+    | '—';
+  /** Hedged human-readable regulatory class with verified-mass-coverage line and disclaimer appended. */
   regulatoryClass: string;
+  /** Percentage of total formulation mass attributable to ingredients tagged confidence='verified'. 0–100. */
+  verifiedMassPct: number;
+  /** All ingredients with confidence='unverified', sorted desc by mass percentage. Always populated. */
+  unverifiedIngredients: Array<{ name: string; massPct: number }>;
 }
 
 // ----- Category-level defaults -----------------------------------------------
 // Used when a specific ingredient override isn't available.
+// Every CATEGORY_SPECS entry is tagged 'category-default' / 'unverified': the
+// numeric values are AI-generated scaffolding without provenance.
 export const CATEGORY_SPECS: Record<string, IngredientSpec> = {
-  'Sweeteners':             { brix: 80, moisture: 15, aw: 0.70, pH: 5.5 },
-  'Fats & Oils':            { brix: 0,  moisture: 0.1, aw: 0.10, pH: 7.0, viscosityContrib: 'medium' },
-  'Condiment Ingredients':  { brix: 12, moisture: 55, aw: 0.88, pH: 4.0 },
-  'Fresh Produce':          { brix: 8,  moisture: 88, aw: 0.98, pH: 5.5 },
-  'Produce':                { brix: 12, moisture: 85, aw: 0.96, pH: 4.0 },
-  'Fresh Herbs':            { brix: 5,  moisture: 88, aw: 0.97, pH: 6.2 },
-  'Spices':                 { brix: 0,  moisture: 8,  aw: 0.35, pH: 6.0 },
-  'Egg Products':           { brix: 0,  moisture: 5,  aw: 0.25, pH: 7.5 },
-  'Legumes & Nuts & Seeds': { brix: 0,  moisture: 5,  aw: 0.40, pH: 6.5, viscosityContrib: 'low' },
-  'Dried Beans':            { brix: 0,  moisture: 11, aw: 0.55, pH: 6.5 },
-  'Canned Beans':           { brix: 0,  moisture: 75, aw: 0.96, pH: 6.2 },
-  'Nut & Seed Butters':     { brix: 0,  moisture: 2,  aw: 0.40, pH: 6.5, viscosityContrib: 'very high' },
-  'Juices':                 { brix: 12, moisture: 87, aw: 0.98, pH: 3.6 },
-  'Concentrates & Extracts':{ brix: 50, moisture: 40, aw: 0.75, pH: 3.5 },
+  'Sweeteners':             { brix: 80, moisture: 15, aw: 0.70, pH: 5.5, source: 'category-default', confidence: 'unverified' },
+  'Fats & Oils':            { brix: 0,  moisture: 0.1, aw: 0.10, pH: 7.0, viscosityContrib: 'medium', source: 'category-default', confidence: 'unverified' },
+  'Condiment Ingredients':  { brix: 12, moisture: 55, aw: 0.88, pH: 4.0, source: 'category-default', confidence: 'unverified' },
+  'Fresh Produce':          { brix: 8,  moisture: 88, aw: 0.98, pH: 5.5, source: 'category-default', confidence: 'unverified' },
+  'Produce':                { brix: 12, moisture: 85, aw: 0.96, pH: 4.0, source: 'category-default', confidence: 'unverified' },
+  'Fresh Herbs':            { brix: 5,  moisture: 88, aw: 0.97, pH: 6.2, source: 'category-default', confidence: 'unverified' },
+  'Spices':                 { brix: 0,  moisture: 8,  aw: 0.35, pH: 6.0, source: 'category-default', confidence: 'unverified' },
+  'Egg Products':           { brix: 0,  moisture: 5,  aw: 0.25, pH: 7.5, source: 'category-default', confidence: 'unverified' },
+  'Legumes & Nuts & Seeds': { brix: 0,  moisture: 5,  aw: 0.40, pH: 6.5, viscosityContrib: 'low', source: 'category-default', confidence: 'unverified' },
+  'Dried Beans':            { brix: 0,  moisture: 11, aw: 0.55, pH: 6.5, source: 'category-default', confidence: 'unverified' },
+  'Canned Beans':           { brix: 0,  moisture: 75, aw: 0.96, pH: 6.2, source: 'category-default', confidence: 'unverified' },
+  'Nut & Seed Butters':     { brix: 0,  moisture: 2,  aw: 0.40, pH: 6.5, viscosityContrib: 'very high', source: 'category-default', confidence: 'unverified' },
+  'Juices':                 { brix: 12, moisture: 87, aw: 0.98, pH: 3.6, source: 'category-default', confidence: 'unverified' },
+  'Concentrates & Extracts':{ brix: 50, moisture: 40, aw: 0.75, pH: 3.5, source: 'category-default', confidence: 'unverified' },
   // Baking / bakery-centric categories ---------------------------------------
-  'Flours & Grains':        { brix: 1,  moisture: 13, aw: 0.55, pH: 6.2 },
-  'Leavening':              { brix: 0,  moisture: 8,  aw: 0.40, pH: 7.5 },
-  'Dairy':                  { brix: 4,  moisture: 88, aw: 0.99, pH: 6.5 },
-  'Chocolate & Cocoa':      { brix: 55, moisture: 1,  aw: 0.40, pH: 6.2 },
-  'Nuts & Nut Products':    { brix: 4,  moisture: 4,  aw: 0.50, pH: 6.4 },
-  'Seeds':                  { brix: 1,  moisture: 6,  aw: 0.50, pH: 6.4 },
-  'Dried Fruit':            { brix: 75, moisture: 22, aw: 0.65, pH: 4.0 },
-  'Water & Ice':            { brix: 0,  moisture: 100, aw: 1.0, pH: 7.0 },
-  'Seasonings':             { brix: 0,  moisture: 8,  aw: 0.35, pH: 6.0 },
+  'Flours & Grains':        { brix: 1,  moisture: 13, aw: 0.55, pH: 6.2, source: 'category-default', confidence: 'unverified' },
+  'Leavening':              { brix: 0,  moisture: 8,  aw: 0.40, pH: 7.5, source: 'category-default', confidence: 'unverified' },
+  'Dairy':                  { brix: 4,  moisture: 88, aw: 0.99, pH: 6.5, source: 'category-default', confidence: 'unverified' },
+  'Chocolate & Cocoa':      { brix: 55, moisture: 1,  aw: 0.40, pH: 6.2, source: 'category-default', confidence: 'unverified' },
+  'Nuts & Nut Products':    { brix: 4,  moisture: 4,  aw: 0.50, pH: 6.4, source: 'category-default', confidence: 'unverified' },
+  'Seeds':                  { brix: 1,  moisture: 6,  aw: 0.50, pH: 6.4, source: 'category-default', confidence: 'unverified' },
+  'Dried Fruit':            { brix: 75, moisture: 22, aw: 0.65, pH: 4.0, source: 'category-default', confidence: 'unverified' },
+  'Water & Ice':            { brix: 0,  moisture: 100, aw: 1.0, pH: 7.0, source: 'category-default', confidence: 'unverified' },
+  'Seasonings':             { brix: 0,  moisture: 8,  aw: 0.35, pH: 6.0, source: 'category-default', confidence: 'unverified' },
 };
 
 // ----- Ingredient-specific overrides -----------------------------------------
-// Only the ones where generic category data isn't good enough.
+// Most entries are AI-generated scaffolding tagged 'ai-estimate' / 'unverified'.
+// 17 keys (12 chemistries × variants where applicable) are tagged 'verified'
+// via 'commodity-standard' or 'cited-reference' citations — see
+// classifyFormulation() for how this drives the gate.
 export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
-  // Vinegars
-  'Distilled White Vinegar (50 Grain / 5%)':   { pH: 2.8, aceticAcid: 5.0,  brix: 0.1, moisture: 95, aw: 0.99 },
-  'Distilled White Vinegar (100 Grain / 10%)': { pH: 2.4, aceticAcid: 10.0, brix: 0.1, moisture: 90, aw: 0.98 },
-  'Distilled White Vinegar (200 Grain / 20%)': { pH: 2.2, aceticAcid: 20.0, brix: 0.1, moisture: 80, aw: 0.96 },
-  'Apple Cider Vinegar (5%)':                  { pH: 3.1, aceticAcid: 5.0,  brix: 1.0, moisture: 94, aw: 0.99 },
-  'Red Wine Vinegar':                          { pH: 3.0, aceticAcid: 6.0,  brix: 1.5, moisture: 93, aw: 0.99 },
-  'Balsamic Vinegar (Industrial)':             { pH: 2.7, aceticAcid: 6.0,  brix: 30,  moisture: 65, aw: 0.93 },
-  'Rice Wine Vinegar':                         { pH: 3.2, aceticAcid: 4.3,  brix: 0.5, moisture: 95, aw: 0.99 },
-  'Malt Vinegar':                              { pH: 3.0, aceticAcid: 5.0,  brix: 1.0, moisture: 94, aw: 0.99 },
-  'Acetic Acid (Glacial Food Grade)':          { pH: 2.0, aceticAcid: 99.8, brix: 0,   moisture: 0.2, aw: 0.30 },
-  // Acids & preservatives
-  'Citric Acid (Anhydrous)':                   { pH: 2.2, moisture: 0.3, brix: 0, aw: 0.20 },
-  'Sodium Benzoate (Food Grade)':              { pH: 8.0, moisture: 0.2, brix: 0, aw: 0.20 },
-  'Potassium Sorbate (Food Grade)':            { pH: 6.5, moisture: 1.0, brix: 0, aw: 0.25 },
-  // Sugars & syrups — higher precision
-  'Granulated Sugar (Sucrose)':                { brix: 100, moisture: 0.04, aw: 0.14, pH: 7.0 },
-  'Brown Sugar (Light)':                       { brix: 97,  moisture: 2,    aw: 0.60, pH: 5.7 },
-  'Brown Sugar (Dark)':                        { brix: 97,  moisture: 2.5,  aw: 0.63, pH: 5.5 },
-  'Powdered Sugar (10X Confectioners)':        { brix: 99,  moisture: 0.5,  aw: 0.15, pH: 7.0 },
-  'Honey (Industrial Grade)':                  { brix: 81,  moisture: 17,   aw: 0.60, pH: 3.9 },
-  'Pure Maple Syrup (Grade A)':                { brix: 66,  moisture: 33,   aw: 0.81, pH: 6.5 },
-  'Agave Syrup (Light)':                       { brix: 76,  moisture: 23,   aw: 0.75, pH: 4.5 },
-  'Agave Syrup (Dark/Amber)':                  { brix: 76,  moisture: 23,   aw: 0.75, pH: 4.6 },
-  'Molasses (Blackstrap)':                     { brix: 76,  moisture: 23,   aw: 0.75, pH: 5.5 },
-  'Molasses (Fancy/Light)':                    { brix: 80,  moisture: 19,   aw: 0.72, pH: 5.2 },
-  'Corn Syrup (Light)':                        { brix: 78,  moisture: 22,   aw: 0.82, pH: 5.0 },
-  'Corn Syrup (Dark)':                         { brix: 78,  moisture: 22,   aw: 0.82, pH: 4.8 },
-  'High Fructose Corn Syrup 55 (HFCS-55)':     { brix: 77,  moisture: 23,   aw: 0.77, pH: 4.5 },
-  'High Fructose Corn Syrup 42 (HFCS-42)':     { brix: 71,  moisture: 29,   aw: 0.80, pH: 4.5 },
-  'Dextrose Monohydrate':                      { brix: 100, moisture: 0.1,  aw: 0.15, pH: 6.0 },
-  // Juices & concentrates
-  'Lemon Juice (Concentrate)':                 { brix: 48, moisture: 52, aw: 0.88, pH: 2.3 },
-  'Lime Juice (Concentrate)':                  { brix: 48, moisture: 52, aw: 0.88, pH: 2.2 },
-  'Orange Juice (NFC, Fresh-Squeezed)':        { brix: 12, moisture: 88, aw: 0.98, pH: 3.8 },
-  'Apple Juice (NFC, 100%)':                   { brix: 12, moisture: 88, aw: 0.98, pH: 3.5 },
-  'Pineapple Juice (NFC)':                     { brix: 13, moisture: 86, aw: 0.98, pH: 3.5 },
-  'Cranberry Juice (100%, No Sugar)':          { brix: 7.5, moisture: 92, aw: 0.99, pH: 2.5 },
-  'Pomegranate Juice (100%)':                  { brix: 16, moisture: 84, aw: 0.97, pH: 3.1 },
-  'Tomato Juice (NFC, Industrial)':            { brix: 6,  moisture: 93, aw: 0.99, pH: 4.2 },
-  'Apple Juice Concentrate (70 Brix)':         { brix: 70, moisture: 30, aw: 0.75, pH: 3.3 },
-  'Orange Juice Concentrate (65 Brix)':        { brix: 65, moisture: 35, aw: 0.78, pH: 3.8 },
-  'Pineapple Juice Concentrate (60 Brix)':     { brix: 60, moisture: 40, aw: 0.80, pH: 3.5 },
-  'Cranberry Juice Concentrate (50 Brix)':     { brix: 50, moisture: 50, aw: 0.83, pH: 2.5 },
-  'Pomegranate Juice Concentrate (65 Brix)':   { brix: 65, moisture: 35, aw: 0.77, pH: 3.1 },
-  // Tomato products
-  'Tomato Paste (28-30 Brix)':                 { brix: 29, moisture: 71, aw: 0.96, pH: 4.3, viscosityContrib: 'high' },
-  'Tomato Puree (Aseptic)':                    { brix: 11, moisture: 89, aw: 0.99, pH: 4.2, viscosityContrib: 'medium' },
-  'Mango Puree (Aseptic)':                     { brix: 15, moisture: 84, aw: 0.98, pH: 4.0, viscosityContrib: 'medium' },
-  'Apple Puree (Aseptic)':                     { brix: 11, moisture: 88, aw: 0.98, pH: 3.5 },
-  'Red Pepper Puree (Aseptic)':                { brix: 6,  moisture: 93, aw: 0.99, pH: 4.6 },
-  'Chipotle Puree':                            { brix: 9,  moisture: 89, aw: 0.97, pH: 3.9 },
-  'Pumpkin Puree (Aseptic)':                   { brix: 9,  moisture: 90, aw: 0.98, pH: 5.0 },
-  // Sauces & condiments
-  'Soy Sauce (Industrial Brewed)':             { brix: 25, moisture: 65, aw: 0.80, pH: 4.6 },
-  'Worcestershire Sauce (Industrial)':         { brix: 22, moisture: 73, aw: 0.85, pH: 3.5, aceticAcid: 1.0 },
-  'Dijon Mustard (Industrial)':                { brix: 12, moisture: 82, aw: 0.92, pH: 3.7, viscosityContrib: 'high' },
-  'Yellow Mustard (Industrial)':               { brix: 8,  moisture: 82, aw: 0.92, pH: 3.4, aceticAcid: 1.0, viscosityContrib: 'high' },
-  'Ketchup (Industrial)':                      { brix: 30, moisture: 65, aw: 0.94, pH: 3.8, aceticAcid: 0.5, viscosityContrib: 'high' },
-  'Mayonnaise Base (Industrial)':              { brix: 2,  moisture: 18, aw: 0.92, pH: 4.1, viscosityContrib: 'high' },
+  // ─── Vinegars ─────────────────────────────────────────────────────────────
+  // VERIFIED — commodity-standard concentrations per FDA CPG Sec. 525.825.
+  'Distilled White Vinegar (40 Grain / 4%)':   { pH: 2.7, aceticAcid: 4.0,  brix: 0.1, moisture: 96, aw: 0.99, source: 'commodity-standard', citation: 'FDA CPG Sec. 525.825 (Vinegar, Definitions) — 4% minimum acidity', confidence: 'verified', last_verified: '2026-04-30' },
+  'Distilled White Vinegar (50 Grain / 5%)':   { pH: 2.5, aceticAcid: 5.0,  brix: 0.1, moisture: 95, aw: 0.98, source: 'commodity-standard', citation: 'FDA CPG Sec. 525.825 (Vinegar, Definitions); industry standard 5% acidity = 50 grain', confidence: 'verified', last_verified: '2026-04-30', notes: 'Standard retail concentration.' },
+  'Distilled White Vinegar (100 Grain / 10%)': { pH: 2.2, aceticAcid: 10.0, brix: 0.1, moisture: 90, aw: 0.95, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
+  'Distilled White Vinegar (120 Grain / 12%)': { pH: 2.1, aceticAcid: 12.0, brix: 0.1, moisture: 88, aw: 0.94, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
+  'Distilled White Vinegar (200 Grain / 20%)': { pH: 2.0, aceticAcid: 20.0, brix: 0.1, moisture: 80, aw: 0.90, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
+  // UNVERIFIED — flavored vinegars; pH/aw are AI estimates.
+  'Apple Cider Vinegar (5%)':                  { pH: 3.1, aceticAcid: 5.0,  brix: 1.0, moisture: 94, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
+  'Red Wine Vinegar':                          { pH: 3.0, aceticAcid: 6.0,  brix: 1.5, moisture: 93, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
+  'Balsamic Vinegar (Industrial)':             { pH: 2.7, aceticAcid: 6.0,  brix: 30,  moisture: 65, aw: 0.93, source: 'ai-estimate', confidence: 'unverified' },
+  'Rice Wine Vinegar':                         { pH: 3.2, aceticAcid: 4.3,  brix: 0.5, moisture: 95, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
+  'Malt Vinegar':                              { pH: 3.0, aceticAcid: 5.0,  brix: 1.0, moisture: 94, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
+  // VERIFIED — glacial acetic acid (food grade), GRAS per 21 CFR 184.1005.
+  'Acetic Acid (Glacial Food Grade)':          { aceticAcid: 99.5, brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1005 (Acetic Acid, GRAS); Food Chemicals Codex 3rd ed. p. 8', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 64-19-7. IUPAC: ethanoic acid. Industrial assay typically 99.5–100.5%. pH undefined for the neat liquid; in 1% aqueous solution pH ~2.4. Per FDA CPG 562.100, diluted glacial acetic acid is NOT vinegar and cannot substitute for vinegar in standardized foods.' },
+  // ─── Acids & preservatives ────────────────────────────────────────────────
+  // VERIFIED — citric acid anhydrous & monohydrate, GRAS per 21 CFR 184.1033.
+  'Citric Acid (Anhydrous)':                   { brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS); Food Chemicals Codex 3rd ed. pp. 86-87', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 77-92-9. IUPAC: 2-hydroxy-1,2,3-propanetricarboxylic acid. pH undefined for crystalline powder; in 1% aqueous solution pH ~2.2.' },
+  'Citric Acid (Monohydrate)':                 { brix: 0, moisture: 8.6, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS) — monohydrate form', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 5949-29-1. Approximately 9% heavier than anhydrous due to water of hydration.' },
+  // UNVERIFIED — preservatives; pH/aw values are AI estimates.
+  'Sodium Benzoate (Food Grade)':              { pH: 8.0, moisture: 0.2, brix: 0, aw: 0.20, source: 'ai-estimate', confidence: 'unverified' },
+  'Potassium Sorbate (Food Grade)':            { pH: 6.5, moisture: 1.0, brix: 0, aw: 0.25, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Sugars & syrups ──────────────────────────────────────────────────────
+  // VERIFIED — pure sucrose (granulated sugar), GRAS per 21 CFR 184.1854.
+  'Granulated Sugar (Sucrose)':                { brix: 100, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1854 (Sucrose, GRAS)', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 57-50-1. IUPAC: β-D-fructofuranosyl-α-D-glucopyranoside. Cane and beet sugar chemically equivalent at >99.9% purity. pH undefined for crystalline powder.' },
+  // UNVERIFIED — non-pure sugars and syrups; values are AI estimates.
+  'Brown Sugar (Light)':                       { brix: 97,  moisture: 2,    aw: 0.60, pH: 5.7, source: 'ai-estimate', confidence: 'unverified' },
+  'Brown Sugar (Dark)':                        { brix: 97,  moisture: 2.5,  aw: 0.63, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Powdered Sugar (10X Confectioners)':        { brix: 99,  moisture: 0.5,  aw: 0.15, pH: 7.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Honey (Industrial Grade)':                  { brix: 81,  moisture: 17,   aw: 0.60, pH: 3.9, source: 'ai-estimate', confidence: 'unverified' },
+  'Pure Maple Syrup (Grade A)':                { brix: 66,  moisture: 33,   aw: 0.81, pH: 6.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Agave Syrup (Light)':                       { brix: 76,  moisture: 23,   aw: 0.75, pH: 4.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Agave Syrup (Dark/Amber)':                  { brix: 76,  moisture: 23,   aw: 0.75, pH: 4.6, source: 'ai-estimate', confidence: 'unverified' },
+  'Molasses (Blackstrap)':                     { brix: 76,  moisture: 23,   aw: 0.75, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Molasses (Fancy/Light)':                    { brix: 80,  moisture: 19,   aw: 0.72, pH: 5.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Corn Syrup (Light)':                        { brix: 78,  moisture: 22,   aw: 0.82, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Corn Syrup (Dark)':                         { brix: 78,  moisture: 22,   aw: 0.82, pH: 4.8, source: 'ai-estimate', confidence: 'unverified' },
+  'High Fructose Corn Syrup 55 (HFCS-55)':     { brix: 77,  moisture: 23,   aw: 0.77, pH: 4.5, source: 'ai-estimate', confidence: 'unverified' },
+  'High Fructose Corn Syrup 42 (HFCS-42)':     { brix: 71,  moisture: 29,   aw: 0.80, pH: 4.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Dextrose Monohydrate':                      { brix: 100, moisture: 0.1,  aw: 0.15, pH: 6.0, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Juices & concentrates ────────────────────────────────────────────────
+  'Lemon Juice (Concentrate)':                 { brix: 48, moisture: 52, aw: 0.88, pH: 2.3, source: 'ai-estimate', confidence: 'unverified' },
+  'Lime Juice (Concentrate)':                  { brix: 48, moisture: 52, aw: 0.88, pH: 2.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Orange Juice (NFC, Fresh-Squeezed)':        { brix: 12, moisture: 88, aw: 0.98, pH: 3.8, source: 'ai-estimate', confidence: 'unverified' },
+  'Apple Juice (NFC, 100%)':                   { brix: 12, moisture: 88, aw: 0.98, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Pineapple Juice (NFC)':                     { brix: 13, moisture: 86, aw: 0.98, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Cranberry Juice (100%, No Sugar)':          { brix: 7.5, moisture: 92, aw: 0.99, pH: 2.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Pomegranate Juice (100%)':                  { brix: 16, moisture: 84, aw: 0.97, pH: 3.1, source: 'ai-estimate', confidence: 'unverified' },
+  'Tomato Juice (NFC, Industrial)':            { brix: 6,  moisture: 93, aw: 0.99, pH: 4.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Apple Juice Concentrate (70 Brix)':         { brix: 70, moisture: 30, aw: 0.75, pH: 3.3, source: 'ai-estimate', confidence: 'unverified' },
+  'Orange Juice Concentrate (65 Brix)':        { brix: 65, moisture: 35, aw: 0.78, pH: 3.8, source: 'ai-estimate', confidence: 'unverified' },
+  'Pineapple Juice Concentrate (60 Brix)':     { brix: 60, moisture: 40, aw: 0.80, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Cranberry Juice Concentrate (50 Brix)':     { brix: 50, moisture: 50, aw: 0.83, pH: 2.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Pomegranate Juice Concentrate (65 Brix)':   { brix: 65, moisture: 35, aw: 0.77, pH: 3.1, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Tomato products ──────────────────────────────────────────────────────
+  'Tomato Paste (28-30 Brix)':                 { brix: 29, moisture: 71, aw: 0.96, pH: 4.3, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Tomato Puree (Aseptic)':                    { brix: 11, moisture: 89, aw: 0.99, pH: 4.2, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  'Mango Puree (Aseptic)':                     { brix: 15, moisture: 84, aw: 0.98, pH: 4.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  'Apple Puree (Aseptic)':                     { brix: 11, moisture: 88, aw: 0.98, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Red Pepper Puree (Aseptic)':                { brix: 6,  moisture: 93, aw: 0.99, pH: 4.6, source: 'ai-estimate', confidence: 'unverified' },
+  'Chipotle Puree':                            { brix: 9,  moisture: 89, aw: 0.97, pH: 3.9, source: 'ai-estimate', confidence: 'unverified' },
+  'Pumpkin Puree (Aseptic)':                   { brix: 9,  moisture: 90, aw: 0.98, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Sauces & condiments ──────────────────────────────────────────────────
+  'Soy Sauce (Industrial Brewed)':             { brix: 25, moisture: 65, aw: 0.80, pH: 4.6, source: 'ai-estimate', confidence: 'unverified' },
+  'Worcestershire Sauce (Industrial)':         { brix: 22, moisture: 73, aw: 0.85, pH: 3.5, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Dijon Mustard (Industrial)':                { brix: 12, moisture: 82, aw: 0.92, pH: 3.7, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Yellow Mustard (Industrial)':               { brix: 8,  moisture: 82, aw: 0.92, pH: 3.4, aceticAcid: 1.0, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Ketchup (Industrial)':                      { brix: 30, moisture: 65, aw: 0.94, pH: 3.8, aceticAcid: 0.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Mayonnaise Base (Industrial)':              { brix: 2,  moisture: 18, aw: 0.92, pH: 4.1, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
   // Branded / specialty ketchups
-  'Heinz Tomato Ketchup (Foodservice, HFCS)':  { brix: 30, moisture: 65, aw: 0.94, pH: 3.8, aceticAcid: 0.5, viscosityContrib: 'high' },
-  'Simply Heinz (Cane Sugar, No HFCS)':        { brix: 31, moisture: 64, aw: 0.93, pH: 3.8, aceticAcid: 0.5, viscosityContrib: 'high' },
-  'Red Gold Tomato Ketchup (Foodservice)':     { brix: 29, moisture: 65, aw: 0.94, pH: 3.9, aceticAcid: 0.5, viscosityContrib: 'high' },
-  'Sir Kensington\'s Classic Ketchup (Craft)': { brix: 24, moisture: 68, aw: 0.95, pH: 3.7, aceticAcid: 0.6, viscosityContrib: 'high' },
-  'Banana Ketchup (Filipino-Style, UFC/Jufran)': { brix: 27, moisture: 68, aw: 0.94, pH: 3.7, aceticAcid: 0.5, viscosityContrib: 'high' },
+  'Heinz Tomato Ketchup (Foodservice, HFCS)':  { brix: 30, moisture: 65, aw: 0.94, pH: 3.8, aceticAcid: 0.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Simply Heinz (Cane Sugar, No HFCS)':        { brix: 31, moisture: 64, aw: 0.93, pH: 3.8, aceticAcid: 0.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Red Gold Tomato Ketchup (Foodservice)':     { brix: 29, moisture: 65, aw: 0.94, pH: 3.9, aceticAcid: 0.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Sir Kensington\'s Classic Ketchup (Craft)': { brix: 24, moisture: 68, aw: 0.95, pH: 3.7, aceticAcid: 0.6, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Banana Ketchup (Filipino-Style, UFC/Jufran)': { brix: 27, moisture: 68, aw: 0.94, pH: 3.7, aceticAcid: 0.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
   // Mustard variants
-  'Honey Mustard (Industrial)':                { brix: 28, moisture: 65, aw: 0.93, pH: 3.9, aceticAcid: 0.7, viscosityContrib: 'high' },
-  'Whole Grain Mustard (Moutarde à l\'Ancienne)': { brix: 6, moisture: 78, aw: 0.90, pH: 3.5, aceticAcid: 1.3, viscosityContrib: 'high' },
-  'Spicy Brown Mustard (Gulden\'s-Style, Industrial)': { brix: 5, moisture: 80, aw: 0.91, pH: 3.7, aceticAcid: 1.1, viscosityContrib: 'high' },
-  'Hot English Mustard (Colman\'s-Style)':     { brix: 12, moisture: 73, aw: 0.91, pH: 4.0, aceticAcid: 0.5, viscosityContrib: 'high' },
-  'Stone-Ground Mustard (Coarse)':             { brix: 6,  moisture: 78, aw: 0.90, pH: 3.6, aceticAcid: 1.2, viscosityContrib: 'high' },
-  'Deli Mustard (Kosher-Style, Brown)':        { brix: 6,  moisture: 80, aw: 0.91, pH: 3.8, aceticAcid: 1.0, viscosityContrib: 'high' },
-  'Chinese Hot Mustard (Prepared)':            { brix: 8,  moisture: 75, aw: 0.93, pH: 4.8, aceticAcid: 0.3, viscosityContrib: 'high' },
-  'Horseradish Mustard':                       { brix: 7,  moisture: 78, aw: 0.91, pH: 3.8, aceticAcid: 1.0, viscosityContrib: 'high' },
+  'Honey Mustard (Industrial)':                { brix: 28, moisture: 65, aw: 0.93, pH: 3.9, aceticAcid: 0.7, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Whole Grain Mustard (Moutarde à l\'Ancienne)': { brix: 6, moisture: 78, aw: 0.90, pH: 3.5, aceticAcid: 1.3, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Spicy Brown Mustard (Gulden\'s-Style, Industrial)': { brix: 5, moisture: 80, aw: 0.91, pH: 3.7, aceticAcid: 1.1, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Hot English Mustard (Colman\'s-Style)':     { brix: 12, moisture: 73, aw: 0.91, pH: 4.0, aceticAcid: 0.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Stone-Ground Mustard (Coarse)':             { brix: 6,  moisture: 78, aw: 0.90, pH: 3.6, aceticAcid: 1.2, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Deli Mustard (Kosher-Style, Brown)':        { brix: 6,  moisture: 80, aw: 0.91, pH: 3.8, aceticAcid: 1.0, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Chinese Hot Mustard (Prepared)':            { brix: 8,  moisture: 75, aw: 0.93, pH: 4.8, aceticAcid: 0.3, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Horseradish Mustard':                       { brix: 7,  moisture: 78, aw: 0.91, pH: 3.8, aceticAcid: 1.0, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
   // Hot sauces (all vinegar-dominant, very acidic)
-  'Tabasco Original Red Pepper Sauce':         { brix: 0.5, moisture: 94, aw: 0.97, pH: 3.4, aceticAcid: 2.5 },
-  'Frank\'s RedHot Original Cayenne Pepper Sauce': { brix: 1, moisture: 95, aw: 0.98, pH: 3.5, aceticAcid: 2.0 },
-  'Crystal Hot Sauce (Baumer Foods, Louisiana-Style)': { brix: 0.5, moisture: 94, aw: 0.97, pH: 3.1, aceticAcid: 3.0 },
-  'Louisiana Brand The Original Hot Sauce':    { brix: 0.5, moisture: 94, aw: 0.97, pH: 3.2, aceticAcid: 2.8 },
-  'Louisiana Brand Habanero Hot Sauce':        { brix: 1,   moisture: 93, aw: 0.96, pH: 3.5, aceticAcid: 2.2 },
-  'Cholula Hot Sauce Original (Mexican)':      { brix: 2,   moisture: 93, aw: 0.96, pH: 3.3, aceticAcid: 2.0 },
-  'Texas Pete Original Hot Sauce':             { brix: 0.5, moisture: 95, aw: 0.97, pH: 3.4, aceticAcid: 2.2 },
-  'Valentina Salsa Picante (Mexican)':         { brix: 3,   moisture: 90, aw: 0.95, pH: 3.7, aceticAcid: 1.5 },
-  'El Yucateco Green Habanero Sauce':          { brix: 3,   moisture: 91, aw: 0.96, pH: 3.6, aceticAcid: 1.5 },
-  'Tabasco Green Jalapeño Sauce':              { brix: 2,   moisture: 93, aw: 0.96, pH: 3.8, aceticAcid: 1.5 },
-  // Salts & seasonings
-  'Salt (Food Grade Fine)':                    { brix: 0, moisture: 0.1, aw: 0.75, pH: 7.0 },
-  // ─── Dried aromatic explicit pH overrides ───
+  'Tabasco Original Red Pepper Sauce':         { brix: 0.5, moisture: 94, aw: 0.97, pH: 3.4, aceticAcid: 2.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Frank\'s RedHot Original Cayenne Pepper Sauce': { brix: 1, moisture: 95, aw: 0.98, pH: 3.5, aceticAcid: 2.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Crystal Hot Sauce (Baumer Foods, Louisiana-Style)': { brix: 0.5, moisture: 94, aw: 0.97, pH: 3.1, aceticAcid: 3.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Louisiana Brand The Original Hot Sauce':    { brix: 0.5, moisture: 94, aw: 0.97, pH: 3.2, aceticAcid: 2.8, source: 'ai-estimate', confidence: 'unverified' },
+  'Louisiana Brand Habanero Hot Sauce':        { brix: 1,   moisture: 93, aw: 0.96, pH: 3.5, aceticAcid: 2.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Cholula Hot Sauce Original (Mexican)':      { brix: 2,   moisture: 93, aw: 0.96, pH: 3.3, aceticAcid: 2.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Texas Pete Original Hot Sauce':             { brix: 0.5, moisture: 95, aw: 0.97, pH: 3.4, aceticAcid: 2.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Valentina Salsa Picante (Mexican)':         { brix: 3,   moisture: 90, aw: 0.95, pH: 3.7, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified' },
+  'El Yucateco Green Habanero Sauce':          { brix: 3,   moisture: 91, aw: 0.96, pH: 3.6, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Tabasco Green Jalapeño Sauce':              { brix: 2,   moisture: 93, aw: 0.96, pH: 3.8, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Salts ────────────────────────────────────────────────────────────────
+  // VERIFIED — all SKUs are >99% NaCl per Food Chemicals Codex; same citation.
+  'Salt (Food Grade Fine)':                    { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 7647-14-5. pH undefined for crystalline NaCl. Saturated NaCl solution aw=0.75 is a thermodynamic constant used as calibration standard for aw meters; in dry crystalline form aw approaches 0.' },
+  'Kosher Salt (Diamond Crystal)':             { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 7647-14-5. >99% NaCl, hollow-pyramid crystal form. Same chemistry as fine salt.' },
+  'Kosher Salt (Morton)':                      { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 7647-14-5. >99% NaCl, flake form. Same chemistry as fine salt.' },
+  'Fine Sea Salt (Bakery)':                    { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 7647-14-5. >99% NaCl. Same chemistry as fine salt; trace mineral content not regulatorily significant.' },
+  'Flaky Finishing Salt (Maldon-Style)':       { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 7647-14-5. >99% NaCl, flake crystal form.' },
+  'Pink Himalayan Salt (Fine)':                { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 7647-14-5. >99% NaCl. Pink color from trace iron oxide; not regulatorily significant.' },
+  // ─── Dried aromatic explicit pH overrides ─────────────────────────────────
   // These prevent silent misclassification when dry aromatics are tagged
   // to broader DB categories. All have pH 5-6 → count as low-acid bases
   // toward the 21 CFR 114 acidified-food 5% threshold.
-  'Garlic Powder (Industrial)':                { brix: 0, moisture: 6,  aw: 0.35, pH: 5.3 },
-  'Onion Powder (Industrial)':                 { brix: 0, moisture: 5,  aw: 0.35, pH: 5.5 },
-  'Garlic Powder (Granulated, California Grown)': { brix: 0, moisture: 6,  aw: 0.35, pH: 5.3 },
-  'Onion Powder (Granulated)':                 { brix: 0, moisture: 5,  aw: 0.35, pH: 5.5 },
-  'Black Pepper (Ground, Industrial)':         { brix: 0, moisture: 8,  aw: 0.35, pH: 5.8 },
-  'Black Pepper, Coarse 16 Mesh (Butcher Grind)': { brix: 0, moisture: 8,  aw: 0.35, pH: 5.8 },
-  'Cayenne Pepper (40,000 HU)':                { brix: 0, moisture: 8,  aw: 0.35, pH: 5.1 },
-  'Cayenne Pepper (40K SHU)':                  { brix: 0, moisture: 8,  aw: 0.35, pH: 5.1 },
-  'Thyme (Dried, Leaves)':                     { brix: 0, moisture: 9,  aw: 0.35, pH: 5.5 },
-  'Paprika, Sweet Hungarian':                  { brix: 0, moisture: 9,  aw: 0.35, pH: 5.0 },
-  'Smoked Paprika (Sweet, Spanish La Chinata)':{ brix: 0, moisture: 9,  aw: 0.35, pH: 5.0 },
-  'Ground Cumin (Fine, Mexican)':              { brix: 0, moisture: 8,  aw: 0.35, pH: 5.5 },
-  'Coriander Seed (Whole)':                    { brix: 0, moisture: 8,  aw: 0.35, pH: 5.6 },
-  'Ground Allspice (Jamaican)':                { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4 },
-  'Whole Allspice (Jamaican)':                 { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4 },
-  'Ginger (Ground, Dried)':                    { brix: 0, moisture: 9,  aw: 0.35, pH: 5.8 },
-  'Chipotle Powder (Smoked Jalapeño)':         { brix: 0, moisture: 8,  aw: 0.35, pH: 5.0 },
-  'Ancho Chili Powder':                        { brix: 0, moisture: 9,  aw: 0.35, pH: 5.1 },
+  // UNVERIFIED — pH/aw values are AI estimates.
+  'Garlic Powder (Industrial)':                { brix: 0, moisture: 6,  aw: 0.35, pH: 5.3, source: 'ai-estimate', confidence: 'unverified' },
+  'Onion Powder (Industrial)':                 { brix: 0, moisture: 5,  aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Garlic Powder (Granulated, California Grown)': { brix: 0, moisture: 6,  aw: 0.35, pH: 5.3, source: 'ai-estimate', confidence: 'unverified' },
+  'Onion Powder (Granulated)':                 { brix: 0, moisture: 5,  aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Black Pepper (Ground, Industrial)':         { brix: 0, moisture: 8,  aw: 0.35, pH: 5.8, source: 'ai-estimate', confidence: 'unverified' },
+  'Black Pepper, Coarse 16 Mesh (Butcher Grind)': { brix: 0, moisture: 8,  aw: 0.35, pH: 5.8, source: 'ai-estimate', confidence: 'unverified' },
+  'Cayenne Pepper (40,000 HU)':                { brix: 0, moisture: 8,  aw: 0.35, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
+  'Cayenne Pepper (40K SHU)':                  { brix: 0, moisture: 8,  aw: 0.35, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
+  'Thyme (Dried, Leaves)':                     { brix: 0, moisture: 9,  aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Paprika, Sweet Hungarian':                  { brix: 0, moisture: 9,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Smoked Paprika (Sweet, Spanish La Chinata)':{ brix: 0, moisture: 9,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Ground Cumin (Fine, Mexican)':              { brix: 0, moisture: 8,  aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Coriander Seed (Whole)':                    { brix: 0, moisture: 8,  aw: 0.35, pH: 5.6, source: 'ai-estimate', confidence: 'unverified' },
+  'Ground Allspice (Jamaican)':                { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified' },
+  'Whole Allspice (Jamaican)':                 { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified' },
+  'Ginger (Ground, Dried)':                    { brix: 0, moisture: 9,  aw: 0.35, pH: 5.8, source: 'ai-estimate', confidence: 'unverified' },
+  'Chipotle Powder (Smoked Jalapeño)':         { brix: 0, moisture: 8,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Ancho Chili Powder':                        { brix: 0, moisture: 9,  aw: 0.35, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
   // Xanthan variant to match the F&B DB mesh-size SKU
-  'Xanthan Gum (Food Grade, 200 Mesh)':        { brix: 0, moisture: 10, aw: 0.35, pH: 7.0, viscosityContrib: 'very high' },
+  'Xanthan Gum (Food Grade, 200 Mesh)':        { brix: 0, moisture: 10, aw: 0.35, pH: 7.0, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
   // Mustard Flour — low-acid dry base (pH ~5.5), was silently miscategorized
-  'Mustard Flour (Yellow)':                    { brix: 0, moisture: 6,  aw: 0.35, pH: 5.4 },
-  'Mustard Powder (Yellow, Hot)':              { brix: 0, moisture: 6,  aw: 0.35, pH: 5.4 },
-  'Natural Flavors (Liquid)':                  { brix: 5, moisture: 70, aw: 0.85, pH: 5.0 },
-  'Caramel Color (Class III)':                 { brix: 65, moisture: 30, aw: 0.75, pH: 3.5 },
-  // Gums / thickeners / emulsifiers
-  'Xanthan Gum (Food Grade)':                  { brix: 0, moisture: 10, aw: 0.35, pH: 7.0, viscosityContrib: 'very high' },
-  'Modified Food Starch (Waxy Maize)':         { brix: 0, moisture: 11, aw: 0.40, pH: 6.5, viscosityContrib: 'high' },
-  'Mono and Diglycerides':                     { brix: 0, moisture: 0.5, aw: 0.20, pH: 6.5, viscosityContrib: 'medium' },
-  'Soy Lecithin':                              { brix: 0, moisture: 1,  aw: 0.30, pH: 6.5, viscosityContrib: 'medium' },
-  'Sunflower Lecithin':                        { brix: 0, moisture: 1,  aw: 0.30, pH: 6.5, viscosityContrib: 'medium' },
-  // Oils (all approximately the same)
-  'Soybean Oil (RBD)':                         { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium' },
-  'Canola Oil (Industrial Grade)':             { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium' },
-  'Extra Virgin Olive Oil':                    { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium' },
-  // Water (not in DB but users add via USDA; matches by partial name below)
-  'Water':                                     { brix: 0, moisture: 100, aw: 1.0,  pH: 7.0 },
-  // Egg products
-  'Whole Egg Powder':                          { brix: 0, moisture: 5, aw: 0.25, pH: 7.5 },
-  // Baking-specific overrides (Leavening / dairy with unusual moisture / spices)
-  'Fresh Yeast (Compressed / Cake)':           { brix: 0,  moisture: 70, aw: 0.98, pH: 5.5 },
-  'Active Dry Yeast (ADY)':                    { brix: 0,  moisture: 8,  aw: 0.40, pH: 6.2 },
-  'Instant Yeast (SAF Red / Gold)':            { brix: 0,  moisture: 5,  aw: 0.35, pH: 6.2 },
-  'Osmotolerant Yeast (SAF Gold / Sweet Dough)': { brix: 0, moisture: 5, aw: 0.35, pH: 6.2 },
-  'Sourdough Starter (Dried, Heritage)':       { brix: 0,  moisture: 10, aw: 0.45, pH: 4.3 },
-  'Baking Soda (Sodium Bicarbonate)':          { brix: 0,  moisture: 0.1, aw: 0.10, pH: 8.3 },
-  'Baking Powder (Double-Acting, Aluminum-Free)': { brix: 0, moisture: 2, aw: 0.30, pH: 6.8 },
-  'Cream of Tartar (Potassium Bitartrate)':    { brix: 0,  moisture: 0.1, aw: 0.20, pH: 3.6 },
-  // Kosher salts (same chemistry as fine salt, just crystal form)
-  'Kosher Salt (Diamond Crystal)':             { brix: 0, moisture: 0.1, aw: 0.75, pH: 7.0 },
-  'Kosher Salt (Morton)':                      { brix: 0, moisture: 0.1, aw: 0.75, pH: 7.0 },
-  'Fine Sea Salt (Bakery)':                    { brix: 0, moisture: 0.1, aw: 0.75, pH: 7.0 },
-  'Flaky Finishing Salt (Maldon-Style)':       { brix: 0, moisture: 0.1, aw: 0.75, pH: 7.0 },
-  'Pink Himalayan Salt (Fine)':                { brix: 0, moisture: 0.1, aw: 0.75, pH: 7.0 },
-  // Dairy that isn't nearly water (butter)
-  'Unsalted Butter (AA Grade, 82% MF)':        { brix: 0, moisture: 16, aw: 0.95, pH: 6.2 },
-  'European-Style Butter (84%+ MF, Cultured)': { brix: 0, moisture: 14, aw: 0.94, pH: 5.1 },
-  'Heavy Cream (36%+ MF)':                     { brix: 3, moisture: 57, aw: 0.98, pH: 6.5 },
-  // Filtered / RO water variants (same core spec; pH may differ slightly)
-  'Filtered Water (Carbon-Filtered, Dechlorinated)': { brix: 0, moisture: 100, aw: 1.0, pH: 7.0 },
-  'Reverse Osmosis Water (RO, Demineralized)': { brix: 0, moisture: 100, aw: 1.0, pH: 6.8 },
-  'Mineral Water (Structured, Moderate Hardness)': { brix: 0, moisture: 100, aw: 1.0, pH: 7.4 },
-  'Alkaline Water (pH 9.5)':                   { brix: 0, moisture: 100, aw: 1.0, pH: 9.5 },
-  // Vanilla extract has alcohol → behaves differently from spices
-  'Vanilla Extract (Pure, Single-Fold)':       { brix: 5, moisture: 55, aw: 0.80, pH: 4.3 },
-  'Vanilla Bean Paste (Seeded)':               { brix: 68, moisture: 29, aw: 0.75, pH: 4.5 },
-  'Almond Extract (Pure)':                     { brix: 0, moisture: 60, aw: 0.85, pH: 5.5 },
-  'Lemon Extract (Pure)':                      { brix: 0, moisture: 20, aw: 0.75, pH: 4.0 },
-  'Orange Extract (Pure)':                     { brix: 0, moisture: 20, aw: 0.75, pH: 4.0 },
-  'Peppermint Extract (Pure)':                 { brix: 0, moisture: 20, aw: 0.75, pH: 5.0 },
-  'Rose Water (Food-Grade)':                   { brix: 0, moisture: 99, aw: 1.0, pH: 6.5 },
-  'Orange Blossom Water (Food-Grade)':         { brix: 0, moisture: 99, aw: 1.0, pH: 6.5 },
-  'Egg Yolk Powder':                           { brix: 0, moisture: 5, aw: 0.30, pH: 6.4, viscosityContrib: 'high' },
-  'Egg White Powder (Albumen)':                { brix: 0, moisture: 7, aw: 0.35, pH: 9.0 },
-  // Proteins / nut butters
-  'Tahini (Hulled Sesame Paste)':              { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high' },
-  'Tahini (Unhulled/Whole Sesame Paste)':      { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high' },
-  'Peanut Butter (Industrial/Processed)':      { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high' },
-  'Almond Butter (Industrial)':                { brix: 0, moisture: 2, aw: 0.35, pH: 6.5, viscosityContrib: 'very high' },
+  'Mustard Flour (Yellow)':                    { brix: 0, moisture: 6,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified' },
+  'Mustard Powder (Yellow, Hot)':              { brix: 0, moisture: 6,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified' },
+  'Natural Flavors (Liquid)':                  { brix: 5, moisture: 70, aw: 0.85, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Caramel Color (Class III)':                 { brix: 65, moisture: 30, aw: 0.75, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Gums / thickeners / emulsifiers ──────────────────────────────────────
+  'Xanthan Gum (Food Grade)':                  { brix: 0, moisture: 10, aw: 0.35, pH: 7.0, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
+  'Modified Food Starch (Waxy Maize)':         { brix: 0, moisture: 11, aw: 0.40, pH: 6.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Mono and Diglycerides':                     { brix: 0, moisture: 0.5, aw: 0.20, pH: 6.5, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  'Soy Lecithin':                              { brix: 0, moisture: 1,  aw: 0.30, pH: 6.5, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  'Sunflower Lecithin':                        { brix: 0, moisture: 1,  aw: 0.30, pH: 6.5, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Oils ─────────────────────────────────────────────────────────────────
+  'Soybean Oil (RBD)':                         { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  'Canola Oil (Industrial Grade)':             { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  'Extra Virgin Olive Oil':                    { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Water ────────────────────────────────────────────────────────────────
+  // VERIFIED — water is the reference point of the aw scale (1.000 by definition).
+  'Water':                                     { brix: 0, moisture: 100, aw: 1.000, pH: 7.0, source: 'commodity-standard', citation: 'USP Purified Water monograph; USP <1231> Water for Pharmaceutical Purposes; 21 CFR 165.110 (Bottled Water)', confidence: 'verified', last_verified: '2026-04-30', notes: 'Water activity 1.000 by chemical definition (reference point of aw scale).' },
+  'Filtered Water (Carbon-Filtered, Dechlorinated)': { brix: 0, moisture: 100, aw: 1.000, pH: 7.0, source: 'commodity-standard', citation: 'USP Purified Water monograph; USP <1231> Water for Pharmaceutical Purposes; 21 CFR 165.110 (Bottled Water)', confidence: 'verified', last_verified: '2026-04-30' },
+  'Reverse Osmosis Water (RO, Demineralized)': { brix: 0, moisture: 100, aw: 1.000, pH: 6.8, source: 'commodity-standard', citation: 'USP Purified Water monograph; USP <1231> Water for Pharmaceutical Purposes; 21 CFR 165.110 (Bottled Water)', confidence: 'verified', last_verified: '2026-04-30' },
+  'Mineral Water (Structured, Moderate Hardness)': { brix: 0, moisture: 100, aw: 1.000, pH: 7.4, source: 'commodity-standard', citation: 'USP Purified Water monograph; USP <1231> Water for Pharmaceutical Purposes; 21 CFR 165.110 (Bottled Water)', confidence: 'verified', last_verified: '2026-04-30' },
+  // UNVERIFIED — alkaline water is intentionally non-neutral; pH 9.5 is the
+  // reason this entry exists separately. Do NOT roll into the verified water
+  // citation; treat as a flavored/specialty beverage.
+  'Alkaline Water (pH 9.5)':                   { brix: 0, moisture: 100, aw: 1.0, pH: 9.5, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Egg products ─────────────────────────────────────────────────────────
+  'Whole Egg Powder':                          { brix: 0, moisture: 5, aw: 0.25, pH: 7.5, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Baking-specific overrides ────────────────────────────────────────────
+  'Fresh Yeast (Compressed / Cake)':           { brix: 0,  moisture: 70, aw: 0.98, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Active Dry Yeast (ADY)':                    { brix: 0,  moisture: 8,  aw: 0.40, pH: 6.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Instant Yeast (SAF Red / Gold)':            { brix: 0,  moisture: 5,  aw: 0.35, pH: 6.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Osmotolerant Yeast (SAF Gold / Sweet Dough)': { brix: 0, moisture: 5, aw: 0.35, pH: 6.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Sourdough Starter (Dried, Heritage)':       { brix: 0,  moisture: 10, aw: 0.45, pH: 4.3, source: 'ai-estimate', confidence: 'unverified' },
+  // VERIFIED — sodium bicarbonate, GRAS per 21 CFR 184.1736 / 582.1736.
+  'Baking Soda (Sodium Bicarbonate)':          { brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1736 (Sodium Bicarbonate, GRAS); 21 CFR 582.1736; Food Chemicals Codex 3rd ed. p. 278', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 144-55-8. pH undefined for the dry powder; in 1% aqueous solution pH ~8.3. NOT to be confused with baking powder, which is a compound ingredient with multiple components.' },
+  'Baking Powder (Double-Acting, Aluminum-Free)': { brix: 0, moisture: 2, aw: 0.30, pH: 6.8, source: 'ai-estimate', confidence: 'unverified' },
+  'Cream of Tartar (Potassium Bitartrate)':    { brix: 0,  moisture: 0.1, aw: 0.20, pH: 3.6, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Dairy that isn't nearly water (butter) ───────────────────────────────
+  'Unsalted Butter (AA Grade, 82% MF)':        { brix: 0, moisture: 16, aw: 0.95, pH: 6.2, source: 'ai-estimate', confidence: 'unverified' },
+  'European-Style Butter (84%+ MF, Cultured)': { brix: 0, moisture: 14, aw: 0.94, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
+  'Heavy Cream (36%+ MF)':                     { brix: 3, moisture: 57, aw: 0.98, pH: 6.5, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Vanilla / extracts / aromatics ───────────────────────────────────────
+  'Vanilla Extract (Pure, Single-Fold)':       { brix: 5, moisture: 55, aw: 0.80, pH: 4.3, source: 'ai-estimate', confidence: 'unverified' },
+  'Vanilla Bean Paste (Seeded)':               { brix: 68, moisture: 29, aw: 0.75, pH: 4.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Almond Extract (Pure)':                     { brix: 0, moisture: 60, aw: 0.85, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Lemon Extract (Pure)':                      { brix: 0, moisture: 20, aw: 0.75, pH: 4.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Orange Extract (Pure)':                     { brix: 0, moisture: 20, aw: 0.75, pH: 4.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Peppermint Extract (Pure)':                 { brix: 0, moisture: 20, aw: 0.75, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Rose Water (Food-Grade)':                   { brix: 0, moisture: 99, aw: 1.0, pH: 6.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Orange Blossom Water (Food-Grade)':         { brix: 0, moisture: 99, aw: 1.0, pH: 6.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Egg Yolk Powder':                           { brix: 0, moisture: 5, aw: 0.30, pH: 6.4, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
+  'Egg White Powder (Albumen)':                { brix: 0, moisture: 7, aw: 0.35, pH: 9.0, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Proteins / nut butters ───────────────────────────────────────────────
+  'Tahini (Hulled Sesame Paste)':              { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
+  'Tahini (Unhulled/Whole Sesame Paste)':      { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
+  'Peanut Butter (Industrial/Processed)':      { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
+  'Almond Butter (Industrial)':                { brix: 0, moisture: 2, aw: 0.35, pH: 6.5, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
 };
 
 // ----- Lookup ----------------------------------------------------------------
@@ -335,7 +400,8 @@ export function inferCategoryFromName(name: string): string | undefined {
  * 2) Partial name match (e.g., 'Water' in 'Water (Potable)')
  * 3) Category default (explicitly passed in)
  * 4) Category INFERRED from name heuristics (safety-critical fallback)
- * 5) Empty spec (all-zero contributions)
+ * 5) Empty fallback tagged 'ai-estimate' / 'unverified' so the gate counts
+ *    unmatched ingredients toward the unverified-mass tally.
  */
 export function getSpec(name: string, category: string | undefined): IngredientSpec {
   if (INGREDIENT_SPECS[name]) return INGREDIENT_SPECS[name];
@@ -355,7 +421,9 @@ export function getSpec(name: string, category: string | undefined): IngredientS
   // in classification.
   const inferred = inferCategoryFromName(name);
   if (inferred && CATEGORY_SPECS[inferred]) return CATEGORY_SPECS[inferred];
-  return {};
+  // No data at all. Return a minimally-typed unverified entry so the gate
+  // treats this ingredient as unverified mass.
+  return { source: 'ai-estimate', confidence: 'unverified' };
 }
 
 /**
@@ -398,6 +466,181 @@ export interface SpecInputIngredient {
   ref?: IndustrialIngredient | null;
 }
 
+// ----- Classification --------------------------------------------------------
+
+export interface ClassificationInput {
+  ingredients: SpecInputIngredient[];
+  totalMass: number;
+  pH: number;
+  aw: number;
+  lowAcidComponentPct: number;
+  hasAcidulant: boolean;
+}
+
+export interface ClassificationResult {
+  productClassification: FormulationSpecs['productClassification'];
+  regulatoryClass: string;
+  verifiedMassPct: number;
+  unverifiedIngredients: Array<{ name: string; massPct: number }>;
+}
+
+/**
+ * Classify a formulation per 21 CFR 113 / 114 — with a provenance gate.
+ *
+ * (a) VERIFIED-MASS COVERAGE
+ *   For every ingredient in the formulation, getSpec() resolves an
+ *   IngredientSpec whose `confidence` is either 'verified' or 'unverified'.
+ *   Verified-mass coverage = (sum of grams of ingredients whose spec is
+ *   tagged confidence='verified') / (total formulation grams) × 100.
+ *   Verified entries are limited to commodity-standard chemistries (water,
+ *   NaCl, sucrose, vinegars, citric acid, sodium bicarbonate, glacial
+ *   acetic acid) with regulatory or chemical-definition citations.
+ *
+ * (b) GATE THRESHOLDS
+ *   The classifier proceeds with the existing pH/aw/LAC decision tree only
+ *   when BOTH conditions hold:
+ *     1. Verified-mass coverage ≥ 80% of total formulation mass.
+ *     2. No single unverified ingredient exceeds 10% of total mass.
+ *   The 10% cap stops a single "trust me" ingredient from dominating the
+ *   safety calc. Failing either condition returns 'insufficient-data'.
+ *
+ * (c) WHAT 'insufficient-data' MEANS
+ *   The formulation cannot be safely classified per 21 CFR 113/114 from
+ *   the data on hand. The user must add lab-verified or supplier-COA pH,
+ *   aw, and acidity values for the ingredients listed in
+ *   `unverifiedIngredients` (sorted desc by mass) before any regulatory
+ *   determination is meaningful.
+ *
+ * (d) WHY THE GATE EXISTS
+ *   A 2026-04-30 audit confirmed every numeric value in INGREDIENT_SPECS
+ *   and CATEGORY_SPECS was AI-generated during scaffolding without
+ *   provenance, citation, or lab verification. Two real regulatory bugs
+ *   followed: false "Acidified Food" labels on un-acidified raw vegetables
+ *   and false "Shelf-Stable Dry" labels on high-water raw produce. The
+ *   gate makes the classifier refuse to render a determination when its
+ *   inputs are mostly fabricated, rather than confidently emit the wrong
+ *   answer.
+ *
+ * (e) DO NOT WEAKEN THIS GATE
+ *   Lowering the 80% threshold, raising the 10% per-ingredient cap, or
+ *   widening the verified-entries set without re-checking provenance is
+ *   a regulatory-safety regression. Before changing any threshold, READ
+ *   ARCHITECTURE.md and CONSULT AN FDA-RECOGNIZED PROCESS AUTHORITY.
+ *   This function exists because mis-classification has already happened
+ *   in this codebase; do not restore the conditions that produced those
+ *   bugs.
+ */
+export function classifyFormulation(input: ClassificationInput): ClassificationResult {
+  const { ingredients, totalMass, pH, aw, lowAcidComponentPct, hasAcidulant } = input;
+
+  // ─── 1. Compute verified-mass coverage and unverified breakdown ─────────
+  let verifiedMass = 0;
+  const unverifiedByIng: Array<{ name: string; massG: number }> = [];
+  for (const ing of ingredients) {
+    const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+    if (g <= 0) continue;
+    const spec = getSpec(ing.name, ing.category);
+    if (spec.confidence === 'verified') {
+      verifiedMass += g;
+    } else {
+      unverifiedByIng.push({ name: ing.name, massG: g });
+    }
+  }
+  const verifiedMassPct = totalMass > 0 ? (verifiedMass / totalMass) * 100 : 0;
+  const unverifiedIngredients = unverifiedByIng
+    .map(u => ({ name: u.name, massPct: totalMass > 0 ? (u.massG / totalMass) * 100 : 0 }))
+    .sort((a, b) => b.massPct - a.massPct);
+  const maxSingleUnverifiedPct = unverifiedIngredients.length > 0 ? unverifiedIngredients[0].massPct : 0;
+
+  const coverageLine = `\n\nVerified-mass coverage: ${verifiedMassPct.toFixed(1)}% of formulation mass.`;
+  const disclaimerLine = `\n\n${REGULATORY_DISCLAIMER}`;
+
+  // ─── 2. Gate ────────────────────────────────────────────────────────────
+  if (totalMass <= 0) {
+    return {
+      productClassification: '—',
+      regulatoryClass: '—',
+      verifiedMassPct: 0,
+      unverifiedIngredients: [],
+    };
+  }
+  if (verifiedMassPct < 80 || maxSingleUnverifiedPct > 10) {
+    return {
+      productClassification: 'insufficient-data',
+      regulatoryClass:
+        'Insufficient verified data to compute regulatory classification. Add lab-verified or supplier-COA values for the ingredients listed below to receive a classification. Until then, this formulation cannot be classified per 21 CFR 113/114.' +
+        coverageLine +
+        disclaimerLine,
+      verifiedMassPct,
+      unverifiedIngredients,
+    };
+  }
+
+  // ─── 3. Existing pH / aw / LAC decision tree (gate-passed only) ─────────
+  // Priority: pH FIRST (primary hazard control), then aw, then LACF.
+  // See estimateSpecs comments for the regulatory framework rationale.
+  let productClassification: FormulationSpecs['productClassification'] = '—';
+  if (pH > 0 && pH <= 4.6) {
+    productClassification = lowAcidComponentPct >= 5 ? 'acidified' : 'acid';
+  } else if (aw > 0 && aw <= 0.85) {
+    productClassification = 'shelf-stable-dry';
+  } else if (pH > 4.6) {
+    productClassification = (hasAcidulant && lowAcidComponentPct >= 10) ? 'acidified-in-process' : 'lacf';
+  }
+
+  // ─── 4. Hedged regulatoryClass strings (per 2026-04-30 brief) ───────────
+  // Form numbers per FDA.gov authoritative guidance:
+  //   • 2541   — Food Canning Establishment Registration (one-time)
+  //   • 2541d  — LACF Process Filing (retort)
+  //   • 2541e  — Acidified Food Process Filing
+  //   • 2541f  — LACF Process Filing (water activity / formulation)
+  //   • 2541g  — LACF Process Filing (aseptic)
+  // Forms 2541a and 2541c are obsolete in current FDA practice.
+  let regulatoryClass: string;
+  switch (productClassification) {
+    case 'acid':
+      regulatoryClass =
+        `LIKELY ACID FOOD (assessment based on available data) — 21 CFR 114.3(b)(1), naturally pH ${pH.toFixed(2)} with ${lowAcidComponentPct.toFixed(0)}% low-acid components. ` +
+        'No FDA scheduled-process filing appears to apply based on available data — confirm with Process Authority. ' +
+        'Acid foods (per 21 CFR 114.3(b)(1)) are not subject to 21 CFR 113 or 114 process filing requirements.';
+      break;
+    case 'acidified':
+      regulatoryClass =
+        `LIKELY ACIDIFIED FOOD (assessment based on available data) — 21 CFR 114, pH ${pH.toFixed(2)}, ${lowAcidComponentPct.toFixed(0)}% low-acid base. ` +
+        'Form FDA 2541e likely required (Process Filing for Acidified Method) — confirm with Process Authority. ' +
+        'Facility must also be registered using Form FDA 2541 (Food Canning Establishment Registration).';
+      break;
+    case 'acidified-in-process':
+      regulatoryClass =
+        `LIKELY ACIDIFIED FOOD (assessment based on available data) — intent detected (acidulant + ${lowAcidComponentPct.toFixed(0)}% low-acid base), pH ${pH.toFixed(2)} NOT yet ≤ 4.6. ` +
+        'Form FDA 2541e likely required (Process Filing for Acidified Method) — confirm with Process Authority. ' +
+        'Facility must also be registered using Form FDA 2541 (Food Canning Establishment Registration).';
+      break;
+    case 'lacf':
+      regulatoryClass =
+        `LIKELY LOW-ACID CANNED FOOD (assessment based on available data) — 21 CFR 113, pH ${pH.toFixed(2)}, a_w ${aw.toFixed(2)}. ` +
+        'LACF process filing likely required — Form FDA 2541d (retort), 2541f (water activity/formulation), or 2541g (aseptic) depending on processing method. Confirm appropriate form with Process Authority. ' +
+        'Facility must also be registered using Form FDA 2541 (Food Canning Establishment Registration).';
+      break;
+    case 'shelf-stable-dry':
+      regulatoryClass =
+        `LIKELY SHELF-STABLE BY LOW WATER ACTIVITY (assessment based on available data) — a_w ${aw.toFixed(2)} ≤ 0.85. ` +
+        'No FDA scheduled-process filing appears to apply based on available data — confirm with Process Authority. ' +
+        'Foods with water activity at or below 0.85 are excluded from 21 CFR 113 and 114 (per the regulations\' scope).';
+      break;
+    default:
+      regulatoryClass = '—';
+  }
+  regulatoryClass += coverageLine + disclaimerLine;
+
+  return {
+    productClassification,
+    regulatoryClass,
+    verifiedMassPct,
+    unverifiedIngredients,
+  };
+}
+
 /**
  * Estimate formulation-level specs from the ingredient list.
  */
@@ -415,7 +658,6 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
 
   // Viscosity contribution score: weighted sum, where each ingredient's contribution
   // is mapped to a numeric "thickening" coefficient.
-  let viscosityScore = 0; // 0 = water-like, 100 = paste-like
   const VISC_MAP: Record<string, number> = { none: 0, low: 10, medium: 25, high: 60, 'very high': 95 };
 
   for (const ing of ingredients) {
@@ -437,13 +679,6 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
       sumHMass  += g * Math.pow(10, -spec.pH);
       massForPH += g;
     }
-
-    // Viscosity — oils have internal thickening; gums/pastes dominate.
-    let viscTerm = VISC_MAP[spec.viscosityContrib || 'none'];
-    // Also add intrinsic contribution from high Brix / paste-like moisture
-    if (spec.brix && spec.brix > 60) viscTerm = Math.max(viscTerm, 40);
-    if (spec.moisture !== undefined && spec.moisture < 5 && spec.brix && spec.brix > 50) viscTerm = Math.max(viscTerm, 70);
-    viscosityScore += (g / Math.max(totalMass, 1)) * viscTerm;
   }
 
   if (totalMass <= 0) {
@@ -454,6 +689,8 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
       totalWeightG: 0, coverage: 0, lowAcidComponentPct: 0,
       hasAcidulant: false, productClassification: '—',
       regulatoryClass: '—',
+      verifiedMassPct: 0,
+      unverifiedIngredients: [],
     };
   }
 
@@ -520,51 +757,13 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
   }
   const lowAcidComponentPct = (lowAcidMass / totalMass) * 100;
 
-  // ════════════════════════════════════════════════════════════════
-  // PRODUCT CLASSIFICATION — 21 CFR regulatory framework
-  // ----------------------------------------------------------------
-  // Priority: pH FIRST (primary hazard control), then aw, then LACF.
-  //
-  // Why pH first: a jam (aw 0.82, pH 3.2) is regulated as an acid
-  // food under 21 CFR 114.3(b)(1), not as a dry shelf-stable food.
-  // The pH-driven hurdle is the one that matters for C. botulinum
-  // control. Checking aw first would misclassify jams, fruit
-  // butters, and hot sauces.
-  //
-  // The four mutually-exclusive outcomes:
-  //   acid          → pH ≤ 4.6, LAC < 5%. No filing. 21 CFR 114.3(b)(1).
-  //   acidified     → pH ≤ 4.6, LAC ≥ 5%. Filing REQUIRED. 21 CFR 114.
-  //   shelf-stable-dry → pH > 4.6, aw ≤ 0.85. No filing. 21 CFR 117.
-  //   acidified-in-process → pH > 4.6 but hasAcidulant + LAC ≥ 10%.
-  //                   Intent to acidify; add more acid. Filing REQUIRED.
-  //   lacf          → pH > 4.6, aw > 0.85, no acidification intent.
-  //                   Retort to 12D. Filing REQUIRED. 21 CFR 113.
-  // ════════════════════════════════════════════════════════════════
-  let productClassification: FormulationSpecs['productClassification'] = '—';
-  if (pH > 0 && pH <= 4.6) {
-    // Acid-controlled — highest-priority regulatory pathway
-    if (lowAcidComponentPct >= 5) {
-      productClassification = 'acidified'; // 21 CFR 114 — filing required
-    } else {
-      productClassification = 'acid';       // 21 CFR 114.3(b)(1) — no filing
-    }
-  } else if (aw > 0 && aw <= 0.85) {
-    // Not acid-controlled but moisture-controlled
-    productClassification = 'shelf-stable-dry'; // 21 CFR 117 — no filing
-  } else if (pH > 4.6) {
-    // Neither acid nor moisture control — genuinely low-acid wet food
-    if (hasAcidulant && lowAcidComponentPct >= 10) {
-      // Formulator added acid but pH isn't below 4.6 yet — intent is acidified,
-      // but finished pH is still above the safety threshold. Add more acid.
-      productClassification = 'acidified-in-process';
-    } else {
-      productClassification = 'lacf';           // 21 CFR 113 — retort required
-    }
-  }
+  // ─── Classification (extracted into classifyFormulation with provenance gate) ───
+  const classification = classifyFormulation({
+    ingredients, totalMass, pH, aw, lowAcidComponentPct, hasAcidulant,
+  });
 
-  // Recompute viscosityScore weighted by mass already done above incrementally, but
-  // the incremental calc was using ratio g / cumulative total. Use a cleaner pass:
-  let vSum = 0;
+  // Recompute viscosity score in a clean pass (mass-weighted).
+  let viscosityScore = 0;
   for (const ing of ingredients) {
     const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
     if (g <= 0) continue;
@@ -572,9 +771,8 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
     let viscTerm = VISC_MAP[spec.viscosityContrib || 'none'];
     if (spec.brix && spec.brix > 60) viscTerm = Math.max(viscTerm, 40);
     if (spec.moisture !== undefined && spec.moisture < 5 && spec.brix && spec.brix > 50) viscTerm = Math.max(viscTerm, 70);
-    vSum += (g / totalMass) * viscTerm;
+    viscosityScore += (g / totalMass) * viscTerm;
   }
-  viscosityScore = vSum;
 
   // Map viscosity score to Bostwick cm/30s. Score 0 (water) → 30 cm, score 100 (paste) → 1 cm.
   const bostwickCmPer30s = Math.max(0.5, Math.min(30, 30 - (viscosityScore / 100) * 29));
@@ -596,28 +794,6 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
     : brookfieldCp < 100000 ? 'high'
     : 'very high';
 
-  // Regulatory classification string — uses the productClassification computed above.
-  let regulatoryClass: string;
-  switch (productClassification) {
-    case 'shelf-stable-dry':
-      regulatoryClass = `Shelf-stable by a_w (${aw.toFixed(2)} ≤ 0.85)`;
-      break;
-    case 'acid':
-      regulatoryClass = `Acid food (21 CFR 114.3(b)(1)) — naturally pH ${pH.toFixed(2)}`;
-      break;
-    case 'acidified':
-      regulatoryClass = `Acidified food (21 CFR 114) — pH ${pH.toFixed(2)}, ${lowAcidComponentPct.toFixed(0)}% low-acid base`;
-      break;
-    case 'acidified-in-process':
-      regulatoryClass = `Acidified food intent (21 CFR 114) — pH ${pH.toFixed(2)} NOT yet ≤ 4.6. Add more acid.`;
-      break;
-    case 'lacf':
-      regulatoryClass = `Low-Acid Canned Food / LACF (21 CFR 113) — pH ${pH.toFixed(2)}, a_w ${aw.toFixed(2)}. Retort or refrigerate.`;
-      break;
-    default:
-      regulatoryClass = '—';
-  }
-
   return {
     pH,
     brix,
@@ -630,10 +806,12 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
     brookfieldCp,
     brookfieldClass,
     totalWeightG: totalMass,
-    coverage: totalMass > 0 ? massWithSpec / totalMass : 0,
+    coverage: massWithSpec / totalMass,
     lowAcidComponentPct,
     hasAcidulant,
-    productClassification,
-    regulatoryClass,
+    productClassification: classification.productClassification,
+    regulatoryClass: classification.regulatoryClass,
+    verifiedMassPct: classification.verifiedMassPct,
+    unverifiedIngredients: classification.unverifiedIngredients,
   };
 }
