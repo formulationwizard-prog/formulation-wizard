@@ -22,14 +22,17 @@ function verifyCookie(value: string, secret: string): boolean {
 }
 
 export async function proxy(request: NextRequest) {
-  if (!request.nextUrl.pathname.startsWith("/workspace")) {
+  const { pathname } = request.nextUrl;
+
+  // Public paths — must remain reachable without a cookie so the user can authenticate.
+  if (pathname === "/login" || pathname.startsWith("/auth/")) {
     return NextResponse.next();
   }
 
   const loginUrl = new URL("/login", request.nextUrl.origin);
   loginUrl.searchParams.set(
     "next",
-    request.nextUrl.pathname + request.nextUrl.search,
+    pathname + request.nextUrl.search,
   );
 
   const secret = process.env.COOKIE_SECRET;
