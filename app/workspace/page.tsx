@@ -459,15 +459,25 @@ export default function FormulationWizard() {
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     if (query.length < 2) { setShowDropdown(false); return; }
     const q = query.toLowerCase();
+    const queryHasOrganic = /\borganic\b/.test(q);
     const score = (i: IndustrialIngredient): number => {
       const nameScore = rankIngredientMatch(i.name, q);
-      if (nameScore < 99) return nameScore;
-      return i.category.toLowerCase().includes(q) ? 5 : 99; // category fallback
+      const base = nameScore < 99
+        ? nameScore
+        : (i.category.toLowerCase().includes(q) ? 5 : 99); // category fallback
+      if (base >= 99) return 99;
+      // Within-tier deprioritization: organic variants sink below conventional
+      // siblings unless the user explicitly typed "organic" in the query.
+      if (!queryHasOrganic && /\borganic\b/i.test(i.name)) return base + 0.5;
+      return base;
     };
+    // DB array order is curated canonical-first (e.g., Granulated Sugar before
+    // Coconut Sugar), so it's the right tiebreaker — name length pushed exotic
+    // short variants ahead of the standard form.
     const industrialMatches = INDUSTRIAL_DB
-      .map(i => ({ item: i, s: score(i) }))
+      .map((i, idx) => ({ item: i, s: score(i), idx }))
       .filter(x => x.s < 99)
-      .sort((a, b) => a.s - b.s || a.item.name.length - b.item.name.length)
+      .sort((a, b) => a.s - b.s || a.idx - b.idx)
       .slice(0, 5)
       .map(x => x.item);
     if (industrialMatches.length > 0) { setSearchResults(industrialMatches); setShowDropdown(true); }
