@@ -1350,7 +1350,7 @@ export default function FormulationWizard() {
             </div>
           </div>
           {/* Mode (vertical) switcher */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 max-w-2xl mx-auto">
             {MODE_ORDER.map(id => {
               const m = MODES[id];
               const isActive = mode === id;
