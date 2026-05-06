@@ -216,6 +216,30 @@ export function lookupDensity(name: string): number {
 }
 
 /**
+ * Rank how well a candidate name matches a query. Lower = better. 99 = no match.
+ *
+ * Tiers (the "Water → Watermelon Juice" bug fix):
+ *   0  exact match
+ *   1  whole-word prefix — query "water" matches "Water (Potable...)"
+ *   2  whole-word elsewhere in name
+ *   3  letter-prefix — query "water" matches "Watermelon" (same letters, different word)
+ *   4  substring anywhere
+ */
+export function rankIngredientMatch(name: string, query: string): number {
+  const n = name.toLowerCase();
+  const q = query.toLowerCase().trim();
+  if (!q) return 99;
+  if (n === q) return 0;
+  const nextChar = n.charAt(q.length);
+  if (n.startsWith(q) && (nextChar === '' || /\W/.test(nextChar))) return 1;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`(^|\\W)${escaped}(\\W|$)`).test(n)) return 2;
+  if (n.startsWith(q)) return 3;
+  if (n.includes(q)) return 4;
+  return 99;
+}
+
+/**
  * Find the best industrial-DB match for a given name string.
  * Returns null if no confident match can be made.
  */
@@ -227,14 +251,19 @@ export function findBestMatch(name: string, db: IndustrialIngredient[]): Industr
   const exact = db.find(i => i.name.toLowerCase() === lower);
   if (exact) return exact;
 
-  // 2. Full containment (either direction)
-  const contains = db.find(i => {
-    const dbLower = i.name.toLowerCase();
-    return dbLower.includes(lower) || lower.includes(dbLower);
-  });
-  if (contains) return contains;
+  // 2. DB name contains query — ranked (whole-word beats letter-prefix beats substring).
+  //    This is what makes "water" match "Water (Potable...)" instead of "Watermelon Juice".
+  const ranked = db
+    .map(i => ({ item: i, s: rankIngredientMatch(i.name, lower) }))
+    .filter(x => x.s < 99)
+    .sort((a, b) => a.s - b.s || a.item.name.length - b.item.name.length);
+  if (ranked.length > 0) return ranked[0].item;
 
-  // 3. Token overlap — best scoring match
+  // 3. Reverse direction — query contains a DB name (e.g. pasted line containing a shorter DB name)
+  const reverseContain = db.find(i => lower.includes(i.name.toLowerCase()));
+  if (reverseContain) return reverseContain;
+
+  // 4. Token overlap — best scoring match
   const skipWords = new Set(['the', 'and', 'with', 'for', 'industrial', 'food', 'grade', 'pure', 'organic', 'fresh', 'dried']);
   const tokens = lower
     .split(/[\s,/()]+/)

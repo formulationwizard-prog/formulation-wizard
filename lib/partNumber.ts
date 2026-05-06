@@ -84,12 +84,12 @@ export function vertialFromPartNumber(pn: string): string | null {
   if (!entry) return null;
   const [modeId] = entry;
   const labels: Record<ModeId, string> = {
-    fb: 'F&B Manufacturing',
+    fb: 'Food and Beverage',
     baking: 'Baking & Pastry',
     catering: 'Catering / Foodservice',
     feeds: 'Animal Feeds',
     sausage: 'Sausage & Charcuterie',
-    supplements: 'Dietary Supplements',
+    supplements: 'Nutraceuticals',
   };
   return labels[modeId];
 }

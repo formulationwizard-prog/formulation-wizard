@@ -35,7 +35,7 @@ import {
   fdaRoundPercentDV,
 } from '@/lib/utils';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
-import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, type ParsedRow } from '@/lib/parseFormula';
+import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
 import { estimateSpecs } from '@/lib/foodScience';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
@@ -212,6 +212,8 @@ export default function FormulationWizard() {
   const [paStateFilter, setPaStateFilter] = useState<string>('All');
   const [paTypeFilter, setPaTypeFilter] = useState<ProcessAuthorityType | 'All'>('All');
   const [paSearch, setPaSearch] = useState('');
+  // ----- Feature flags --------------------------------------------------
+  const SHOW_COPACKER_SERVICE = false; // Hidden until we can promise the service
   // ----- Services / lead capture state ----------------------------------
   const [serviceRequestType, setServiceRequestType] = useState<'' | 'bench' | 'reform' | 'scaleup' | 'copacker'>('');
   const [serviceClientName, setServiceClientName] = useState('');
@@ -456,10 +458,18 @@ export default function FormulationWizard() {
     setSelectedFood(null);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     if (query.length < 2) { setShowDropdown(false); return; }
-    const industrialMatches = INDUSTRIAL_DB.filter(i =>
-      i.name.toLowerCase().includes(query.toLowerCase()) ||
-      i.category.toLowerCase().includes(query.toLowerCase())
-    ).slice(0, 5);
+    const q = query.toLowerCase();
+    const score = (i: IndustrialIngredient): number => {
+      const nameScore = rankIngredientMatch(i.name, q);
+      if (nameScore < 99) return nameScore;
+      return i.category.toLowerCase().includes(q) ? 5 : 99; // category fallback
+    };
+    const industrialMatches = INDUSTRIAL_DB
+      .map(i => ({ item: i, s: score(i) }))
+      .filter(x => x.s < 99)
+      .sort((a, b) => a.s - b.s || a.item.name.length - b.item.name.length)
+      .slice(0, 5)
+      .map(x => x.item);
     if (industrialMatches.length > 0) { setSearchResults(industrialMatches); setShowDropdown(true); }
     searchTimeout.current = setTimeout(async () => {
       setSearching(true);
@@ -1275,13 +1285,13 @@ export default function FormulationWizard() {
       <div className="bg-gray-50 border-b border-gray-200 px-6 py-6 print:hidden">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-            <div className="flex items-center gap-5">
+            <div className="flex flex-col items-center text-center md:flex-row md:text-left gap-5">
               <NautilusMark size={72} />
               <div>
                 <h1 className="text-4xl font-semibold text-emerald-700 tracking-tight leading-none">
                   formulation<span className="text-gray-600 font-light tracking-[0.32em] ml-2 text-2xl uppercase">wizard</span>
                 </h1>
-                <p className="text-gray-500 text-xs mt-2 italic max-w-xl">Industrial food R&amp;D, formulation, and regulatory compliance — built for product developers and food scientists.</p>
+                <p className="text-gray-500 text-xs mt-2 italic max-w-xl">Formulation, labeling, and Process Authority documentation — for food and nutraceutical product developers.</p>
                 <p className="text-gray-600 text-sm mt-1 font-medium">
                   {mc.icon} {mc.name}
                   <span className="text-gray-400 font-normal"> — {mc.tagline}</span>
@@ -1983,16 +1993,18 @@ export default function FormulationWizard() {
                       <button onClick={() => { setActiveTab('services'); setServiceRequestType('scaleup'); }} className="text-xs text-emerald-700 hover:underline whitespace-nowrap">Request →</button>
                     </div>
                   </div>
-                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">🏭</span>
-                      <div className="flex-1">
-                        <div className="font-semibold text-gray-800 text-sm">Co-Packer Placement</div>
-                        <div className="text-[11px] text-gray-500">Exclusive F&amp;B network. Matched to volume + certifications.</div>
+                  {SHOW_COPACKER_SERVICE && (
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">🏭</span>
+                        <div className="flex-1">
+                          <div className="font-semibold text-gray-800 text-sm">Co-Packer Placement</div>
+                          <div className="text-[11px] text-gray-500">Exclusive food and beverage network. Matched to volume + certifications.</div>
+                        </div>
+                        <button onClick={() => { setActiveTab('services'); setServiceRequestType('copacker'); }} className="text-xs text-emerald-700 hover:underline whitespace-nowrap">Request →</button>
                       </div>
-                      <button onClick={() => { setActiveTab('services'); setServiceRequestType('copacker'); }} className="text-xs text-emerald-700 hover:underline whitespace-nowrap">Request →</button>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -8356,7 +8368,7 @@ export default function FormulationWizard() {
               <NautilusMark size={64} />
               <div>
                 <h2 className="text-3xl font-semibold text-emerald-700 tracking-tight">Formulation Wizard Services</h2>
-                <p className="text-sm text-gray-500 italic">R&amp;D, reformulation, and scale-up for industrial F&amp;B manufacturers.</p>
+                <p className="text-sm text-gray-500 italic">R&amp;D, reformulation, and scale-up for food and beverage manufacturers.</p>
               </div>
             </div>
             <p className="text-sm text-gray-700 leading-relaxed max-w-3xl mt-4">
@@ -8399,16 +8411,18 @@ export default function FormulationWizard() {
               </p>
             </button>
 
-            <button
-              onClick={() => setServiceRequestType('copacker')}
-              className={`text-left bg-white rounded-xl border-2 p-5 hover:shadow-lg transition ${serviceRequestType === 'copacker' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200 hover:border-emerald-400'}`}
-            >
-              <div className="text-3xl mb-2">🏭</div>
-              <h3 className="font-bold text-gray-800 mb-1">Exclusive Co-Packer Placement <span className="text-[10px] font-normal text-emerald-600">F&amp;B only</span></h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                We place your product with a vetted F&amp;B co-packer matched to your volume, certification requirements, and geography. Exclusive service — we know the co-packer network personally and advocate for your build before you sign a production contract.
-              </p>
-            </button>
+            {SHOW_COPACKER_SERVICE && (
+              <button
+                onClick={() => setServiceRequestType('copacker')}
+                className={`text-left bg-white rounded-xl border-2 p-5 hover:shadow-lg transition ${serviceRequestType === 'copacker' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200 hover:border-emerald-400'}`}
+              >
+                <div className="text-3xl mb-2">🏭</div>
+                <h3 className="font-bold text-gray-800 mb-1">Exclusive Co-Packer Placement <span className="text-[10px] font-normal text-emerald-600">F&amp;B only</span></h3>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  We place your product with a vetted F&amp;B co-packer matched to your volume, certification requirements, and geography. Exclusive service — we know the co-packer network personally and advocate for your build before you sign a production contract.
+                </p>
+              </button>
+            )}
           </div>
 
           {/* Request intake form */}

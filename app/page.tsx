@@ -20,7 +20,7 @@ const instrumentSerif = Instrument_Serif({
 
 export const metadata = {
   title:
-    "Formulation Wizard — Industrial food R&D, formulation and regulatory compliance",
+    "Formulation Wizard — For food and nutraceutical product developers",
   description:
     "One formulation in. Every regulatory, financial, and sustainability artifact out — automatically.",
 };
@@ -97,7 +97,7 @@ const verticals = [
   },
   {
     href: WORKSPACE,
-    title: "Dietary Supplements",
+    title: "Nutraceuticals",
     image: "/marketing/fw-vertical-supplements.jpg",
     cfr: "21 CFR 111",
     body: "cGMP workflows, NDI compliance, overage calculations.",
@@ -1573,8 +1573,7 @@ export default function MarketingHome() {
                 style={{ width: 200, height: "auto" }}
               />
               <p className="text-[14px] leading-[1.6] text-[#3E3E3E] max-w-[340px] mb-7">
-                Industrial food R&amp;D, formulation, and regulatory
-                compliance — built for product developers and food scientists.
+                Formulation, labeling, and Process Authority documentation — for food and nutraceutical product developers.
               </p>
               <a
                 href="mailto:hello@formulationwizard.com"
@@ -1614,7 +1613,7 @@ export default function MarketingHome() {
                   "Baking & Pastry",
                   "Charcuterie",
                   "Animal Feeds",
-                  "Supplements",
+                  "Nutraceuticals",
                 ].map((label) => (
                   <li key={label}>
                     <a

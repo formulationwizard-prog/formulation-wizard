@@ -78,7 +78,7 @@ function categoriesFromIngredients(ings: IndustrialIngredient[], leading: string
 export const MODES: Record<ModeId, ModeConfig> = {
   fb: {
     id: 'fb',
-    name: 'F&B Manufacturing',
+    name: 'Food and Beverage',
     icon: '🏭',
     tagline: 'Sauces • Condiments • Beverages • Snacks • Shelf-stable & Refrigerated',
     ingredientDB: INDUSTRIAL_DB,
@@ -163,7 +163,7 @@ export const MODES: Record<ModeId, ModeConfig> = {
   },
   supplements: {
     id: 'supplements',
-    name: 'Dietary Supplements',
+    name: 'Nutraceuticals',
     icon: '💊',
     tagline: 'Vitamins • Minerals • Herbals • Probiotics • cGMP per 21 CFR 111 • DSHEA',
     ingredientDB: SUPPLEMENT_INGREDIENTS,
@@ -180,6 +180,5 @@ export const MODES: Record<ModeId, ModeConfig> = {
   },
 };
 
-// Catering mode is defined but hidden from the public switcher — the tool's positioning
-// is industrial food production + regulatory. Unhide by adding 'catering' back to the order.
-export const MODE_ORDER: ModeId[] = ['fb', 'baking', 'sausage', 'feeds', 'supplements'];
+// Active modes shown in the public workspace switcher. Other modes (catering, baking, sausage, feeds) remain fully defined in MODES — their reference data, process templates, ingredient libraries, HACCP categories, and regulatory limits are preserved. Re-enable any mode by adding its ModeId back to this array.
+export const MODE_ORDER: ModeId[] = ['fb', 'supplements'];
