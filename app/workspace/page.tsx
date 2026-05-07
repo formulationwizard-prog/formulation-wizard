@@ -36,7 +36,7 @@ import {
 } from '@/lib/utils';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
 import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
-import { estimateSpecs } from '@/lib/foodScience';
+import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, type SpecMetric } from '@/lib/foodScience';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { getPackagingSustainability } from '@/lib/packagingSustainability';
@@ -6520,9 +6520,44 @@ export default function FormulationWizard() {
         const ing = ingredients[specSheetIngredientIndex];
         const isIndustrial = ing.foodData?.type === 'industrial';
         const dbData = isIndustrial && ing.foodData ? (ing.foodData.data as IndustrialIngredient) : null;
-        const spec = estimateSpecs([ing]);
+        // Per-ingredient buyer spec: read directly from the ingredient's IngredientSpec, NOT
+        // through estimateSpecs (which is a formulation-level mass-weighting estimator and
+        // would over-weight category fallbacks for a single ingredient — see honest-estimate
+        // reframe in memory/project_honest_estimate_reframe.md).
+        const ingSpec = getSpec(ing.name, dbData?.category);
+        const specConfidence = mapSpecToConfidence(ingSpec);
         const profile = getSustainabilityProfile({ name: ing.name, category: dbData?.category || '' });
         const today = new Date().toISOString().slice(0, 10);
+
+        // Confidence pill rendering — only shown for ESTIMATED and INFERRED.
+        // MEASURED/CALCULATED values render unmarked (absence of pill = trust the number).
+        const renderConfidencePill = () => {
+          if (specConfidence !== 'estimated' && specConfidence !== 'inferred') return null;
+          const pillClass = specConfidence === 'estimated'
+            ? 'bg-amber-100 text-amber-800 border-amber-300'
+            : 'bg-stone-100 text-stone-700 border-stone-300';
+          return (
+            <span className={`ml-2 px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border ${pillClass}`}>
+              {specConfidence}
+            </span>
+          );
+        };
+
+        // Render a Required Specifications row using the ingredient's per-metric range.
+        const renderRangedRow = (label: string, metric: SpecMetric, value: number, decimals: number, unit: string, testMethod: string) => {
+          const rv = rangedSpec(metric, value, specConfidence);
+          const delta = rv.range.high - rv.value;
+          return (
+            <tr className="border-b border-gray-100">
+              <td className="py-1.5 px-3 font-medium">{label}</td>
+              <td className="py-1.5 px-3 font-mono">
+                {value.toFixed(decimals)}{unit} ± {delta.toFixed(decimals)}{unit}
+                {renderConfidencePill()}
+              </td>
+              <td className="py-1.5 px-3 text-gray-600">{testMethod}</td>
+            </tr>
+          );
+        };
 
         return (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 overflow-auto print:bg-transparent print:p-0 print:static print:overflow-visible" onClick={() => setSpecSheetIngredientIndex(null)}>
@@ -6584,6 +6619,12 @@ export default function FormulationWizard() {
                 {/* Required Specifications */}
                 <section className="mb-6">
                   <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">2. Required Specifications (Target)</h2>
+                  {/* Honest-estimate framing: spec sheet is a starting point for procurement,
+                      not a final-authority document. See memory/project_honest_estimate_reframe.md. */}
+                  <div className="mb-4 px-4 py-3 border-l-4 border-amber-400 bg-amber-50 rounded-r text-xs text-gray-700 leading-relaxed">
+                    <strong className="text-gray-900">Specification targets below are estimates unless marked MEASURED.</strong>{' '}
+                    The supplier's actual COA values constitute the verified specification. Targets and ranges are starting points for procurement negotiation and incoming-QA review — narrow tolerances after first-shipment data establishes process capability.
+                  </div>
                   <table className="w-full text-sm border border-gray-200">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500">
@@ -6593,18 +6634,14 @@ export default function FormulationWizard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {spec.pH > 0 && (
-                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">pH</td><td className="py-1.5 px-3 font-mono">{spec.pH.toFixed(2)} ± 0.2</td><td className="py-1.5 px-3 text-gray-600">pH meter, 2-point calibrated</td></tr>
-                      )}
-                      {spec.aw > 0 && (
-                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Water Activity (aw)</td><td className="py-1.5 px-3 font-mono">{spec.aw.toFixed(3)} ± 0.02</td><td className="py-1.5 px-3 text-gray-600">Decagon aw meter or equivalent</td></tr>
-                      )}
-                      {spec.moisture > 0 && (
-                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Moisture</td><td className="py-1.5 px-3 font-mono">{spec.moisture.toFixed(1)}% ± 1.0</td><td className="py-1.5 px-3 text-gray-600">Loss on drying @ 105°C or Karl Fischer</td></tr>
-                      )}
-                      {spec.brix > 0 && (
-                        <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Brix</td><td className="py-1.5 px-3 font-mono">{spec.brix.toFixed(1)}° ± 0.5</td><td className="py-1.5 px-3 text-gray-600">Digital refractometer @ 20°C</td></tr>
-                      )}
+                      {ingSpec.pH !== undefined && ingSpec.pH > 0 &&
+                        renderRangedRow('pH', 'pH', ingSpec.pH, 2, '', 'pH meter, 2-point calibrated')}
+                      {ingSpec.aw !== undefined && ingSpec.aw > 0 &&
+                        renderRangedRow('Water Activity (aw)', 'aw', ingSpec.aw, 3, '', 'Decagon aw meter or equivalent')}
+                      {ingSpec.moisture !== undefined && ingSpec.moisture > 0 &&
+                        renderRangedRow('Moisture', 'moisture', ingSpec.moisture, 1, '%', 'Loss on drying @ 105°C or Karl Fischer')}
+                      {ingSpec.brix !== undefined && ingSpec.brix > 0 &&
+                        renderRangedRow('Brix', 'brix', ingSpec.brix, 1, '°', 'Digital refractometer @ 20°C')}
                       {dbData?.nutrition?.protein !== undefined && dbData.nutrition.protein > 0 && (
                         <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Protein (typical)</td><td className="py-1.5 px-3 font-mono">{dbData.nutrition.protein}% per 100g</td><td className="py-1.5 px-3 text-gray-600">Kjeldahl N × 6.25 (or 5.7 for wheat)</td></tr>
                       )}

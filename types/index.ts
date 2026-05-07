@@ -2,6 +2,42 @@
 // Shared types for Formulation Wizard
 // ============================================================
 
+// ----- Confidence Taxonomy (2026-05-07 architectural reframe) ---------------
+// Every numeric value rendered to the user carries a Confidence level and a
+// tolerance range. The system is positioned as a starting-estimate engine
+// with honest uncertainty bounds; the Process Authority is the legal authority
+// that converts estimates into verified specs.
+//
+// Levels (highest to lowest reliability):
+//   • measured   — supplier COA, lab measurement, USP/FCC/USDA citation
+//   • calculated — derived via sound math/chemistry from MEASURED inputs
+//   • estimated  — approximation method (e.g., log-space H+ pH weighting
+//                  without buffer modeling); useful but not chemistry-sound
+//   • inferred   — category default / template fallback; no entry-specific basis
+//   • unknown    — no value available; surfaced as missing rather than synthesized
+//
+// Per-metric tolerances live in lib/foodScience.ts (RANGE_TABLE). See
+// memory/project_honest_estimate_reframe.md for the full architectural reframe.
+
+export type Confidence = 'measured' | 'calculated' | 'estimated' | 'inferred' | 'unknown';
+
+export interface ValueRange {
+  low: number;
+  high: number;
+}
+
+export interface RangedValue {
+  /** The point estimate. */
+  value: number;
+  /** Bounds at the value's confidence level (clamped to the metric's natural domain). */
+  range: ValueRange;
+  confidence: Confidence;
+  /** Citation for MEASURED; calculation method for CALCULATED; estimation method for ESTIMATED; category/template for INFERRED. */
+  source?: string;
+  /** Optional further detail on derivation. */
+  method?: string;
+}
+
 /**
  * Full FDA-style per-serving nutrition profile (values in grams/milligrams
  * per 100g of ingredient; scaled by weight during formulation rollup).

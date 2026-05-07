@@ -22,7 +22,7 @@
 // classifyFormulation() now refuses to classify when verified-mass
 // coverage is below threshold. See its JSDoc and ARCHITECTURE.md.
 // ============================================================
-import type { IndustrialIngredient } from '../types';
+import type { Confidence, IndustrialIngredient, RangedValue } from '../types';
 import { UNIT_TO_GRAMS } from './utils';
 
 // ----- Locked regulatory disclaimer -----------------------------------------
@@ -218,6 +218,12 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Pineapple Juice Concentrate (60 Brix)':     { brix: 60, moisture: 40, aw: 0.80, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
   'Cranberry Juice Concentrate (50 Brix)':     { brix: 50, moisture: 50, aw: 0.83, pH: 2.5, source: 'ai-estimate', confidence: 'unverified' },
   'Pomegranate Juice Concentrate (65 Brix)':   { brix: 65, moisture: 35, aw: 0.77, pH: 3.1, source: 'ai-estimate', confidence: 'unverified' },
+  'White Grape Juice Concentrate (68 Brix)':   { brix: 68, moisture: 32, aw: 0.78, pH: 3.3, source: 'ai-estimate', confidence: 'unverified' },
+  'Concord Grape Juice Concentrate (68 Brix)': { brix: 68, moisture: 32, aw: 0.78, pH: 3.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Strawberry Puree Concentrate (30 Brix)':    { brix: 30, moisture: 70, aw: 0.92, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Blueberry Juice Concentrate (65 Brix)':     { brix: 65, moisture: 35, aw: 0.78, pH: 3.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Raspberry Juice Concentrate (65 Brix)':     { brix: 65, moisture: 35, aw: 0.78, pH: 3.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Black Cherry Juice Concentrate (68 Brix)':  { brix: 68, moisture: 32, aw: 0.78, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
   // ─── Tomato products ──────────────────────────────────────────────────────
   'Tomato Paste (28-30 Brix)':                 { brix: 29, moisture: 71, aw: 0.96, pH: 4.3, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
   'Tomato Puree (Aseptic)':                    { brix: 11, moisture: 89, aw: 0.99, pH: 4.2, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
@@ -424,6 +430,75 @@ export function getSpec(name: string, category: string | undefined): IngredientS
   // No data at all. Return a minimally-typed unverified entry so the gate
   // treats this ingredient as unverified mass.
   return { source: 'ai-estimate', confidence: 'unverified' };
+}
+
+// ============================================================
+// Confidence Taxonomy (2026-05-07 architectural reframe)
+// ------------------------------------------------------------
+// Renders every numeric value with a Confidence level + tolerance
+// range. False precision is worse than honest estimation; "pH 4.0
+// ± 0.3 (estimated)" is more trustworthy than "pH 4.02" without
+// context. See memory/project_honest_estimate_reframe.md and
+// types/index.ts for the Confidence/RangedValue types.
+// ============================================================
+
+/**
+ * Numeric properties the system attaches confidence + range to.
+ * Some metrics use absolute tolerances (pH is logarithmic; a_w is bounded
+ * 0–1; moisture is itself a percentage), others use relative (Brix, acetic
+ * acid, calories scale across orders of magnitude).
+ */
+export type SpecMetric = 'pH' | 'aw' | 'brix' | 'moisture' | 'aceticAcid' | 'nutrition';
+
+interface RangeRule { kind: 'abs' | 'rel'; tolerance: number; }
+
+/**
+ * Per-metric tolerance ladder. The MEASURED column is the global default;
+ * supplier-COA tolerances may tighten it per-ingredient when ingested
+ * (override mechanism not yet implemented — see Session 2+).
+ */
+export const RANGE_TABLE: Record<SpecMetric, Record<Confidence, RangeRule>> = {
+  pH:         { measured: { kind: 'abs', tolerance: 0.1   }, calculated: { kind: 'abs', tolerance: 0.2  }, estimated: { kind: 'abs', tolerance: 0.3  }, inferred: { kind: 'abs', tolerance: 0.5  }, unknown: { kind: 'abs', tolerance: 0 } },
+  aw:         { measured: { kind: 'abs', tolerance: 0.005 }, calculated: { kind: 'abs', tolerance: 0.01 }, estimated: { kind: 'abs', tolerance: 0.03 }, inferred: { kind: 'abs', tolerance: 0.10 }, unknown: { kind: 'abs', tolerance: 0 } },
+  brix:       { measured: { kind: 'rel', tolerance: 0.02  }, calculated: { kind: 'rel', tolerance: 0.05 }, estimated: { kind: 'rel', tolerance: 0.15 }, inferred: { kind: 'rel', tolerance: 0.30 }, unknown: { kind: 'rel', tolerance: 0 } },
+  moisture:   { measured: { kind: 'abs', tolerance: 0.5   }, calculated: { kind: 'abs', tolerance: 1    }, estimated: { kind: 'abs', tolerance: 3    }, inferred: { kind: 'abs', tolerance: 10   }, unknown: { kind: 'abs', tolerance: 0 } },
+  aceticAcid: { measured: { kind: 'rel', tolerance: 0.02  }, calculated: { kind: 'rel', tolerance: 0.05 }, estimated: { kind: 'rel', tolerance: 0.15 }, inferred: { kind: 'rel', tolerance: 0.30 }, unknown: { kind: 'rel', tolerance: 0 } },
+  nutrition:  { measured: { kind: 'rel', tolerance: 0.02  }, calculated: { kind: 'rel', tolerance: 0.05 }, estimated: { kind: 'rel', tolerance: 0.15 }, inferred: { kind: 'rel', tolerance: 0.30 }, unknown: { kind: 'rel', tolerance: 0 } },
+};
+
+/**
+ * Build a RangedValue from a metric, value, and confidence level. Bounds are
+ * clamped to the metric's natural domain (a_w ∈ [0,1]; everything else ≥ 0).
+ */
+export function rangedSpec(
+  metric: SpecMetric,
+  value: number,
+  confidence: Confidence,
+  source?: string,
+  method?: string,
+): RangedValue {
+  const rule = RANGE_TABLE[metric][confidence];
+  const delta = rule.kind === 'abs' ? rule.tolerance : value * rule.tolerance;
+  const low = Math.max(0, value - delta);
+  const high = metric === 'aw' ? Math.min(1, value + delta) : value + delta;
+  return { value, range: { low, high }, confidence, source, method };
+}
+
+/**
+ * Translate the data-layer's IngredientSpec confidence/source into the
+ * user-facing 5-level Confidence taxonomy.
+ *
+ * Mapping:
+ *   • confidence: 'verified' → MEASURED (both 'commodity-standard' and
+ *     'cited-reference' carry citations and have been audited; CALCULATED
+ *     is reserved for derived values that don't yet flow through this path)
+ *   • source: 'category-default' → INFERRED (no entry-specific basis)
+ *   • source: 'ai-estimate' → ESTIMATED (entry-specific but unverified)
+ */
+export function mapSpecToConfidence(spec: IngredientSpec): Confidence {
+  if (spec.confidence === 'verified') return 'measured';
+  if (spec.source === 'category-default') return 'inferred';
+  return 'estimated';
 }
 
 /**
