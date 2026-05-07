@@ -138,6 +138,7 @@ const CATEGORY_ORGANIC_AVAILABILITY: Record<string, { available: boolean; premiu
   'Smoke & Flavoring':      { available: true,  premium: 1.30 },
   'Botanicals':             { available: true,  premium: 1.55 },
   'Probiotics':             { available: false, premium: 1.0  },
+  'Prebiotics':             { available: true,  premium: 1.85 }, // organic inulin ~2.4x, organic psyllium ~1.76x; midpoint estimate accounting for GOS/acacia having limited organic availability
   'Antioxidants':           { available: false, premium: 1.0  },
   'Specialty':              { available: false, premium: 1.0  },
   'Seasoning Blends':       { available: true,  premium: 1.50 },
@@ -148,7 +149,6 @@ const CATEGORY_ORGANIC_AVAILABILITY: Record<string, { available: boolean; premiu
   'Minerals & Vitamins':    { available: false, premium: 1.0  },
   'Medicated Additives':    { available: false, premium: 1.0  },
   'Condiment Ingredients':  { available: true,  premium: 1.60 },
-  'Egg Products ':          { available: true,  premium: 1.85 }, // with trailing space
 };
 
 /**

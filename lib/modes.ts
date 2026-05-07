@@ -170,7 +170,7 @@ export const MODES: Record<ModeId, ModeConfig> = {
     productTypes: SUPPLEMENT_PRODUCT_TYPES,
     packagingDB: [...PACKAGING_DB, ...SUPPLEMENT_PACKAGING],
     processTemplates: SUPPLEMENT_PROCESS_TEMPLATES,
-    categories: categoriesFromIngredients(SUPPLEMENT_INGREDIENTS, ['Vitamins', 'Minerals', 'Amino Acids', 'Herbal Extracts', 'Mushroom Extracts', 'Probiotics', 'Enzymes', 'Specialty Compounds', 'Omega-3s', 'Excipients']),
+    categories: categoriesFromIngredients(SUPPLEMENT_INGREDIENTS, ['Vitamins', 'Minerals', 'Amino Acids', 'Herbal Extracts', 'Mushroom Extracts', 'Probiotics', 'Prebiotics', 'Enzymes', 'Specialty Compounds', 'Omega-3s', 'Excipients']),
     labelMode: 'supplement-facts',
     packagingRelevance: 'primary',
     packagingSectionTitle: '📦 Capsules, Bottles & Closures',

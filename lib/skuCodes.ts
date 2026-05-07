@@ -38,6 +38,7 @@ const INGREDIENT_CATEGORY_PREFIX: Record<string, string> = {
   'Botanicals':                'BOT',
   'Mushroom Extracts':         'MSH',
   'Probiotics':                'PRO',
+  'Prebiotics':                'PRE',
   'Enzymes':                   'ENZ',
   'Specialty Compounds':       'SPC',
   'Omega-3s':                  'OMG',
@@ -58,6 +59,8 @@ const INGREDIENT_CATEGORY_PREFIX: Record<string, string> = {
   'Nut & Seed Butters':        'NSB',
   'Juices':                    'JCE',
   'Concentrates & Extracts':   'CNX',
+  'Plant Proteins':            'PLP',
+  'Water & Ice':               'WTR',
   // Sausage
   'Meat & Fat':                'MEA',
   'Curing Agents':             'CUR',

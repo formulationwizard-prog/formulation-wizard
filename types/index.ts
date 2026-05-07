@@ -208,12 +208,224 @@ export type SustainabilityCert =
 export type GmoRisk = 'high' | 'medium' | 'low' | 'none';
 
 /**
+ * Functional / bioactive role(s) an ingredient plays in nutraceutical formulation.
+ * One ingredient can carry multiple roles (e.g., turmeric is anti-inflammatory + antioxidant +
+ * polyphenol). Drives the Nutraceuticals workspace's "surface by intended benefit" filter.
+ * Empty/undefined on an entry means the ingredient is conventional food, not functional.
+ */
+export type FunctionalRole =
+  | 'antioxidant'
+  | 'anti-inflammatory'
+  | 'prebiotic'
+  | 'probiotic'
+  | 'postbiotic'
+  | 'adaptogen'
+  | 'nootropic'
+  | 'omega-3'
+  | 'omega-6'
+  | 'medium-chain-triglyceride'
+  | 'electrolyte'
+  | 'fiber'
+  | 'protein-isolate'
+  | 'bioactive-peptide'
+  | 'polyphenol'
+  | 'flavonoid'
+  | 'carotenoid'
+  | 'phytosterol'
+  | 'beta-glucan'
+  | 'enzyme'
+  | 'immune-support'
+  | 'cardiovascular-support'
+  | 'blood-sugar-support'
+  | 'cognitive-support'
+  | 'joint-support'
+  | 'bone-support'
+  | 'gut-health'
+  | 'liver-support'
+  | 'urinary-tract-support'
+  | 'prostate-support'
+  | 'womens-health'
+  | 'skin-hair-nails'
+  | 'vision-support'
+  | 'sports-performance'
+  | 'weight-management'
+  | 'hydration'
+  | 'low-glycemic-sweetener'
+  | 'natural-colorant'
+  | 'energy-stimulant'
+  | 'sleep-support'
+  | 'mood-support';
+
+/**
+ * One bioactive compound present in the ingredient at a meaningful, declared level.
+ * Used for label substantiation, dose calculation, Supplement Facts panel rendering,
+ * and (via isMarkerCompound) identity-test enforcement under Companion Spec §B3.
+ */
+export interface Bioactive {
+  /** Compound name as it would appear on a CoA or pharmacopeial monograph
+   *  (e.g., "Curcuminoids", "Withanolides", "EGCG", "Phycocyanin", "Punicalagins"). */
+  compound: string;
+  /** Declared amount per 100 g of ingredient (or per 100 mL for liquids). */
+  amountPer100g: number;
+  /** Unit of the declared amount. CFU is for live cultures (probiotics). */
+  unit: 'mg' | 'g' | 'mcg' | 'IU' | 'CFU';
+  /** Assay method used to obtain this value (e.g., "HPLC-UV", "qPCR", "ICP-MS",
+   *  "UV-Vis 415nm"). Optional — whole-food entries often have no specific method. */
+  assayMethod?: string;
+  /**
+   * Whether this is THE standardization marker compound used for identity & potency.
+   * Examples: curcuminoids for turmeric extract, withanolides for ashwagandha,
+   * EGCG for green tea extract, punicalagins for pomegranate extract.
+   *
+   * Identity-test enforcement (Companion Spec §B3, harm-critical Bucket 1) tests
+   * against marker compounds, NOT secondary bioactives that may also be present.
+   * Standardized extracts should have exactly ONE marker; whole-food powders
+   * typically have ZERO markers (every bioactive is informational).
+   */
+  isMarkerCompound: boolean;
+}
+
+/**
+ * Whether the ingredient retains identity, potency, and sensory profile in a given
+ * formulation matrix. Drives ingredient-vs-format compatibility checks during recipe
+ * construction (e.g., warns if a heat-labile probiotic is added to a hot-fill beverage).
+ */
+export type MatrixCompatibility =
+  | 'acid-stable'         // OK in pH < 4 beverages (juice, kombucha, vinegar drinks)
+  | 'heat-stable'         // OK through HTST/UHT pasteurization or baking
+  | 'fat-soluble'         // requires lipid carrier or emulsifier in aqueous matrix
+  | 'water-soluble'       // dissolves cleanly in aqueous beverages
+  | 'water-dispersible'   // suspends but doesn't dissolve (typically with emulsifier coating)
+  | 'oxygen-sensitive'    // requires N2-flush or oxygen-barrier packaging
+  | 'light-sensitive'     // requires opaque or amber packaging
+  | 'freeze-stable'       // OK in frozen products
+  | 'dry-blend-only';     // unstable in any liquid matrix; capsules/powders only
+
+/**
+ * Typical formulation usage rate as percent of finished-product weight.
+ *   { typicalPct: 0.5, minPct: 0.1, maxPct: 2.0 } → 0.1–2% range, 0.5% typical.
+ * Guideline only — does NOT override safety limits enforced by lib/supplementSafetyLimits.ts
+ * (UL ceilings). UL is a safety hard-stop; usageRange is a formulation starting point.
+ */
+export interface UsageRange {
+  typicalPct: number;
+  minPct: number;
+  maxPct: number;
+}
+
+/**
+ * Regulatory classification under FDA (and select international) frameworks.
+ * REQUIRED on every entry for PA review packets and for NDI/ODI enforcement
+ * (Companion Spec §B3 identity-test, §B8 NDI classification).
+ *
+ *  - 'GRAS'                          : FDA-affirmed Generally Recognized As Safe (21 CFR 182, 184)
+ *  - 'GRAS-self-affirmed'            : industry-determined GRAS via expert panel, not FDA-reviewed
+ *  - 'NDI-notified'                  : New Dietary Ingredient with FDA notification on file
+ *  - 'NDI-required-not-notified'     : appears to require NDI notification but none filed — DO-NOT-USE
+ *  - 'food-additive'                 : FDA-approved food additive (21 CFR 172, 173)
+ *  - 'color-additive'                : FDA-approved color additive (21 CFR 73, 74)
+ *  - 'dietary-ingredient-pre-DSHEA'  : marketed in U.S. as dietary ingredient before Oct 15, 1994
+ *                                       (DSHEA grandfather; presumed lawful as dietary ingredient)
+ *  - 'EU-novel-food-cleared'         : approved under EU Novel Food Regulation 2015/2283
+ *  - 'pending'                       : under review — DO-NOT-SHIP until classification confirmed
+ */
+export type RegulatoryStatus =
+  | 'GRAS'
+  | 'GRAS-self-affirmed'
+  | 'NDI-notified'
+  | 'NDI-required-not-notified'
+  | 'food-additive'
+  | 'color-additive'
+  | 'dietary-ingredient-pre-DSHEA'
+  | 'EU-novel-food-cleared'
+  | 'pending';
+
+/**
+ * Authoritative pharmacopeial monograph(s) anchoring this ingredient's identity & spec.
+ * PA reviewers treat these as documentation trail for identity-test acceptance criteria.
+ *
+ * Convention: include the edition/version when applicable, e.g.:
+ *   "USP-NF"     "USP-NF 2024"     "FCC 13"     "EP 11.0"     "JP 18"
+ *   "AHP"        American Herbal Pharmacopoeia (botanicals)
+ *   "WHO"        WHO monographs on selected medicinal plants
+ *
+ * Single string for one monograph; array for ingredients with multiple authoritative refs.
+ * Empty/undefined = no monograph (typical for whole-food powders, proprietary
+ * fermentation products, novel ingredients).
+ */
+export type PharmacopeialReference = string;
+
+/**
+ * Variant CoA template applicable to this ingredient — drives the Companion Spec §B11
+ * Customer-CoA upload + identity-test linkage build (harm-critical Bucket 1).
+ * Each template type defines the required fields, acceptance ranges, and contaminant
+ * panel that the CoA parser must validate against.
+ *
+ *  - 'extract'                : standardized botanical/herbal extract (marker-compound assay)
+ *  - 'isolate'                : ≥95% pure single compound (e.g., resveratrol 98%, EGCG 95%)
+ *  - 'protein-fraction'       : whey/casein/pea/collagen — proximate, AA profile, PDCAAS/DIAAS,
+ *                               dispersibility, foam stability, heavy metals
+ *  - 'oil-product'            : fish/krill/MCT/algal/phospholipids — FA profile (GC-FID),
+ *                               PV, AV, totox, OSI, marine contaminants (PCBs/dioxins)
+ *  - 'probiotic-strain'       : strain ID (qPCR), CFU count, identity at species + strain level
+ *  - 'juice-concentrate'      : Brix, titratable acidity, color, polyphenol/anthocyanin assay
+ *  - 'whole-food-powder'      : mesh size, moisture, microbial; no marker compound expected
+ *  - 'bee-product'            : authenticity (NMR / melissopalynology), HMF, antibiotic residues
+ *  - 'fermentation-derivative': producing organism, residual substrate, endotoxin, identity
+ *  - 'mineral-salt'           : elemental %, heavy metals, particle size, salt form (chelate/oxide/etc.)
+ *  - 'vitamin-form'           : potency (IU or %), carrier identification, oxidation indicators
+ */
+export type CoaTemplateType =
+  | 'extract'
+  | 'isolate'
+  | 'protein-fraction'
+  | 'oil-product'
+  | 'probiotic-strain'
+  | 'juice-concentrate'
+  | 'whole-food-powder'
+  | 'bee-product'
+  | 'fermentation-derivative'
+  | 'mineral-salt'
+  | 'vitamin-form';
+
+/**
+ * Documented drug-class interaction for an ingredient — surfaced prominently in the
+ * workspace as a contraindication warning (not buried in notes). Severity 'major' = hard
+ * contraindication; 'moderate' = caution + medical supervision; 'minor' = informational.
+ *
+ * Used by the Nutraceuticals workspace to render drug-interaction warnings when the
+ * ingredient is added to a formulation, and by the §B12 PA-review packet to flag
+ * harm-critical interactions for explicit reviewer sign-off. Populate ONLY when a
+ * documented interaction exists; absence is not "verified safe" (absence of evidence is
+ * not evidence of absence).
+ */
+export interface DrugInteraction {
+  /** Drug class (or specific drug name) the interaction concerns
+   *  (e.g., "MAO Inhibitors", "Warfarin", "CYP3A4 substrates"). */
+  drugClass: string;
+  /** Severity tier driving workspace warning prominence:
+   *   'major'    = contraindicated / hard stop / DO-NOT-COMBINE;
+   *   'moderate' = use only under medical supervision;
+   *   'minor'    = informational / monitor for effects. */
+  severity: 'major' | 'moderate' | 'minor';
+  /** Mechanism of interaction, if known
+   *  (e.g., "L-DOPA + MAOI = hypertensive crisis", "CYP3A4 induction"). Optional. */
+  mechanism?: string;
+  /** Patient-facing or formulator-facing detail / clinical guidance. */
+  notes: string;
+}
+
+/**
  * A record from the internal industrial ingredient database —
  * one row per SKU, with top suppliers, sub-ingredients, allergens,
  * approximate cost, and per-100g nutrition.
  *
  * Sustainability fields are all optional and default to conservative values
  * when absent (gmoRisk='low', organicAvailable=false, no certs).
+ *
+ * Functional/nutraceutical fields (functionalRole, bioactives, matrixCompatibility,
+ * usageRange, regulatoryStatus, pharmacopeialReference, coaTemplateType) are optional
+ * but are REQUIRED for any ingredient surfaced in the Nutraceuticals workspace.
  */
 export interface IndustrialIngredient {
   name: string;
@@ -258,6 +470,57 @@ export interface IndustrialIngredient {
    *   ingredient mass into active mass before %DV and UL comparisons.
    */
   potencyFactor?: number;
+
+  // ─── Functional / nutraceutical metadata (optional) ────────────────────
+  /**
+   * One or more functional roles this ingredient serves. Used by the Nutraceuticals
+   * workspace to surface ingredients by intended benefit. Empty/undefined = conventional
+   * food, not functional. An ingredient may carry several roles.
+   */
+  functionalRole?: FunctionalRole[];
+  /**
+   * Declared bioactive compounds present at meaningful levels. Used for label
+   * substantiation, dose calculation, Supplement Facts rendering, and (with
+   * isMarkerCompound) identity-test enforcement under Companion Spec §B3.
+   */
+  bioactives?: Bioactive[];
+  /**
+   * Matrices in which this ingredient retains identity, potency, and sensory
+   * profile. Drives ingredient-vs-format compatibility warnings during recipe
+   * construction.
+   */
+  matrixCompatibility?: MatrixCompatibility[];
+  /**
+   * Typical formulation usage rate as % of finished product. Guideline only —
+   * does NOT override UL safety ceilings enforced by lib/supplementSafetyLimits.ts.
+   */
+  usageRange?: UsageRange;
+  /**
+   * FDA (and select international) regulatory classification. Required by PA review
+   * packets and by NDI/ODI enforcement (Companion Spec §B3, §B8). Values
+   * 'NDI-required-not-notified' and 'pending' block use of the ingredient.
+   */
+  regulatoryStatus?: RegulatoryStatus;
+  /**
+   * Authoritative pharmacopeial monograph(s) anchoring this ingredient's spec.
+   * Single string for one monograph, array for multiple. Used as documentation
+   * trail in PA review packets. Empty/undefined = no monograph.
+   */
+  pharmacopeialReference?: PharmacopeialReference | PharmacopeialReference[];
+  /**
+   * Which CoA template variant applies to this ingredient. Drives §B11 CoA
+   * upload parser field selection and acceptance criteria. Cheap to set now,
+   * expensive to retrofit across ~1000 entries later.
+   */
+  coaTemplateType?: CoaTemplateType;
+  /**
+   * Documented drug-class interactions for this ingredient. Surfaced prominently in the
+   * Nutraceuticals workspace as contraindication warnings (not buried in notes), and
+   * flagged in §B12 PA-review packet for explicit reviewer sign-off on major-severity
+   * interactions. Populate ONLY when a documented interaction exists; absence is NOT
+   * "verified safe."
+   */
+  drugInteractions?: DrugInteraction[];
 }
 
 /**

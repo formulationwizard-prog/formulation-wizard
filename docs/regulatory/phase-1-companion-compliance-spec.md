@@ -618,6 +618,18 @@ The verified-data principle from Fix A applies here. Customer-COA upload is THE 
 - Microbiological limits from COA
 - Other quality attributes
 
+**Implementation note — bee-product authenticity testing fallback (locked 2026-05-06):**
+
+NMR profiling and melissopalynology — the gold-standard authenticity tests for honey, propolis, royal jelly, and bee pollen — are offered by a very small number of US-accredited laboratories (Eurofins, SGS, and a handful of specialized labs). Requiring third-party NMR/melissopalynology on every bee-product lot would foreclose the small-supplier segment that dominates US honey, propolis, and royal jelly commerce, eliminating commercial viability for customers formulating in this category.
+
+The bee-product CoA template (`coaTemplateType: 'bee-product'`) therefore supports a **"supplier-self-attested authenticity + PA review flag"** fallback path:
+- When a lot is uploaded with supplier authenticity attestation rather than third-party NMR/palynology data, the system accepts ingestion rather than blocking it.
+- The lot's provenance trail records the attestation source (supplier name, attestation date, declared authenticity basis) and flags `authenticity_basis = 'supplier-attestation'`.
+- The §B12 PA-review packet surfaces the entry under "Identified gaps and required customer actions" as an authenticity-verification gap, allowing PA to require third-party verification when product positioning warrants it (e.g., premium manuka honey claims, monofloral declarations, or organic-claim chains where supplier attestation alone is insufficient).
+- The Bucket 1 harm-critical data flows from the CoA (allergen disclosure, heavy metals, antibiotic residues, HMF) remain fully required — the fallback applies only to authenticity, not to safety attributes.
+
+This preserves the verified-data principle for safety while accommodating real-world US lab capacity constraints for authenticity testing. PA retains discretion at the point of review.
+
 ## B12. THE PA-REVIEW PACKET — THE PRODUCT
 
 This is the central deliverable of the tool. Every formulation produces a PA-review packet, which contains:
