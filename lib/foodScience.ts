@@ -194,9 +194,29 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   // VERIFIED — glacial acetic acid (food grade), GRAS per 21 CFR 184.1005.
   'Acetic Acid (Glacial Food Grade)':          { aceticAcid: 99.5, brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1005 (Acetic Acid, GRAS); Food Chemicals Codex 3rd ed. p. 8', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 64-19-7. IUPAC: ethanoic acid. Industrial assay typically 99.5–100.5%. pH undefined for the neat liquid; in 1% aqueous solution pH ~2.4. Per FDA CPG 562.100, diluted glacial acetic acid is NOT vinegar and cannot substitute for vinegar in standardized foods.' },
   // ─── Acids & preservatives ────────────────────────────────────────────────
+  // Round 6 Step 2 (2026-05-07): all 8 standalone food acids carry pH values
+  // reflecting their 1% aqueous-solution measurement. The mass-weighted pH
+  // rollup at lib/foodScience.ts:706 uses each ingredient's pH spec as if the
+  // ingredient were a homogeneous solution at that pH; this is mathematically
+  // optimistic at very low use levels (<0.5%) — a 0.5% citric acid in water
+  // formulation will compute higher pH than measured because the rollup
+  // doesn't model acid dissociation in the water phase. For the typical
+  // formulation use range of 0.1%–2% mass, the 1%-solution-pH convention
+  // produces reasonable estimates and is consistent with the existing vinegar
+  // entries (which carry their as-poured pH, not their dissociation-state pH).
+  // Henderson-Hasselbalch with buffer modeling is out of scope.
   // VERIFIED — citric acid anhydrous & monohydrate, GRAS per 21 CFR 184.1033.
-  'Citric Acid (Anhydrous)':                   { brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS); Food Chemicals Codex 3rd ed. pp. 86-87', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 77-92-9. IUPAC: 2-hydroxy-1,2,3-propanetricarboxylic acid. pH undefined for crystalline powder; in 1% aqueous solution pH ~2.2.' },
-  'Citric Acid (Monohydrate)':                 { brix: 0, moisture: 8.6, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS) — monohydrate form', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 5949-29-1. Approximately 9% heavier than anhydrous due to water of hydration.' },
+  'Citric Acid (Anhydrous)':                   { pH: 2.2, brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS); Food Chemicals Codex 3rd ed. pp. 86-87', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 77-92-9. IUPAC: 2-hydroxy-1,2,3-propanetricarboxylic acid. pH 2.2 reflects 1% aqueous solution (the dry crystal itself has undefined pH).' },
+  'Citric Acid (Monohydrate, Fine)':           { pH: 2.2, brix: 0, moisture: 8.6, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS) — monohydrate form', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 5949-29-1. Approximately 9% heavier than anhydrous due to water of hydration. pH 2.2 same as anhydrous in solution. Round 6 Step 3 rename — was "Citric Acid (Monohydrate)", aligned to catalog name "Citric Acid (Monohydrate, Fine)".' },
+  // UNVERIFIED — pH/aw values are AI estimates per 1% solution convention.
+  'Malic Acid (L-Malic, Food Grade)':          { pH: 2.4, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 97-67-6. E296. pH 2.4 in 1% solution. "Apple-tart" acidulant.' },
+  'Tartaric Acid (Natural L-)':                { pH: 2.2, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 87-69-4. E334. pH 2.2 in 1% solution. Wine industry acidulant.' },
+  'Fumaric Acid (Food Grade)':                 { pH: 2.6, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 110-17-8. E297. Low water solubility (~0.6 g/100mL at 25°C); pH 2.6 reflects saturated solution (the upper limit of typical use). Slow-release acid for dry-mix beverages.' },
+  'Lactic Acid (88%, Corn-Derived)':           { pH: 2.4, brix: 0, moisture: 12, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 50-21-5. E270. The 88% liquid concentrate has pH ~0.5 neat; pH 2.4 reflects typical 1% aqueous use. Catalog SKU is 88% concentrate by convention; moisture 12% reflects the 88/12 acid/water ratio.' },
+  'Phosphoric Acid (85%, Food Grade)':         { pH: 1.5, brix: 0, moisture: 15, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 7664-38-2. E338. The 85% concentrate has pH ~1.5 directly; this is the strongest food acid in the catalog. Cola beverage standard.' },
+  'Gluconic Acid (Glucono-Delta-Lactone, GDL)': { pH: 3.5, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 90-80-2. E575. Slow-release acidulant — pH starts ~3.5 at initial dissolution and drifts down as GDL hydrolyzes to gluconic acid (final pH ~2.4 at full hydrolysis). The 3.5 here reflects working pH within the typical hold window for tofu / sausage / sourdough applications. For long-hold formulations, the lower hydrolyzed pH may need to be modeled separately.' },
+  'Ascorbic Acid (Vitamin C, Food Grade)':     { pH: 2.4, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 50-81-7. E300. pH 2.4 in 1% solution. Antioxidant + browning inhibitor + nutrient fortifier.' },
+  // ─── Preservatives ────────────────────────────────────────────────────────
   // UNVERIFIED — preservatives; pH/aw values are AI estimates.
   'Sodium Benzoate (Food Grade)':              { pH: 8.0, moisture: 0.2, brix: 0, aw: 0.20, source: 'ai-estimate', confidence: 'unverified' },
   'Potassium Sorbate (Food Grade)':            { pH: 6.5, moisture: 1.0, brix: 0, aw: 0.25, source: 'ai-estimate', confidence: 'unverified' },
@@ -238,6 +258,21 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Blueberry Juice Concentrate (65 Brix)':     { brix: 65, moisture: 35, aw: 0.78, pH: 3.2, source: 'ai-estimate', confidence: 'unverified' },
   'Raspberry Juice Concentrate (65 Brix)':     { brix: 65, moisture: 35, aw: 0.78, pH: 3.0, source: 'ai-estimate', confidence: 'unverified' },
   'Black Cherry Juice Concentrate (68 Brix)':  { brix: 68, moisture: 32, aw: 0.78, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── IQF raw produce (Round 6 Step 4, 2026-05-07) ────────────────────────
+  // Audit finding #4: catalog has 6 IQF produce SKUs in `Produce` category
+  // (not `Fresh Produce`); `Produce` carries CATEGORY_SPECS pH 4.0 default
+  // which silently misclassifies low-acid raw vegetables as borderline-acid.
+  // Adding explicit chemistry rows so the formulation engine sees raw veg
+  // pH (5.5–6.0) instead of the wrong category default.
+  // Sources: USDA FoodData Central pH/moisture data for raw onion (#170000),
+  // garlic (#169230), bell pepper (#170108), jalapeño (#168577), tomato
+  // (#170457), and ginger root (#169231).
+  'IQF Diced Onion (1/4")':                    { brix: 5,  moisture: 89, aw: 0.99, pH: 5.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw onion frozen — chemistry close to fresh; pH 5.5 reflects onion neutrality, not the wrong Produce category default of 4.0.' },
+  'IQF Minced Garlic':                         { brix: 6,  moisture: 58, aw: 0.91, pH: 5.7, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw garlic is denser than other vegetables (~58% moisture). pH 5.7 reflects raw garlic neutrality.' },
+  'IQF Diced Bell Pepper (Mixed)':             { brix: 4,  moisture: 92, aw: 0.99, pH: 5.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw bell pepper frozen.' },
+  'IQF Diced Jalapeño':                        { brix: 4,  moisture: 91, aw: 0.99, pH: 5.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw jalapeño is mildly acidic (5.5) — fresh, not fermented.' },
+  'IQF Diced Tomato':                          { brix: 3,  moisture: 94, aw: 0.99, pH: 4.4, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw tomato pH 4.3-4.9 (varies by variety/ripeness); midpoint 4.4. Calcium chloride firming agent does not meaningfully shift pH.' },
+  'IQF Ginger (Minced)':                       { brix: 5,  moisture: 80, aw: 0.97, pH: 5.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw ginger frozen — mildly acidic to neutral.' },
   // ─── Tomato products ──────────────────────────────────────────────────────
   'Tomato Paste (28-30 Brix)':                 { brix: 29, moisture: 71, aw: 0.96, pH: 4.3, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
   'Tomato Puree (Aseptic)':                    { brix: 11, moisture: 89, aw: 0.99, pH: 4.2, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
@@ -279,6 +314,35 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Valentina Salsa Picante (Mexican)':         { brix: 3,   moisture: 90, aw: 0.95, pH: 3.7, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified' },
   'El Yucateco Green Habanero Sauce':          { brix: 3,   moisture: 91, aw: 0.96, pH: 3.6, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified' },
   'Tabasco Green Jalapeño Sauce':              { brix: 2,   moisture: 93, aw: 0.96, pH: 3.8, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Pepper mashes (Round 6 Step 1, 2026-05-07) ──────────────────────────
+  // Audit finding #5: 14 mash SKUs in catalog had no explicit chemistry,
+  // falling through to Condiment Ingredients pH 4.0 default — wrong for
+  // formulations running 10-30% mash inclusion. Per directive split by prep:
+  //   • Fermented oak-aged mashes (Tabasco-style, Garner): pH 3.0-3.4
+  //   • Vinegar-acidulated commodity mashes (commercial Jalapeño etc.): pH 3.4-3.8
+  //   • Lacto-fermented Asian pastes (Sambal, Sriracha): pH 3.4-3.6
+  //   • Sweet/long-fermented Korean (Gochujang): pH ~4.8 (notes verified)
+  //   • Oil-suspended unfermented (Aji Amarillo/Panca): pH ~4.7 — these may
+  //     be mis-categorized as Condiment Ingredients; surfaced for operator
+  //     review (not re-categorized in Round 6).
+  // Sources: Tabasco/Sriracha published spec; Garner Foods commodity COA
+  // ranges; Huy Fong Foods technical data; Korean Food Research Institute
+  // (gochujang); ATCC fermented-vegetable pH ranges for lacto products.
+  'Red Pepper Mash (Fermented, Tabasco-Style)':{ brix: 5,  moisture: 88, aw: 0.94, pH: 3.0, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Catalog notes specify pH ~3.0 (oak-fermented 3+ years).' },
+  'Jalapeño Mash (Fermented)':                 { brix: 5,  moisture: 88, aw: 0.94, pH: 3.2, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Catalog notes pH 3.0-3.5 range; midpoint 3.2.' },
+  'Habanero Mash (Fermented)':                 { brix: 7,  moisture: 85, aw: 0.94, pH: 3.4, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Scotch Bonnet Mash (Fermented)':            { brix: 7,  moisture: 85, aw: 0.94, pH: 3.4, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Cayenne Mash (Red Arrow Style, Aged)':      { brix: 5,  moisture: 88, aw: 0.94, pH: 3.4, aceticAcid: 1.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Fresno Pepper Mash (Fermented)':            { brix: 6,  moisture: 87, aw: 0.94, pH: 3.4, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Ghost Pepper Mash':                         { brix: 7,  moisture: 85, aw: 0.94, pH: 3.5, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Serrano Pepper Mash (Fermented)':           { brix: 6,  moisture: 87, aw: 0.94, pH: 3.4, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Sriracha Chili Paste (Industrial)':         { brix: 17, moisture: 70, aw: 0.92, pH: 3.5, aceticAcid: 0.8, source: 'ai-estimate', confidence: 'unverified', notes: 'Catalog notes pH ~3.5; sweetened with 16% sugar.' },
+  'Sambal Oelek':                              { brix: 5,  moisture: 88, aw: 0.93, pH: 3.5, aceticAcid: 2.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Heavy vinegar acidulation with potassium sorbate + sodium bisulfite.' },
+  'Gochujang (Korean Fermented Chili Paste)':  { brix: 30, moisture: 50, aw: 0.85, pH: 4.8, aceticAcid: 0,   source: 'ai-estimate', confidence: 'unverified', notes: 'Catalog notes pH ~4.8. Long-fermented with malt syrup + glutinous rice — sweet/savory paste, not strongly acidic.' },
+  'Harissa Paste (North African)':             { brix: 10, moisture: 75, aw: 0.92, pH: 3.7, aceticAcid: 0.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Olive-oil-based paste; modest acid contribution.' },
+  'Chipotle in Adobo Sauce (Industrial)':      { brix: 10, moisture: 78, aw: 0.93, pH: 3.8, aceticAcid: 1.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Catalog notes pH ~3.8.' },
+  'Aji Amarillo Paste':                        { brix: 10, moisture: 70, aw: 0.92, pH: 4.7, aceticAcid: 0,   source: 'ai-estimate', confidence: 'unverified', notes: 'CATEGORIZATION-FLAG: oil-suspended unfermented fresh pulp; not vinegar-acidulated. Currently in Condiment Ingredients but chemistry resembles processed produce. Operator decision pending on whether to recategorize.' },
+  'Aji Panca Paste':                           { brix: 10, moisture: 70, aw: 0.92, pH: 4.7, aceticAcid: 0,   source: 'ai-estimate', confidence: 'unverified', notes: 'CATEGORIZATION-FLAG: same as Aji Amarillo Paste — unfermented oil-suspended fresh pulp. Operator decision pending.' },
   // ─── Salts ────────────────────────────────────────────────────────────────
   // VERIFIED — all SKUs are >99% NaCl per Food Chemicals Codex; same citation.
   'Salt (Food Grade Fine)':                    { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 7647-14-5. pH undefined for crystalline NaCl. Saturated NaCl solution aw=0.75 is a thermodynamic constant used as calibration standard for aw meters; in dry crystalline form aw approaches 0.' },
@@ -301,15 +365,15 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Cayenne Pepper (40,000 HU)':                { brix: 0, moisture: 8,  aw: 0.35, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
   'Cayenne Pepper (40K SHU)':                  { brix: 0, moisture: 8,  aw: 0.35, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
   'Thyme (Dried, Leaves)':                     { brix: 0, moisture: 9,  aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
-  'Paprika, Sweet Hungarian':                  { brix: 0, moisture: 9,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
-  'Smoked Paprika (Sweet, Spanish La Chinata)':{ brix: 0, moisture: 9,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
-  'Ground Cumin (Fine, Mexican)':              { brix: 0, moisture: 8,  aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Sweet Hungarian Paprika':                   { brix: 0, moisture: 9,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Round 6 Step 6 rename — was "Paprika, Sweet Hungarian", aligned to natural English convention matching the new catalog row.' },
+  'Smoked Paprika (Spanish)':                  { brix: 0, moisture: 9,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Round 6 Step 3 rename — was "Smoked Paprika (Sweet, Spanish La Chinata)", aligned to catalog name.' },
+  'Cumin (Ground)':                            { brix: 0, moisture: 8,  aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Round 6 Step 3 rename — was "Ground Cumin (Fine, Mexican)", aligned to catalog name.' },
   'Coriander Seed (Whole)':                    { brix: 0, moisture: 8,  aw: 0.35, pH: 5.6, source: 'ai-estimate', confidence: 'unverified' },
-  'Ground Allspice (Jamaican)':                { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified' },
-  'Whole Allspice (Jamaican)':                 { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified' },
-  'Ginger (Ground, Dried)':                    { brix: 0, moisture: 9,  aw: 0.35, pH: 5.8, source: 'ai-estimate', confidence: 'unverified' },
-  'Chipotle Powder (Smoked Jalapeño)':         { brix: 0, moisture: 8,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
-  'Ancho Chili Powder':                        { brix: 0, moisture: 9,  aw: 0.35, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
+  'Allspice (Ground)':                         { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified', notes: 'Round 6 Step 3 rename — was "Ground Allspice (Jamaican)", aligned to catalog name.' },
+  'Whole Allspice (Jamaican)':                 { brix: 0, moisture: 8,  aw: 0.35, pH: 5.4, source: 'ai-estimate', confidence: 'unverified', notes: 'No catalog mate yet — see Step 6 stranded-chemistry resolution.' },
+  'Ginger (Ground)':                           { brix: 0, moisture: 9,  aw: 0.35, pH: 5.8, source: 'ai-estimate', confidence: 'unverified', notes: 'Round 6 Step 3 rename — was "Ginger (Ground, Dried)", aligned to catalog name.' },
+  'Chipotle Powder (Morita)':                  { brix: 0, moisture: 8,  aw: 0.35, pH: 5.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Round 6 Step 3 rename — was "Chipotle Powder (Smoked Jalapeño)", aligned to catalog name (Morita is the Mexican varietal designation).' },
+  'Ancho Chile Powder':                        { brix: 0, moisture: 9,  aw: 0.35, pH: 5.1, source: 'ai-estimate', confidence: 'unverified', notes: 'Round 6 Step 3 rename — was "Ancho Chili Powder", aligned to catalog name. Naming convention: use "Chile" (USDA varietal-naming convention for dried Capsicum cultivars — Ancho, Chipotle, Guajillo, Pasilla, etc.) rather than "Chili" (which refers to the prepared dish or seasoning blend like "Chili Powder").' },
   // Xanthan variant to match the F&B DB mesh-size SKU
   'Xanthan Gum (Food Grade, 200 Mesh)':        { brix: 0, moisture: 10, aw: 0.35, pH: 7.0, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
   // Mustard Flour — low-acid dry base (pH ~5.5), was silently miscategorized
@@ -444,6 +508,64 @@ export function getSpec(name: string, category: string | undefined): IngredientS
   // No data at all. Return a minimally-typed unverified entry so the gate
   // treats this ingredient as unverified mass.
   return { source: 'ai-estimate', confidence: 'unverified' };
+}
+
+/**
+ * Round 6 Step 3 (2026-05-07): catalog ↔ chemistry alignment audit.
+ *
+ * Scans an industrial DB for entries whose `name` doesn't resolve in
+ * INGREDIENT_SPECS (chemistry mismatches), and surfaces stranded
+ * INGREDIENT_SPECS keys with no catalog mate.
+ *
+ * Used as a programmatic check at dev time — not a runtime guard. The
+ * audit pass identified 7 catalog↔chemistry name mismatches that have
+ * been fixed; this function exists so future SKU additions can be
+ * verified before they ship.
+ *
+ * Returned arrays:
+ *   • missingChemistry: catalog names with no INGREDIENT_SPECS entry
+ *     (acceptable for raw produce / oils that fall through to category
+ *     defaults; harm-relevant for acidulants, vinegars, hot sauces, mashes,
+ *     branded condiments)
+ *   • stranded: INGREDIENT_SPECS keys with no catalog mate (chemistry
+ *     research that no UI surface can pick — should be married to a
+ *     catalog entry or removed)
+ *
+ * Some categories are intentionally excluded from the missingChemistry
+ * list (raw produce, dry seeds, bulk oils, etc.) because category-default
+ * chemistry is appropriate. Pass `excludeCategoryFallthrough: true` to
+ * filter those out.
+ */
+export function auditCatalogChemistryAlignment(
+  db: Array<{ name: string; category: string }>,
+  options?: { excludeCategoryFallthrough?: boolean },
+): { missingChemistry: string[]; stranded: string[] } {
+  const dbNames = new Set(db.map(i => i.name));
+  const specsKeys = Object.keys(INGREDIENT_SPECS);
+
+  // Categories where falling through to CATEGORY_SPECS is acceptable
+  // (raw produce variability, bulk oils, etc.). Acidulants and vinegars
+  // are NOT in this list — every entry there should have explicit chemistry.
+  const FALLTHROUGH_OK = new Set([
+    'Fresh Produce', 'Produce', 'Fresh Herbs', 'Dried Beans', 'Canned Beans',
+    'Legumes & Nuts & Seeds', 'Nut & Seed Butters', 'Fats & Oils',
+    'Spices', // many spice variants share the same category-default pH 6.0
+    'Flours & Grains', 'Seeds', 'Dried Fruit',
+  ]);
+
+  const missingChemistry: string[] = [];
+  for (const item of db) {
+    if (INGREDIENT_SPECS[item.name]) continue;
+    if (options?.excludeCategoryFallthrough && FALLTHROUGH_OK.has(item.category)) continue;
+    missingChemistry.push(item.name);
+  }
+
+  const stranded: string[] = [];
+  for (const key of specsKeys) {
+    if (!dbNames.has(key)) stranded.push(key);
+  }
+
+  return { missingChemistry, stranded };
 }
 
 // ============================================================
