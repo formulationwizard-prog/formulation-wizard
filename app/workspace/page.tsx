@@ -5045,7 +5045,28 @@ export default function FormulationWizard() {
                         )}
                       </div>
                       {claimInput && (() => {
-                        const result = validateClaim(claimInput, nutrition, servingSizeInGrams);
+                        // Round 3 fix (2026-05-07): validator contract changed from per-100g
+                        // to per-serving. Convert workspace `nutrition` (batch totals) to
+                        // per-serving via the existing `perServing` helper before calling.
+                        // Previously the validator received batch totals interpreted as
+                        // per-100g, producing 10x+ false positives on typical pilot batches.
+                        const perServingNutrition = {
+                          calories:     perServing(nutrition.calories),
+                          totalFat:     perServing(nutrition.totalFat),
+                          saturatedFat: perServing(nutrition.saturatedFat),
+                          transFat:     perServing(nutrition.transFat),
+                          cholesterol:  perServing(nutrition.cholesterol),
+                          sodium:       perServing(nutrition.sodium),
+                          totalCarbs:   perServing(nutrition.totalCarbs),
+                          dietaryFiber: perServing(nutrition.dietaryFiber),
+                          totalSugars:  perServing(nutrition.totalSugars),
+                          protein:      perServing(nutrition.protein),
+                          vitaminD:     perServing(nutrition.vitaminD),
+                          calcium:      perServing(nutrition.calcium),
+                          iron:         perServing(nutrition.iron),
+                          potassium:    perServing(nutrition.potassium),
+                        };
+                        const result = validateClaim(claimInput, perServingNutrition, servingSizeInGrams);
                         const barColor = result.allowed ? 'emerald' : 'rose';
                         return (
                           <div className={`mt-2 p-3 rounded-lg border-2 bg-${barColor}-50 border-${barColor}-300 text-xs`}>
@@ -5077,7 +5098,24 @@ export default function FormulationWizard() {
 
                     {/* Available claims suggestions */}
                     {(() => {
-                      const available = suggestAvailableClaims(nutrition, servingSizeInGrams);
+                      // Round 3 fix: same per-serving conversion as validateClaim above.
+                      const perServingNutrition = {
+                        calories:     perServing(nutrition.calories),
+                        totalFat:     perServing(nutrition.totalFat),
+                        saturatedFat: perServing(nutrition.saturatedFat),
+                        transFat:     perServing(nutrition.transFat),
+                        cholesterol:  perServing(nutrition.cholesterol),
+                        sodium:       perServing(nutrition.sodium),
+                        totalCarbs:   perServing(nutrition.totalCarbs),
+                        dietaryFiber: perServing(nutrition.dietaryFiber),
+                        totalSugars:  perServing(nutrition.totalSugars),
+                        protein:      perServing(nutrition.protein),
+                        vitaminD:     perServing(nutrition.vitaminD),
+                        calcium:      perServing(nutrition.calcium),
+                        iron:         perServing(nutrition.iron),
+                        potassium:    perServing(nutrition.potassium),
+                      };
+                      const available = suggestAvailableClaims(perServingNutrition, servingSizeInGrams);
                       if (available.length === 0) {
                         return (
                           <p className="text-[10px] text-gray-500 italic">No auto-qualifying nutrition claims detected for this formula yet.</p>
