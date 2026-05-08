@@ -397,3 +397,142 @@ export const PRODUCT_TYPES: ProductType[] = [
     tags: ['cold-fill', 'high-alcohol', 'ambient'],
   },
 ];
+
+// ============================================================
+// FB v1 Buckets (per Round 2 directive 2026-05-07)
+// ------------------------------------------------------------
+// Narrows the F&B Product Type dropdown from 26 specific product types to
+// 6 acidified-foods-focused buckets. Customer profile (small/mid brand,
+// customer-owned PA, August deadline) is concentrated in acidified foods;
+// the other types are deferred to v2 product class expansion.
+//
+// PRODUCT_TYPES (the original 26-type list) stays in this file for legacy
+// formulation lookup — see findProductTypeWithFallback below. The mode
+// config exposes both arrays so the dropdown surfaces only buckets while
+// find/lookup operations span both buckets and legacy types.
+// ============================================================
+
+export const FB_V1_BUCKETS: ProductType[] = [
+  {
+    name: 'Sauce',
+    description: 'Acidified sauce — hot-fill or HPP, typically glass jar or bottle.',
+    typicalContainers: [
+      '16 oz Paragon Jar, 70 Lug',
+      '12 oz Paragon Jar, 63 Lug',
+      '24 oz Paragon Jar, 70 Lug',
+      '20 oz HDPE Ketchup Bottle, 38-400',
+      '5 oz Woozy Dasher Bottle, 24-414',
+      '8 oz Boston Round, 28-400',
+      '16 oz Mason Jar, 70-450 CT',
+    ],
+    typicalClosures: [
+      '70 Lug Lid (Hot-Fill Button)',
+      '63mm Lug Lid (White with Button)',
+      '70-450 CT Metal Canning Band + Flat',
+      '38-400 Flip-Top Spout Cap (Ketchup)',
+      '24-414 Orifice Reducer Dasher Cap (Woozy)',
+      '28-400 CT Plastic Cap with Plastisol Liner',
+    ],
+    tags: ['acidified', 'hot-fill', 'high-acid', 'shelf-stable'],
+  },
+  {
+    name: 'Dressing',
+    description: 'Acidified dressing or condiment — emulsion or aqueous, hot-fill or cold-fill.',
+    typicalContainers: [
+      '16 oz Boston Round, 33-400',
+      '16 oz Paragon Jar, 70 Lug',
+      '8 oz Boston Round, 28-400',
+      '28 oz HDPE Mayo/Dressing Bottle, 38-400',
+      '20 oz HDPE Ketchup Bottle, 38-400',
+      '16 oz PET Straight-Sided Jar, 63-400 CT',
+      '8 oz HDPE Squeeze Bottle, 24-410',
+    ],
+    typicalClosures: [
+      '33-400 CT Plastic Cap with PE Foam Liner',
+      '70 Lug Lid (Hot-Fill Button)',
+      '38-400 Flip-Top Spout Cap (Ketchup)',
+      '28-400 CT Plastic Cap with Plastisol Liner',
+      '63mm Lug Lid (White with Button)',
+    ],
+    tags: ['acidified', 'emulsion', 'cold-fill', 'hot-fill', 'high-acid'],
+  },
+  {
+    name: 'Beverage',
+    description: 'Acidified beverage — shrub, vinegar drink, or RTD acid blend.',
+    typicalContainers: [
+      '12 oz Boston Round, 33-400',
+      '16 oz Boston Round, 33-400',
+      '16.9 oz (500 mL) PET Water Bottle, 28mm PCO 1881',
+      '8 oz Boston Round, 28-400',
+      '5 oz Woozy Dasher Bottle, 24-414',
+      '16 oz Aluminum Can (Tallboy), 202 End',
+    ],
+    typicalClosures: [
+      '33-400 CT Plastic Cap with PE Foam Liner',
+      '28mm PCO 1881 CSD Cap',
+      '28-400 CT Plastic Cap with Plastisol Liner',
+      '24-414 Orifice Reducer Dasher Cap (Woozy)',
+    ],
+    tags: ['acidified', 'high-acid', 'shrub', 'shelf-stable'],
+  },
+  {
+    name: 'Dip/Spread',
+    description: 'Acidified dip, spread, or fruit butter — typically hot-fill in glass.',
+    typicalContainers: [
+      '16 oz Paragon Jar, 70 Lug',
+      '12 oz Paragon Jar, 63 Lug',
+      '8 oz Mason Jar, 70-450 CT',
+      '4 oz Hex Jar, 58 Lug',
+      '16 oz Mason Jar, 70-450 CT',
+      '16 oz PET Straight-Sided Jar, 63-400 CT',
+    ],
+    typicalClosures: [
+      '70 Lug Lid (Hot-Fill Button)',
+      '63mm Lug Lid (White with Button)',
+      '70-450 CT Metal Canning Band + Flat',
+      '58mm Lug Lid (Gold Standard)',
+    ],
+    tags: ['acidified', 'hot-fill', 'high-acid', 'shelf-stable'],
+  },
+  {
+    name: 'Pickle/Fermented',
+    description: 'Pickle or fermented vegetable — vinegar-brined or lacto-fermented.',
+    typicalContainers: [
+      '16 oz Paragon Jar, 70 Lug',
+      '24 oz Paragon Jar, 70 Lug',
+      '32 oz Wide Mouth Jar, 83 Lug',
+      '16 oz Mason Jar, 70-450 CT',
+    ],
+    typicalClosures: [
+      '70 Lug Lid (Hot-Fill Button)',
+      '83 Lug Lid (Wide Mouth)',
+      '70-450 CT Metal Canning Band + Flat',
+    ],
+    tags: ['acidified', 'fermented', 'cold-fill', 'high-acid', 'shelf-stable'],
+  },
+  {
+    name: 'Other',
+    description: 'Custom product — defaults to broad spec set, formulator selects tracking.',
+    typicalContainers: [],
+    typicalClosures: [],
+    tags: [],
+  },
+];
+
+/**
+ * Find a product type by name with legacy fallback. The dropdown surfaces a
+ * narrowed list (e.g., FB_V1_BUCKETS for F&B mode) but a saved formulation
+ * may reference a legacy product type that's no longer in the dropdown.
+ * This helper lets callers look up the legacy type's description / tags /
+ * typical containers without breaking when the dropdown is filtered.
+ */
+export function findProductTypeWithFallback(
+  name: string | undefined,
+  primary: ProductType[],
+  legacy: ProductType[],
+): ProductType | null {
+  if (!name) return null;
+  return primary.find(pt => pt.name === name)
+      || legacy.find(pt => pt.name === name)
+      || null;
+}

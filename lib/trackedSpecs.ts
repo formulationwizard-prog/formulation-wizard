@@ -76,7 +76,46 @@ const SET_E_PASTE: TrackedSpecDefaults = { tracked: ['aw', 'moisture'], suggeste
 // Set F — Supplements (uniform aw + moisture; nutraceutical-specific specs flagged future)
 const SET_F: TrackedSpecDefaults = { tracked: ['aw', 'moisture'], suggested: [] };
 
+// ─── F&B v1 Bucket defaults (Round 2 directive 2026-05-07) ─────────────────
+// Each bucket maps to a single TrackedSpecDefaults entry. The 26 legacy F&B
+// product-type entries below are preserved so saved formulations referencing
+// hidden product types continue to resolve their original defaults; new
+// formulations pick a bucket and get bucket defaults.
+const SAUCE_BUCKET: TrackedSpecDefaults = {
+  tracked: ['pH', 'aw', 'brix'],
+  suggested: ['bostwick', 'aceticAcid'],
+};
+const DRESSING_BUCKET: TrackedSpecDefaults = {
+  tracked: ['pH', 'aw', 'brix'],
+  suggested: ['brookfield', 'aceticAcid'],
+};
+const BEVERAGE_BUCKET: TrackedSpecDefaults = {
+  tracked: ['pH', 'aw', 'brix'],
+  suggested: ['brookfield', 'aceticAcid'],
+};
+const DIP_SPREAD_BUCKET: TrackedSpecDefaults = {
+  tracked: ['pH', 'aw', 'brix'],
+  suggested: ['bostwick'],
+};
+const PICKLE_FERMENTED_BUCKET: TrackedSpecDefaults = {
+  tracked: ['pH', 'aw', 'brix'],
+  suggested: ['aceticAcid'],
+};
+const OTHER_BUCKET: TrackedSpecDefaults = {
+  tracked: ['pH', 'aw', 'brix', 'moisture'],
+  suggested: ['aceticAcid', 'bostwick', 'brookfield'],
+};
+
 const PRODUCT_TYPE_DEFAULTS: Record<string, TrackedSpecDefaults> = {
+  // ─── F&B v1 buckets (Round 2 — current dropdown options) ────────────
+  'Sauce':              SAUCE_BUCKET,
+  'Dressing':           DRESSING_BUCKET,
+  'Beverage':           BEVERAGE_BUCKET,
+  'Dip/Spread':         DIP_SPREAD_BUCKET,
+  'Pickle/Fermented':   PICKLE_FERMENTED_BUCKET,
+  'Other':              OTHER_BUCKET,
+  // ─── F&B legacy product-type fallbacks (preserved for saved formulations
+  //     referencing hidden product types after Round 2's bucket narrowing) ──
   // ─── F&B: Set A (high-acid pH-driven, no acetic acid by formulation) ──
   'Sauce (Pasta / Cooking / Simmer)':                SET_A,
   'BBQ / Steak / Finishing Sauce':                   SET_A,

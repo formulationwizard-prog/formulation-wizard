@@ -81,6 +81,10 @@ export default function FormulationWizard() {
   const INDUSTRIAL_DB = mc.ingredientDB;
   const PACKAGING_DB = mc.packagingDB;
   const PRODUCT_TYPES = mc.productTypes;
+  // Narrowed dropdown list (Round 2 — F&B v1 buckets); falls back to the full
+  // productTypes list for modes that don't override (e.g., supplements). Doesn't
+  // depend on the productType state, so safe to derive at the top of the component.
+  const DROPDOWN_PRODUCT_TYPES = mc.dropdownProductTypes ?? mc.productTypes;
   const CATEGORIES = mc.categories;
 
   const [ingredientsRaw, setIngredientsRaw] = useState<Ingredient[]>([]);
@@ -194,6 +198,11 @@ export default function FormulationWizard() {
 
   const [formulationName, setFormulationName] = useState('');
   const [productType, setProductType] = useState<string>('');
+  // Whether the currently-stored productType references a legacy entry no longer
+  // surfaced in the dropdown (Round 2 narrowing). Used to display a fallback option
+  // + migration CTA. Note: declared AFTER productType useState because it depends on
+  // the state value; declared BEFORE the JSX so it's in scope where used.
+  const isLegacyProductType = !!productType && !DROPDOWN_PRODUCT_TYPES.some(pt => pt.name === productType);
   // Tracked specs — null means "use product-type defaults"; an array means user has
   // explicitly customized the selection. Persists across product-type changes (deliberate
   // user choice shouldn't be silently reset by a productType retag); user can hit
@@ -2767,18 +2776,47 @@ export default function FormulationWizard() {
                     <label className="block text-xs font-medium text-gray-500 mb-1">Product Type <span className="text-gray-400">(drives packaging suggestions)</span></label>
                     <select
                       value={productType}
-                      onChange={(e) => setProductType(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        // Round 2 directive: when transitioning from a legacy productType
+                        // to a v1 bucket, capture the current effective tracked_specs as
+                        // an explicit override so the user's selection isn't silently
+                        // replaced by the new bucket's defaults. User can hit "Reset to
+                        // defaults" to take the new bucket's defaults afterward.
+                        const oldIsLegacy = isLegacyProductType;
+                        const newIsBucket = DROPDOWN_PRODUCT_TYPES.some(pt => pt.name === next);
+                        if (oldIsLegacy && newIsBucket && trackedSpecsOverride === null) {
+                          const currentEffective = getTrackedSpecDefaults(productType).tracked;
+                          setTrackedSpecsOverride([...currentEffective]);
+                        }
+                        setProductType(next);
+                      }}
                       className="w-full border border-gray-300 rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-500"
                     >
                       <option value="">— Select a product type —</option>
-                      {PRODUCT_TYPES.map(pt => (
+                      {DROPDOWN_PRODUCT_TYPES.map(pt => (
                         <option key={pt.name} value={pt.name}>{pt.name}</option>
                       ))}
+                      {/* Legacy fallback — preserves the stored productType as the current
+                          selection even though it's no longer in the v1 dropdown. The CTA
+                          below the dropdown prompts the user to migrate to a v1 bucket. */}
+                      {isLegacyProductType && (
+                        <option key={productType} value={productType}>{productType} (legacy)</option>
+                      )}
                     </select>
                   </div>
                 </div>
                 {currentProductType && (
                   <p className="text-xs text-gray-500 mb-3 italic">{currentProductType.description}</p>
+                )}
+                {/* Legacy CTA — prompts the user to migrate from a hidden product type
+                    to one of the v1 buckets. Migration preserves their tracked_specs
+                    customization (see onChange handler above). */}
+                {isLegacyProductType && (
+                  <div className="mb-3 px-4 py-3 border-l-4 border-amber-400 bg-amber-50 rounded-r text-xs text-gray-700 leading-relaxed">
+                    <strong className="text-gray-900">Legacy product type:</strong>{' '}
+                    <span className="font-mono">{productType}</span> is no longer in the v1 dropdown but the formulation continues to work correctly. Pick a v1 bucket above to migrate — your current Specs to Track selection will be preserved as a customization.
+                  </div>
                 )}
 
                 {/* Specs to Track — formulator-chosen list of QC release specs. Selection

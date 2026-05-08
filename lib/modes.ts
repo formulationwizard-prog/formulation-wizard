@@ -9,7 +9,7 @@
 // ============================================================
 import type { IndustrialIngredient, PackagingItem } from '../types';
 import { INDUSTRIAL_DB } from './data/ingredients';
-import { PRODUCT_TYPES, type ProductType } from './data/productTypes';
+import { PRODUCT_TYPES, FB_V1_BUCKETS, type ProductType } from './data/productTypes';
 import { PACKAGING_DB } from './data/packaging';
 import { PROCESS_TEMPLATES, type ProcessTemplate } from './processTemplates';
 import { BAKING_INGREDIENTS, BAKING_PRODUCT_TYPES, BAKING_PROCESS_TEMPLATES, BAKING_PACKAGING } from './data/baking';
@@ -26,7 +26,19 @@ export interface ModeConfig {
   icon: string;
   tagline: string;
   ingredientDB: IndustrialIngredient[];
+  /** Full product-type list for find/lookup operations. Includes both currently-
+   *  surfaced dropdown types AND legacy types preserved for saved-formulation
+   *  compatibility. The Product Type dropdown surfaces a narrower list — see
+   *  dropdownProductTypes. */
   productTypes: ProductType[];
+  /**
+   * Optional narrowed list of product types surfaced in the Product Type
+   * dropdown. When undefined, the dropdown shows the full productTypes list.
+   * F&B mode sets this to FB_V1_BUCKETS (6 buckets) per Round 2 directive
+   * 2026-05-07; legacy product types stay accessible via productTypes for
+   * find/lookup but don't appear in the dropdown options.
+   */
+  dropdownProductTypes?: ProductType[];
   /** Full packaging catalog for this mode (shared DB + mode-specific additions). */
   packagingDB: PackagingItem[];
   processTemplates: Record<string, ProcessTemplate>;
@@ -82,7 +94,10 @@ export const MODES: Record<ModeId, ModeConfig> = {
     icon: '🏭',
     tagline: 'Sauces • Condiments • Beverages • Snacks • Shelf-stable & Refrigerated',
     ingredientDB: INDUSTRIAL_DB,
-    productTypes: PRODUCT_TYPES,
+    // Full list (buckets + legacy types) for lookup; dropdown uses the narrower
+    // FB_V1_BUCKETS via dropdownProductTypes below.
+    productTypes: [...FB_V1_BUCKETS, ...PRODUCT_TYPES],
+    dropdownProductTypes: FB_V1_BUCKETS,
     packagingDB: PACKAGING_DB,
     processTemplates: PROCESS_TEMPLATES,
     categories: categoriesFromIngredients(INDUSTRIAL_DB, ['Sweeteners', 'Fats & Oils', 'Condiment Ingredients', 'Fresh Produce', 'Produce', 'Fresh Herbs', 'Spices', 'Egg Products', 'Legumes & Nuts & Seeds', 'Dried Beans', 'Canned Beans', 'Nut & Seed Butters', 'Juices', 'Concentrates & Extracts']),
