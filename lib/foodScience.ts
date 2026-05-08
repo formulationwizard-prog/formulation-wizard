@@ -125,6 +125,20 @@ export interface FormulationSpecs {
   verifiedMassPct: number;
   /** All ingredients with confidence='unverified', sorted desc by mass percentage. Always populated. */
   unverifiedIngredients: Array<{ name: string; massPct: number }>;
+  /**
+   * Per-metric confidence floor for the formulation-level rollup. Floor across
+   * ingredients contributing ≥5% mass; if no ingredient is ≥5%, floor across all
+   * contributors. Output is capped at CALCULATED (the rollup math is a derivation
+   * of inputs, not a direct measurement) and propagates downward from there per
+   * the input floor. See feedback memory three_class_value_taxonomy.md.
+   */
+  confidence: {
+    pH: Confidence;
+    brix: Confidence;
+    moisture: Confidence;
+    aw: Confidence;
+    aceticAcid: Confidence;
+  };
 }
 
 // ----- Category-level defaults -----------------------------------------------
@@ -770,6 +784,84 @@ export function classifyFormulation(input: ClassificationInput): ClassificationR
   };
 }
 
+// ============================================================
+// Confidence floor + cost rollup helpers (Session 3)
+// ------------------------------------------------------------
+// For mass-weighted aggregations (chemistry rollups, formula cost), output
+// confidence cannot exceed the lowest input confidence. Apply Rule 5 (mass
+// threshold): only ingredients contributing >=5% of mass trigger downgrade,
+// so a 0.1% flavoring with INFERRED data doesn't drag the whole panel down.
+// If no ingredient is >=5% (e.g. 25-ingredient flavor compound), fall back
+// to floor across all contributors. Output is capped at CALCULATED — the
+// rollup math is itself a derivation, not a direct measurement.
+// ============================================================
+
+const CONFIDENCE_ORDER: Confidence[] = ['measured', 'calculated', 'estimated', 'inferred', 'unknown'];
+
+interface MassContributor { massG: number; confidence: Confidence; }
+
+/**
+ * Return the worst confidence among the inputs (for derived metrics like
+ * the acetic/moisture ratio that compose two formulation-level values).
+ */
+export function worstConfidence(...confs: Confidence[]): Confidence {
+  if (confs.length === 0) return 'unknown';
+  let worst = confs[0];
+  for (const c of confs) {
+    if (CONFIDENCE_ORDER.indexOf(c) > CONFIDENCE_ORDER.indexOf(worst)) worst = c;
+  }
+  return worst;
+}
+
+export function floorConfidence(contribs: MassContributor[], totalMass: number): Confidence {
+  if (contribs.length === 0 || totalMass <= 0) return 'unknown';
+  const significant = contribs.filter(c => (c.massG / totalMass) >= 0.05);
+  const pool = significant.length > 0 ? significant : contribs;
+  // Start at CALCULATED — the rollup is a derivation, can't exceed CALCULATED.
+  let floor: Confidence = 'calculated';
+  for (const c of pool) {
+    if (CONFIDENCE_ORDER.indexOf(c.confidence) > CONFIDENCE_ORDER.indexOf(floor)) {
+      floor = c.confidence;
+    }
+  }
+  return floor;
+}
+
+/**
+ * Compute formula-level cost confidence by rolling up per-ingredient cost
+ * confidences with the >=5% mass threshold rule. Returns 'unknown' for an
+ * empty formulation. Each ingredient's cost confidence is supplied directly
+ * (typically from mapCostToConfidence on the ingredient's IndustrialIngredient).
+ */
+export function rollupCostConfidence(
+  contributors: Array<{ massG: number; confidence: Confidence }>
+): Confidence {
+  const totalMass = contributors.reduce((s, c) => s + c.massG, 0);
+  return floorConfidence(contributors, totalMass);
+}
+
+/**
+ * Format a Class 1a numeric value with its tolerance range, returning both
+ * the display text and the underlying RangedValue. Handles asymmetric ranges
+ * (clamping near aw=1.0 or moisture=100) by displaying the wider half-width
+ * so the underlying tolerance is honest rather than understated by the
+ * clamped side.
+ */
+export function formatRangedValue(
+  metric: SpecMetric,
+  value: number,
+  confidence: Confidence,
+  decimals: number,
+  unit: string = '',
+): { text: string; rv: RangedValue } {
+  const rv = rangedSpec(metric, value, confidence);
+  const delta = Math.max(rv.value - rv.range.low, rv.range.high - rv.value);
+  return {
+    text: `${value.toFixed(decimals)}${unit} ± ${delta.toFixed(decimals)}${unit}`,
+    rv,
+  };
+}
+
 /**
  * Estimate formulation-level specs from the ingredient list.
  */
@@ -789,24 +881,34 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
   // is mapped to a numeric "thickening" coefficient.
   const VISC_MAP: Record<string, number> = { none: 0, low: 10, medium: 25, high: 60, 'very high': 95 };
 
+  // Per-metric confidence contributor lists. Filled during the same loop, then
+  // rolled up via floorConfidence with the >=5% mass threshold rule.
+  const phContribs: MassContributor[] = [];
+  const brixContribs: MassContributor[] = [];
+  const moistureContribs: MassContributor[] = [];
+  const awContribs: MassContributor[] = [];
+  const aceticContribs: MassContributor[] = [];
+
   for (const ing of ingredients) {
     const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
     if (g <= 0) continue;
     totalMass += g;
     const spec = getSpec(ing.name, ing.category);
+    const ingConf = mapSpecToConfidence(spec);
 
     const hasAny =
       spec.pH !== undefined || spec.brix !== undefined || spec.moisture !== undefined ||
       spec.aw !== undefined || spec.aceticAcid !== undefined || spec.viscosityContrib !== undefined;
     if (hasAny) massWithSpec += g;
 
-    if (spec.brix !== undefined)       sumBrixMass   += g * spec.brix;
-    if (spec.moisture !== undefined)   sumMoistMass  += g * spec.moisture;
-    if (spec.aw !== undefined)         sumAwMass     += g * spec.aw;
-    if (spec.aceticAcid !== undefined) sumAceticMass += g * spec.aceticAcid;
+    if (spec.brix !== undefined)       { sumBrixMass   += g * spec.brix;     brixContribs.push({ massG: g, confidence: ingConf }); }
+    if (spec.moisture !== undefined)   { sumMoistMass  += g * spec.moisture; moistureContribs.push({ massG: g, confidence: ingConf }); }
+    if (spec.aw !== undefined)         { sumAwMass     += g * spec.aw;       awContribs.push({ massG: g, confidence: ingConf }); }
+    if (spec.aceticAcid !== undefined) { sumAceticMass += g * spec.aceticAcid; aceticContribs.push({ massG: g, confidence: ingConf }); }
     if (spec.pH !== undefined) {
       sumHMass  += g * Math.pow(10, -spec.pH);
       massForPH += g;
+      phContribs.push({ massG: g, confidence: ingConf });
     }
   }
 
@@ -820,6 +922,7 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
       regulatoryClass: '—',
       verifiedMassPct: 0,
       unverifiedIngredients: [],
+      confidence: { pH: 'unknown', brix: 'unknown', moisture: 'unknown', aw: 'unknown', aceticAcid: 'unknown' },
     };
   }
 
@@ -923,6 +1026,15 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
     : brookfieldCp < 100000 ? 'high'
     : 'very high';
 
+  // Per-metric confidence floor across mass-significant contributors (>=5%).
+  const confidence = {
+    pH:         floorConfidence(phContribs, totalMass),
+    brix:       floorConfidence(brixContribs, totalMass),
+    moisture:   floorConfidence(moistureContribs, totalMass),
+    aw:         floorConfidence(awContribs, totalMass),
+    aceticAcid: floorConfidence(aceticContribs, totalMass),
+  };
+
   return {
     pH,
     brix,
@@ -942,5 +1054,6 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
     regulatoryClass: classification.regulatoryClass,
     verifiedMassPct: classification.verifiedMassPct,
     unverifiedIngredients: classification.unverifiedIngredients,
+    confidence,
   };
 }

@@ -36,7 +36,8 @@ import {
 } from '@/lib/utils';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
 import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
-import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec, mapCostToConfidence, type SpecMetric } from '@/lib/foodScience';
+import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec, mapCostToConfidence, formatRangedValue, rollupCostConfidence, worstConfidence, type SpecMetric } from '@/lib/foodScience';
+import { getTrackedSpecDefaults, TRACKED_SPEC_LABELS, TRACKED_SPEC_ORDER, type TrackedSpec } from '@/lib/trackedSpecs';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { getPackagingSustainability } from '@/lib/packagingSustainability';
@@ -192,6 +193,11 @@ export default function FormulationWizard() {
 
   const [formulationName, setFormulationName] = useState('');
   const [productType, setProductType] = useState<string>('');
+  // Tracked specs — null means "use product-type defaults"; an array means user has
+  // explicitly customized the selection. Persists across product-type changes (deliberate
+  // user choice shouldn't be silently reset by a productType retag); user can hit
+  // "Reset to defaults" to re-derive from current productType.
+  const [trackedSpecsOverride, setTrackedSpecsOverride] = useState<TrackedSpec[] | null>(null);
   const [savedFormulations, setSavedFormulations] = useState<SavedFormulation[]>([]);
   const [activeTab, setActiveTab] = useState<'home' | 'build' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
   // ----- Terms of Use / liability acknowledgment ------------------------
@@ -554,6 +560,14 @@ export default function FormulationWizard() {
     unit: ing.unit,
     category: ing.foodData?.type === 'industrial' ? ing.foodData?.data?.category : undefined,
   })));
+
+  // Resolve effective tracked specs — user override if set, else product-type defaults.
+  // Drives filtering on Spec Analysis panel and Batch Sheet Target Specs.
+  const effectiveTrackedSpecs = trackedSpecsOverride ?? getTrackedSpecDefaults(productType).tracked;
+  const trackedSet = new Set<TrackedSpec>(effectiveTrackedSpecs);
+  // Auto-derived metrics: A/M ratio shows when both inputs tracked; LAC% shows when pH tracked.
+  const showAceticMoistureRatio = trackedSet.has('aceticAcid') && trackedSet.has('moisture');
+  const showLowAcidComponentPct = trackedSet.has('pH');
   const processTemplate = (productType && mc.processTemplates[productType]) || DEFAULT_TEMPLATE;
 
   // Regulatory compliance findings — one per regulated ingredient present.
@@ -2726,6 +2740,72 @@ export default function FormulationWizard() {
                 {currentProductType && (
                   <p className="text-xs text-gray-500 mb-3 italic">{currentProductType.description}</p>
                 )}
+
+                {/* Specs to Track — formulator-chosen list of QC release specs. Selection
+                    drives what renders on the Spec Analysis panel and Batch Sheet Target
+                    Specs; unselected specs don't render at all. Defaults derive from the
+                    product type; user edits persist across product-type changes. */}
+                {(() => {
+                  const defaults = getTrackedSpecDefaults(productType);
+                  const effective = trackedSpecsOverride ?? defaults.tracked;
+                  const effectiveSet = new Set(effective);
+                  const isOverridden = trackedSpecsOverride !== null;
+                  const suggestedSet = new Set(defaults.suggested);
+                  const toggle = (s: TrackedSpec) => {
+                    const next = effectiveSet.has(s)
+                      ? effective.filter(x => x !== s)
+                      : [...effective, s];
+                    setTrackedSpecsOverride(next);
+                  };
+                  const resetToDefaults = () => {
+                    if (window.confirm(`Reset spec tracking to ${productType ? `"${productType}"` : 'system'} defaults? Your current selection will be replaced.`)) {
+                      setTrackedSpecsOverride(null);
+                    }
+                  };
+                  return (
+                    <div className="mb-3 px-4 py-3 border border-gray-200 rounded-lg bg-gray-50">
+                      <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                        <div>
+                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Specs to Track</h3>
+                          <p className="text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                            Selected specs render on the Spec Analysis panel + Batch Sheet Target Specs. Defaults from {productType ? <><span className="font-medium">{productType}</span></> : 'system fallback'}.
+                          </p>
+                        </div>
+                        {isOverridden && (
+                          <button
+                            onClick={resetToDefaults}
+                            className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-semibold whitespace-nowrap"
+                          >
+                            ↺ Reset to defaults
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-2">
+                        {TRACKED_SPEC_ORDER.map(s => {
+                          const checked = effectiveSet.has(s);
+                          const isSuggested = suggestedSet.has(s);
+                          return (
+                            <label key={s} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggle(s)}
+                                className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                              />
+                              <span className={checked ? 'text-gray-800' : 'text-gray-500'}>{TRACKED_SPEC_LABELS[s]}</span>
+                              {isSuggested && !checked && (
+                                <span className="px-1 py-0 text-[8px] rounded font-sans uppercase tracking-wide border bg-sky-50 text-sky-700 border-sky-200 font-semibold">
+                                  suggested
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Part Number — auto-assigned on first save; manually editable for custom numbering schemes. */}
                 <div className="mb-3">
                   <div className="flex items-center justify-between mb-1">
@@ -3046,6 +3126,16 @@ export default function FormulationWizard() {
                           <div className="flex items-center gap-2 text-xs text-gray-500 mb-2 flex-wrap">
                             <span>💰 $/kg:</span>
                             <input type="number" value={ing.costPerKg || ''} onChange={(e) => updateCost(index, e.target.value)} placeholder="0.00" className="w-20 bg-white border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-emerald-400" />
+                            {/* Cost confidence pill — reads from the underlying DB entry's costSource;
+                                user-typed overrides display the same source's confidence (Session 4+
+                                may add an explicit override flag to track user-edited values separately). */}
+                            {(() => {
+                              const ingDb = ing.foodData?.type === 'industrial' ? (ing.foodData.data as IndustrialIngredient) : null;
+                              const conf = mapCostToConfidence(ingDb);
+                              if (conf !== 'estimated' && conf !== 'inferred') return null;
+                              const pillClass = conf === 'estimated' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-stone-100 text-stone-700 border-stone-300';
+                              return <span className={`px-1 py-0 text-[8px] rounded border uppercase tracking-wide font-semibold ${pillClass}`}>{conf}</span>;
+                            })()}
                             <span className="text-emerald-600 font-medium">${(grams / 1000 * (ing.costPerKg || 0)).toFixed(3)} total</span>
                             <span className="text-gray-400">• {grams.toFixed(1)} g</span>
                             {ing.supplier && <span className="text-gray-400">• {ing.supplier}</span>}
@@ -3990,17 +4080,39 @@ export default function FormulationWizard() {
               {/* Identity → Formula → Determination → Packaging/Dosage/Serving → Sustainability → Cost.
                   Decisions flow downward; consequences appear in real-time. Cost is LAST so the user
                   sees the regulatory + dosing + sustainability story before the dollar story. */}
-              {ingredients.length > 0 && (
+              {ingredients.length > 0 && (() => {
+                // Roll up per-ingredient cost confidence to a formula-level floor (>=5% mass threshold).
+                // Per-ingredient cost confidence comes from each ingredient's IndustrialIngredient
+                // costSource via mapCostToConfidence; user-typed overrides retain the source's confidence.
+                const costContribs = ingredients.map(i => {
+                  const iDb = i.foodData?.type === 'industrial' ? (i.foodData.data as IndustrialIngredient) : null;
+                  return { massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1), confidence: mapCostToConfidence(iDb) };
+                });
+                const formulaCostConfidence = rollupCostConfidence(costContribs);
+                const showCostPill = formulaCostConfidence === 'estimated' || formulaCostConfidence === 'inferred';
+                const costPillClass = formulaCostConfidence === 'estimated'
+                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                  : 'bg-stone-100 text-stone-700 border-stone-300';
+                const costPill = showCostPill && (
+                  <span className={`px-1 py-0 text-[8px] rounded border uppercase tracking-wide font-semibold ${costPillClass}`}>{formulaCostConfidence}</span>
+                );
+                // Range-half-width for each rolled cost (relative tolerance on the rolled-up number).
+                const perKg = totalWeightKg > 0 ? totalCost / totalWeightKg : 0;
+                const perKgDelta = perKg > 0 ? (costRangedSpec(perKg, formulaCostConfidence).range.high - perKg) : 0;
+                const perServingDelta = costPerServing > 0 ? (costRangedSpec(costPerServing, formulaCostConfidence).range.high - costPerServing) : 0;
+                const perPackageDelta = costPerPackage > 0 ? (costRangedSpec(costPerPackage, formulaCostConfidence).range.high - costPerPackage) : 0;
+                const totalDelta = totalCost > 0 ? (costRangedSpec(totalCost, formulaCostConfidence).range.high - totalCost) : 0;
+                return (
                 <div className="bg-white rounded-xl border border-emerald-200 p-6">
                   <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
-                    <h2 className="text-lg font-semibold text-gray-800">💰 Unit Economics</h2>
+                    <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">💰 Unit Economics{costPill}</h2>
                     <span className="text-[10px] uppercase tracking-wide text-gray-400">For production batch cost, see 🏭 Batch Sheet</span>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                     <div className="bg-emerald-50 rounded-lg p-3">
                       <p className="text-xs text-gray-500 mb-1">Per kg</p>
-                      <p className="text-2xl font-bold text-emerald-700">${totalWeightKg > 0 ? (totalCost / totalWeightKg).toFixed(2) : '0.00'}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">fundamental unit cost</p>
+                      <p className="text-2xl font-bold text-emerald-700">${perKg.toFixed(2)}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{perKgDelta > 0 ? `± $${perKgDelta.toFixed(2)} • ` : ''}fundamental unit cost</p>
                     </div>
                     <div className={`rounded-lg p-3 ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-2 border-rose-400' : 'bg-emerald-50'}`}>
                       <p className="text-xs text-gray-500 mb-1">Per Serving</p>
@@ -4012,7 +4124,7 @@ export default function FormulationWizard() {
                       <p className="text-[10px] text-gray-400 mt-0.5">
                         {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0
                           ? <span className="text-rose-600 font-semibold">Serving &gt; batch — check unit</span>
-                          : `${servingSize}${servingUnit} serving`}
+                          : `${perServingDelta > 0 ? `± $${perServingDelta.toFixed(3)} • ` : ''}${servingSize}${servingUnit} serving`}
                       </p>
                     </div>
                     <div className={`rounded-lg p-3 border-2 ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-rose-400' : 'bg-emerald-50 border-emerald-400'}`}>
@@ -4024,21 +4136,24 @@ export default function FormulationWizard() {
                       </p>
                       {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? (
                         <p className="text-[10px] text-rose-600 mt-0.5 font-semibold">Package &gt; batch — check unit</p>
-                      ) : packagingCostPerUnit > 0 && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">incl. ${packagingCostPerUnit.toFixed(3)} pkg</p>
+                      ) : packagingCostPerUnit > 0 ? (
+                        <p className="text-[10px] text-gray-400 mt-0.5">{perPackageDelta > 0 ? `± $${perPackageDelta.toFixed(3)} • ` : ''}incl. ${packagingCostPerUnit.toFixed(3)} pkg</p>
+                      ) : (
+                        perPackageDelta > 0 && <p className="text-[10px] text-gray-400 mt-0.5">± ${perPackageDelta.toFixed(3)}</p>
                       )}
                     </div>
                     <div className="bg-gray-50 rounded-lg p-3">
                       <p className="text-xs text-gray-500 mb-1">Formula Total</p>
                       <p className="text-2xl font-bold text-gray-700">${totalCost.toFixed(2)}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">for {totalWeightKg.toFixed(3)} kg as entered</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{totalDelta > 0 ? `± $${totalDelta.toFixed(2)} • ` : ''}for {totalWeightKg.toFixed(3)} kg as entered</p>
                     </div>
                   </div>
                   <p className="text-xs text-gray-400 mt-3">
-                    * Estimated. Override per-ingredient below with supplier quotes. Production-batch cost (scalable to any size) lives on the 🏭 Batch Sheet tab.
+                    Per-tile confidence reflects the formula-level cost rollup (floor across ingredients ≥ 5% mass). Override per-ingredient costs below with supplier quotes to upgrade the rollup. Production-batch cost (scalable to any size) lives on the 🏭 Batch Sheet tab.
                   </p>
                 </div>
-              )}
+                );
+              })()}
             </div>
 
             {/* RIGHT COLUMN - FDA Label */}
@@ -5125,85 +5240,119 @@ export default function FormulationWizard() {
                 );
               })()}
 
-              {/* Spec Analysis Panel */}
+              {/* Spec Analysis Panel — only the formulator's selected tracked specs render.
+                  Toggle the checklist near Product Type to add/remove metrics. */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-gray-800">🔬 Food Science Spec Analysis</h2>
-                  <span className="text-xs text-gray-400">estimates — verify in lab</span>
+                  <span className="text-xs text-gray-400">{effectiveTrackedSpecs.length === 0 ? 'No specs tracked — pick from checklist' : `${effectiveTrackedSpecs.length} tracked`}</span>
                 </div>
                 {ingredients.length === 0 ? (
                   <div className="text-center py-6 text-gray-400 text-sm italic">Specs appear here as you add ingredients</div>
+                ) : effectiveTrackedSpecs.length === 0 && !showAceticMoistureRatio && !showLowAcidComponentPct ? (
+                  <div className="text-center py-6 text-gray-400 text-sm italic">No specs tracked — open the &ldquo;Specs to Track&rdquo; checklist near Product Type to select what should appear here.</div>
                 ) : (
                   <>
                     <div className="grid grid-cols-2 gap-3">
-                      <SpecTile
-                        label="pH"
-                        value={specs.pH > 0 ? specs.pH.toFixed(2) : '—'}
-                        hint={specs.pH > 0 ? (specs.pH <= 4.0 ? 'High-acid' : specs.pH <= 4.6 ? 'Acidified / Acid' : 'Low-acid') : '—'}
-                        color={specs.pH <= 4.0 ? 'emerald' : specs.pH <= 4.6 ? 'amber' : 'red'}
-                      />
-                      <SpecTile
-                        label="Water Activity (a_w)"
-                        value={specs.aw > 0 ? specs.aw.toFixed(3) : '—'}
-                        hint={specs.aw > 0 ? (specs.aw <= 0.85 ? 'Shelf-stable by a_w' : specs.aw <= 0.91 ? 'Intermediate moisture' : 'High moisture') : '—'}
-                        color={specs.aw <= 0.85 ? 'emerald' : specs.aw <= 0.91 ? 'amber' : 'gray'}
-                      />
-                      <SpecTile
-                        label="Brix (soluble solids)"
-                        value={specs.brix > 0 ? `${specs.brix.toFixed(1)}°` : '—'}
-                        hint={specs.brix > 0 ? (specs.brix >= 65 ? 'Jam/preserve range' : specs.brix >= 30 ? 'High sugar' : specs.brix >= 10 ? 'Moderate' : 'Low') : '—'}
-                        color="emerald"
-                      />
-                      <SpecTile
-                        label="Moisture %"
-                        value={specs.moisture > 0 ? `${specs.moisture.toFixed(1)}%` : '—'}
-                        hint={`${specs.moisture > 70 ? 'High-moisture' : specs.moisture > 25 ? 'Intermediate' : 'Low-moisture'}`}
-                        color="emerald"
-                      />
-                      <SpecTile
-                        label="Bostwick (cm/30s)"
-                        value={`${specs.bostwickCmPer30s.toFixed(1)} cm`}
-                        hint={specs.bostwickClass}
-                        color="emerald"
-                      />
-                      <SpecTile
-                        label="Brookfield (cP est.)"
-                        value={specs.brookfieldCp < 1000 ? specs.brookfieldCp.toFixed(0) : `${(specs.brookfieldCp / 1000).toFixed(0)}k`}
-                        hint={specs.brookfieldClass}
-                        color="emerald"
-                      />
-                      <SpecTile
-                        label="Acetic Acid %"
-                        value={specs.aceticAcid > 0 ? `${specs.aceticAcid.toFixed(2)}%` : '—'}
-                        hint={specs.aceticAcid > 0 ? 'From vinegars / acid' : '—'}
-                        color="emerald"
-                      />
-                      <SpecTile
-                        label="Acetic / Moisture"
-                        value={specs.aceticMoistureRatio > 0 ? `${specs.aceticMoistureRatio.toFixed(2)}%` : '—'}
-                        hint={specs.aceticMoistureRatio >= 0.5
-                          ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" /><span>≥ 0.5% (acidified target)</span></span>
-                          : specs.aceticMoistureRatio > 0 ? 'Below 0.5% target' : '—'}
-                        color={specs.aceticMoistureRatio >= 0.5 ? 'emerald' : specs.aceticMoistureRatio > 0 ? 'amber' : 'gray'}
-                      />
-                      <SpecTile
-                        label="Low-Acid Components"
-                        value={`${specs.lowAcidComponentPct.toFixed(1)}%`}
-                        hint={
-                          specs.lowAcidComponentPct >= 10
-                            ? '≥ 10% → filing required if pH ≤ 4.6'
-                            : specs.lowAcidComponentPct >= 5
-                              ? '5–10% → gray zone'
-                              : '< 5% → naturally acid OK'
-                        }
-                        color={
-                          specs.lowAcidComponentPct >= 10
-                            ? 'red'
-                            : specs.lowAcidComponentPct >= 5
-                              ? 'amber'
-                              : 'emerald'
-                        }
-                      />
+                      {trackedSet.has('pH') && (
+                        <SpecTile
+                          label="pH"
+                          value={specs.pH > 0 ? formatRangedValue('pH', specs.pH, specs.confidence.pH, 2).text : '—'}
+                          confidence={specs.pH > 0 ? specs.confidence.pH : undefined}
+                          hint={specs.pH > 0 ? (specs.pH <= 4.0 ? 'High-acid' : specs.pH <= 4.6 ? 'Acidified / Acid' : 'Low-acid') : '—'}
+                          color={specs.pH <= 4.0 ? 'emerald' : specs.pH <= 4.6 ? 'amber' : 'red'}
+                        />
+                      )}
+                      {trackedSet.has('aw') && (
+                        <SpecTile
+                          label="Water Activity (a_w)"
+                          value={specs.aw > 0 ? formatRangedValue('aw', specs.aw, specs.confidence.aw, 3).text : '—'}
+                          confidence={specs.aw > 0 ? specs.confidence.aw : undefined}
+                          hint={specs.aw > 0 ? (specs.aw <= 0.85 ? 'Shelf-stable by a_w' : specs.aw <= 0.91 ? 'Intermediate moisture' : 'High moisture') : '—'}
+                          color={specs.aw <= 0.85 ? 'emerald' : specs.aw <= 0.91 ? 'amber' : 'gray'}
+                        />
+                      )}
+                      {trackedSet.has('brix') && (
+                        <SpecTile
+                          label="Brix (soluble solids)"
+                          value={specs.brix > 0 ? formatRangedValue('brix', specs.brix, specs.confidence.brix, 1, '°').text : '—'}
+                          confidence={specs.brix > 0 ? specs.confidence.brix : undefined}
+                          hint={specs.brix > 0 ? (specs.brix >= 65 ? 'Jam/preserve range' : specs.brix >= 30 ? 'High sugar' : specs.brix >= 10 ? 'Moderate' : 'Low') : '—'}
+                          color="emerald"
+                        />
+                      )}
+                      {trackedSet.has('moisture') && (
+                        <SpecTile
+                          label="Moisture %"
+                          value={specs.moisture > 0 ? formatRangedValue('moisture', specs.moisture, specs.confidence.moisture, 1, '%').text : '—'}
+                          confidence={specs.moisture > 0 ? specs.confidence.moisture : undefined}
+                          hint={`${specs.moisture > 70 ? 'High-moisture' : specs.moisture > 25 ? 'Intermediate' : 'Low-moisture'}`}
+                          color="emerald"
+                        />
+                      )}
+                      {/* Bostwick + Brookfield render unmarked — Session 4 viscosity work wires
+                          their per-metric confidence treatment as an additive change. */}
+                      {trackedSet.has('bostwick') && (
+                        <SpecTile
+                          label="Bostwick (cm/30s)"
+                          value={`${specs.bostwickCmPer30s.toFixed(1)} cm`}
+                          hint={specs.bostwickClass}
+                          color="emerald"
+                        />
+                      )}
+                      {trackedSet.has('brookfield') && (
+                        <SpecTile
+                          label="Brookfield (cP est.)"
+                          value={specs.brookfieldCp < 1000 ? specs.brookfieldCp.toFixed(0) : `${(specs.brookfieldCp / 1000).toFixed(0)}k`}
+                          hint={specs.brookfieldClass}
+                          color="emerald"
+                        />
+                      )}
+                      {trackedSet.has('aceticAcid') && (
+                        <SpecTile
+                          label="Acetic Acid %"
+                          value={specs.aceticAcid > 0 ? formatRangedValue('aceticAcid', specs.aceticAcid, specs.confidence.aceticAcid, 2, '%').text : '—'}
+                          confidence={specs.aceticAcid > 0 ? specs.confidence.aceticAcid : undefined}
+                          hint={specs.aceticAcid > 0 ? 'From vinegars / acid' : '—'}
+                          color="emerald"
+                        />
+                      )}
+                      {/* Auto-derived: A/M ratio when both inputs tracked */}
+                      {showAceticMoistureRatio && (
+                        <SpecTile
+                          label="Acetic / Moisture"
+                          value={specs.aceticMoistureRatio > 0 ? `${specs.aceticMoistureRatio.toFixed(2)}%` : '—'}
+                          confidence={specs.aceticMoistureRatio > 0
+                            ? worstConfidence(specs.confidence.aceticAcid, specs.confidence.moisture)
+                            : undefined}
+                          hint={specs.aceticMoistureRatio >= 0.5
+                            ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" /><span>≥ 0.5% (acidified target)</span></span>
+                            : specs.aceticMoistureRatio > 0 ? 'Below 0.5% target' : '—'}
+                          color={specs.aceticMoistureRatio >= 0.5 ? 'emerald' : specs.aceticMoistureRatio > 0 ? 'amber' : 'gray'}
+                        />
+                      )}
+                      {/* Auto-derived: LAC% when pH tracked */}
+                      {showLowAcidComponentPct && (
+                        <SpecTile
+                          label="Low-Acid Components"
+                          value={`${specs.lowAcidComponentPct.toFixed(1)}%`}
+                          confidence={specs.pH > 0 ? specs.confidence.pH : undefined}
+                          hint={
+                            specs.lowAcidComponentPct >= 10
+                              ? '≥ 10% → filing required if pH ≤ 4.6'
+                              : specs.lowAcidComponentPct >= 5
+                                ? '5–10% → gray zone'
+                                : '< 5% → naturally acid OK'
+                          }
+                          color={
+                            specs.lowAcidComponentPct >= 10
+                              ? 'red'
+                              : specs.lowAcidComponentPct >= 5
+                                ? 'amber'
+                                : 'emerald'
+                          }
+                        />
+                      )}
                     </div>
 
                     {/* ══════════ REAL-TIME 21 CFR CLASSIFICATION PANEL ══════════ */}
@@ -7868,62 +8017,51 @@ export default function FormulationWizard() {
                   </div>
                 </div>
 
-                {/* Production Cost Summary — scaled to the target batch size */}
-                {totalCost > 0 && (
-                  <section className="mb-6">
-                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Production Cost ({batchSize} {batchSizeUnit})</h2>
-                    {(() => {
-                      const scaledIngredientCost = totalCost * scaleFactor;
-                      const unitsProduced = packageSizeInGrams > 0 ? Math.floor(targetBatchGrams / packageSizeInGrams) : 0;
-                      const scaledPackagingCost = packagingCostPerUnit * unitsProduced;
-                      const totalProductionCost = scaledIngredientCost + scaledPackagingCost;
-                      const costPerUnit = unitsProduced > 0 ? totalProductionCost / unitsProduced : 0;
-                      const costPerKg = targetBatchGrams > 0 ? (scaledIngredientCost / (targetBatchGrams / 1000)) : 0;
-                      return (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <div className="text-gray-500 text-[10px] uppercase tracking-wide">Ingredient Cost</div>
-                            <div className="font-bold text-lg">${scaledIngredientCost.toFixed(2)}</div>
-                            <div className="text-[10px] text-gray-500">${costPerKg.toFixed(2)}/kg</div>
-                          </div>
-                          {scaledPackagingCost > 0 && (
-                            <div>
-                              <div className="text-gray-500 text-[10px] uppercase tracking-wide">Packaging Cost</div>
-                              <div className="font-bold text-lg">${scaledPackagingCost.toFixed(2)}</div>
-                              <div className="text-[10px] text-gray-500">{unitsProduced} units × ${packagingCostPerUnit.toFixed(3)}</div>
-                            </div>
-                          )}
-                          <div>
-                            <div className="text-gray-500 text-[10px] uppercase tracking-wide">Total Batch Cost</div>
-                            <div className="font-bold text-lg text-emerald-700">${totalProductionCost.toFixed(2)}</div>
-                          </div>
-                          {unitsProduced > 0 && (
-                            <div>
-                              <div className="text-gray-500 text-[10px] uppercase tracking-wide">Cost / Retail Unit</div>
-                              <div className="font-bold text-lg text-emerald-700">${costPerUnit.toFixed(3)}</div>
-                              <div className="text-[10px] text-gray-500">{unitsProduced} units produced</div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                    <p className="text-[10px] text-gray-400 mt-2 italic">* Based on estimated ingredient costs. Override per-ingredient with supplier quotes in the Build tab for accuracy.</p>
-                  </section>
-                )}
+                {/* Production Cost block intentionally removed — cost lives on the Build Sheet
+                    Unit Economics block (with formula-level confidence rollup). The Batch Sheet
+                    is the production document; cost is a Build/procurement concern. */}
 
-                {/* Target Specs */}
+                {/* Target Specs — only formulator-tracked specs render. Toggle via the
+                    "Specs to Track" checklist near Product Type on the Build tab. Auto-derived
+                    metrics (A/M ratio, LAC%) appear when their inputs are tracked. */}
                 <section className="mb-6">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Target Specs</h2>
-                  <div className="grid grid-cols-4 gap-4 text-sm">
-                    <div><span className="text-gray-500">pH</span><br /><span className="font-bold text-lg">{specs.pH > 0 ? specs.pH.toFixed(2) : '—'}</span></div>
-                    <div><span className="text-gray-500">Brix</span><br /><span className="font-bold text-lg">{specs.brix > 0 ? specs.brix.toFixed(1) + '°' : '—'}</span></div>
-                    <div><span className="text-gray-500">Moisture</span><br /><span className="font-bold text-lg">{specs.moisture.toFixed(1)}%</span></div>
-                    <div><span className="text-gray-500">a_w</span><br /><span className="font-bold text-lg">{specs.aw > 0 ? specs.aw.toFixed(3) : '—'}</span></div>
-                    <div><span className="text-gray-500">Bostwick</span><br /><span className="font-bold text-lg">{specs.bostwickCmPer30s.toFixed(1)} cm/30s</span></div>
-                    <div><span className="text-gray-500">Brookfield est.</span><br /><span className="font-bold text-lg">{specs.brookfieldCp.toLocaleString()} cP</span></div>
-                    <div><span className="text-gray-500">Acetic acid</span><br /><span className="font-bold text-lg">{specs.aceticAcid > 0 ? specs.aceticAcid.toFixed(2) + '%' : '—'}</span></div>
-                    <div><span className="text-gray-500">A/M ratio</span><br /><span className="font-bold text-lg">{specs.aceticMoistureRatio > 0 ? specs.aceticMoistureRatio.toFixed(2) + '%' : '—'}</span></div>
-                  </div>
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
+                    <span>Target Specs</span>
+                    <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">{effectiveTrackedSpecs.length} tracked + auto-derived</span>
+                  </h2>
+                  {effectiveTrackedSpecs.length === 0 && !showAceticMoistureRatio && !showLowAcidComponentPct ? (
+                    <p className="text-xs text-gray-500 italic">No specs tracked. Open the &ldquo;Specs to Track&rdquo; checklist on the Build tab to select which specs should appear here.</p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-4 text-sm">
+                      {trackedSet.has('pH') && (
+                        <div><span className="text-gray-500">pH</span><br /><span className="font-bold text-lg">{specs.pH > 0 ? formatRangedValue('pH', specs.pH, specs.confidence.pH, 2).text : '—'}</span></div>
+                      )}
+                      {trackedSet.has('brix') && (
+                        <div><span className="text-gray-500">Brix</span><br /><span className="font-bold text-lg">{specs.brix > 0 ? formatRangedValue('brix', specs.brix, specs.confidence.brix, 1, '°').text : '—'}</span></div>
+                      )}
+                      {trackedSet.has('moisture') && (
+                        <div><span className="text-gray-500">Moisture</span><br /><span className="font-bold text-lg">{specs.moisture > 0 ? formatRangedValue('moisture', specs.moisture, specs.confidence.moisture, 1, '%').text : '—'}</span></div>
+                      )}
+                      {trackedSet.has('aw') && (
+                        <div><span className="text-gray-500">a_w</span><br /><span className="font-bold text-lg">{specs.aw > 0 ? formatRangedValue('aw', specs.aw, specs.confidence.aw, 3).text : '—'}</span></div>
+                      )}
+                      {trackedSet.has('bostwick') && (
+                        <div><span className="text-gray-500">Bostwick</span><br /><span className="font-bold text-lg">{specs.bostwickCmPer30s.toFixed(1)} cm/30s</span></div>
+                      )}
+                      {trackedSet.has('brookfield') && (
+                        <div><span className="text-gray-500">Brookfield est.</span><br /><span className="font-bold text-lg">{specs.brookfieldCp.toLocaleString()} cP</span></div>
+                      )}
+                      {trackedSet.has('aceticAcid') && (
+                        <div><span className="text-gray-500">Acetic acid</span><br /><span className="font-bold text-lg">{specs.aceticAcid > 0 ? formatRangedValue('aceticAcid', specs.aceticAcid, specs.confidence.aceticAcid, 2, '%').text : '—'}</span></div>
+                      )}
+                      {showAceticMoistureRatio && (
+                        <div><span className="text-gray-500">A/M ratio</span><br /><span className="font-bold text-lg">{specs.aceticMoistureRatio > 0 ? specs.aceticMoistureRatio.toFixed(2) + '%' : '—'}</span></div>
+                      )}
+                      {showLowAcidComponentPct && (
+                        <div><span className="text-gray-500">LAC%</span><br /><span className="font-bold text-lg">{specs.lowAcidComponentPct.toFixed(1)}%</span></div>
+                      )}
+                    </div>
+                  )}
                   <p className="text-xs text-gray-500 italic mt-2">{specs.regulatoryClass}</p>
                   {processTemplate.targetSpecs && processTemplate.targetSpecs.length > 0 && (
                     <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
@@ -8707,16 +8845,35 @@ function FilingInput(props: { label: string; value: string; onChange: (v: string
 // ============================================================
 // Small presentational helper components
 // ============================================================
-function SpecTile(props: { label: string; value: string; hint: ReactNode; color: 'emerald' | 'amber' | 'red' | 'gray' }) {
+function SpecTile(props: {
+  label: string;
+  value: string;
+  hint: ReactNode;
+  color: 'emerald' | 'amber' | 'red' | 'gray';
+  /** Optional Class 1a confidence indicator. When 'estimated' / 'inferred' a pill renders
+   *  next to the label; 'measured' / 'calculated' / 'unknown' / undefined render unmarked. */
+  confidence?: Confidence;
+}) {
   const bgMap = {
     emerald: 'bg-emerald-50 border-emerald-200 text-emerald-800',
     amber: 'bg-amber-50 border-amber-200 text-amber-800',
     red: 'bg-red-50 border-red-200 text-red-800',
     gray: 'bg-gray-50 border-gray-200 text-gray-700',
   };
+  const showPill = props.confidence === 'estimated' || props.confidence === 'inferred';
+  const pillClass = props.confidence === 'estimated'
+    ? 'bg-amber-100 text-amber-800 border-amber-300'
+    : 'bg-stone-100 text-stone-700 border-stone-300';
   return (
     <div className={`rounded-lg border p-3 ${bgMap[props.color]}`}>
-      <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">{props.label}</p>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[10px] uppercase tracking-wide text-gray-500">{props.label}</p>
+        {showPill && (
+          <span className={`px-1 py-0.5 text-[8px] rounded font-sans uppercase tracking-wide border ${pillClass}`}>
+            {props.confidence}
+          </span>
+        )}
+      </div>
       <p className="text-xl font-bold">{props.value}</p>
       <p className="text-[10px] text-gray-500 mt-0.5">{props.hint}</p>
     </div>
