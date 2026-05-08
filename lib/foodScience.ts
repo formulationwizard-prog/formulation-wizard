@@ -501,6 +501,60 @@ export function mapSpecToConfidence(spec: IngredientSpec): Confidence {
   return 'estimated';
 }
 
+// ============================================================
+// Cost-class confidence (Class 1a — commercial terms)
+// ------------------------------------------------------------
+// Cost has wider real-world variance than chemistry: agricultural
+// commodity pricing swings ±25% within seasons, ±50% across years.
+// Verified supplier quotes age out — a quote captured today is
+// MEASURED but auto-downgrades to ESTIMATED after costValidUntil
+// passes (default 60 days from capture). See feedback memory:
+// three_class_value_taxonomy.md.
+// ============================================================
+
+const COST_RANGE_TABLE: Record<Confidence, RangeRule> = {
+  measured:   { kind: 'rel', tolerance: 0.05 }, // verified quote within validity
+  calculated: { kind: 'rel', tolerance: 0.05 }, // propagated rollup from MEASURED inputs
+  estimated:  { kind: 'rel', tolerance: 0.25 }, // industry-typical / stale quote / AI scaffolding
+  inferred:   { kind: 'rel', tolerance: 0.50 }, // category default / extrapolation
+  unknown:    { kind: 'rel', tolerance: 0    },
+};
+
+/**
+ * Build a RangedValue for a cost (per-kg, per-formula, per-package, per-serving).
+ * Always relative tolerances; bounds clamped to >= 0.
+ */
+export function costRangedSpec(value: number, confidence: Confidence, source?: string): RangedValue {
+  const rule = COST_RANGE_TABLE[confidence];
+  const delta = value * rule.tolerance;
+  return { value, range: { low: Math.max(0, value - delta), high: value + delta }, confidence, source };
+}
+
+/**
+ * Translate an IndustrialIngredient's cost-provenance fields into the
+ * 5-level Confidence taxonomy. Pass `today` (YYYY-MM-DD) to override the
+ * staleness check date for testing; defaults to the current date.
+ *
+ * Mapping:
+ *   • costPerKg falsy → UNKNOWN
+ *   • costSource: 'verified-quote' + within costValidUntil → MEASURED
+ *   • costSource: 'verified-quote' + past costValidUntil   → ESTIMATED (stale)
+ *   • costSource: 'verified-quote' + no validUntil set     → ESTIMATED (treat as stale)
+ *   • costSource: 'category-default' → INFERRED
+ *   • costSource undefined or 'industry-typical' → ESTIMATED
+ */
+export function mapCostToConfidence(ing: IndustrialIngredient | null | undefined, today?: string): Confidence {
+  if (!ing || !ing.costPerKg || ing.costPerKg <= 0) return 'unknown';
+  const source = ing.costSource;
+  if (source === 'verified-quote') {
+    if (!ing.costValidUntil) return 'estimated';
+    const todayStr = today ?? new Date().toISOString().slice(0, 10);
+    return ing.costValidUntil >= todayStr ? 'measured' : 'estimated';
+  }
+  if (source === 'category-default') return 'inferred';
+  return 'estimated';
+}
+
 /**
  * Empirical moisture → water activity curve.
  * ------------------------------------------------------------

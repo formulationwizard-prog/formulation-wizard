@@ -36,12 +36,12 @@ import {
 } from '@/lib/utils';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
 import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
-import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, type SpecMetric } from '@/lib/foodScience';
+import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec, mapCostToConfidence, type SpecMetric } from '@/lib/foodScience';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { getPackagingSustainability } from '@/lib/packagingSustainability';
 import { CERT_LABELS, getSupplierInfo } from '@/lib/data/suppliers';
-import type { SustainabilityCert, LeadTimeBucket, SupplierQualification, SupplierDocType } from '@/types';
+import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualification, SupplierDocType } from '@/types';
 import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
 import { generatePartNumber } from '@/lib/partNumber';
 import { getIngredientPartNumber, getPackagingPartNumber, getCustomPackagingPartNumber } from '@/lib/skuCodes';
@@ -6526,38 +6526,62 @@ export default function FormulationWizard() {
         // reframe in memory/project_honest_estimate_reframe.md).
         const ingSpec = getSpec(ing.name, dbData?.category);
         const specConfidence = mapSpecToConfidence(ingSpec);
+        const costConfidence = mapCostToConfidence(dbData);
         const profile = getSustainabilityProfile({ name: ing.name, category: dbData?.category || '' });
         const today = new Date().toISOString().slice(0, 10);
 
-        // Confidence pill rendering — only shown for ESTIMATED and INFERRED.
-        // MEASURED/CALCULATED values render unmarked (absence of pill = trust the number).
-        const renderConfidencePill = () => {
-          if (specConfidence !== 'estimated' && specConfidence !== 'inferred') return null;
-          const pillClass = specConfidence === 'estimated'
+        // Confidence pill — only rendered for ESTIMATED and INFERRED. MEASURED/CALCULATED
+        // are unmarked (absence of pill = trust the number); UNKNOWN is rendered as em-dash
+        // by the caller, not as a pill.
+        const renderPill = (conf: Confidence) => {
+          if (conf !== 'estimated' && conf !== 'inferred') return null;
+          const pillClass = conf === 'estimated'
             ? 'bg-amber-100 text-amber-800 border-amber-300'
             : 'bg-stone-100 text-stone-700 border-stone-300';
           return (
             <span className={`ml-2 px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border ${pillClass}`}>
-              {specConfidence}
+              {conf}
             </span>
           );
         };
 
+        // Class 3 ("we require") pill — buyer requirement, not a prediction. Slate family
+        // to distinguish from Class 1a confidence pills (amber/stone).
+        const requirementPill = (
+          <span className="ml-2 px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-slate-100 text-slate-700 border-slate-300 whitespace-nowrap">
+            we require
+          </span>
+        );
+
         // Render a Required Specifications row using the ingredient's per-metric range.
+        // Display the wider half-width when the metric's physical bounds clamp the range
+        // asymmetrically (e.g., aw near 1.0): "± 0.030" honestly reports the underlying
+        // tolerance, with the physical ceiling implicit. Showing the clamped-side delta
+        // would understate uncertainty.
         const renderRangedRow = (label: string, metric: SpecMetric, value: number, decimals: number, unit: string, testMethod: string) => {
           const rv = rangedSpec(metric, value, specConfidence);
-          const delta = rv.range.high - rv.value;
+          const delta = Math.max(rv.value - rv.range.low, rv.range.high - rv.value);
           return (
             <tr className="border-b border-gray-100">
               <td className="py-1.5 px-3 font-medium">{label}</td>
               <td className="py-1.5 px-3 font-mono">
                 {value.toFixed(decimals)}{unit} ± {delta.toFixed(decimals)}{unit}
-                {renderConfidencePill()}
+                {renderPill(specConfidence)}
               </td>
               <td className="py-1.5 px-3 text-gray-600">{testMethod}</td>
             </tr>
           );
         };
+
+        // Render a Class 3 buyer-requirement row in Section 6 (label gets the "we require" pill).
+        const renderRequirementRow = (label: string, value: React.ReactNode) => (
+          <tr className="border-b border-gray-100">
+            <td className="py-1.5 px-3 font-medium w-48">
+              <span>{label}</span>{requirementPill}
+            </td>
+            <td className="py-1.5 px-3">{value}</td>
+          </tr>
+        );
 
         return (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 overflow-auto print:bg-transparent print:p-0 print:static print:overflow-visible" onClick={() => setSpecSheetIngredientIndex(null)}>
@@ -6642,6 +6666,8 @@ export default function FormulationWizard() {
                         renderRangedRow('Moisture', 'moisture', ingSpec.moisture, 1, '%', 'Loss on drying @ 105°C or Karl Fischer')}
                       {ingSpec.brix !== undefined && ingSpec.brix > 0 &&
                         renderRangedRow('Brix', 'brix', ingSpec.brix, 1, '°', 'Digital refractometer @ 20°C')}
+                      {ingSpec.aceticAcid !== undefined && ingSpec.aceticAcid > 0 &&
+                        renderRangedRow('Acetic Acid', 'aceticAcid', ingSpec.aceticAcid, 2, '%', 'Titration with NaOH (AOAC 930.35)')}
                       {dbData?.nutrition?.protein !== undefined && dbData.nutrition.protein > 0 && (
                         <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Protein (typical)</td><td className="py-1.5 px-3 font-mono">{dbData.nutrition.protein}% per 100g</td><td className="py-1.5 px-3 text-gray-600">Kjeldahl N × 6.25 (or 5.7 for wheat)</td></tr>
                       )}
@@ -6654,9 +6680,15 @@ export default function FormulationWizard() {
                   </table>
                 </section>
 
-                {/* Microbiological Criteria */}
+                {/* Microbiological Criteria — limits are product-class typical defaults
+                    (INFERRED), not pulled from per-ingredient references. The Method
+                    column cites authoritative test references (Class 2) — those don't
+                    carry confidence pills because the citation itself communicates authority. */}
                 <section className="mb-6">
-                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">3. Microbiological Criteria</h2>
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3 flex items-center justify-between">
+                    <span>3. Microbiological Criteria</span>
+                    <span className="px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-stone-100 text-stone-700 border-stone-300 normal-case">inferred</span>
+                  </h2>
                   <table className="w-full text-sm border border-gray-200">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500">
@@ -6675,11 +6707,17 @@ export default function FormulationWizard() {
                       <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium"><em>Staphylococcus aureus</em></td><td className="py-1.5 px-3 font-mono">≤ 100 CFU/g</td><td className="py-1.5 px-3 text-gray-600">FDA BAM Ch. 12</td></tr>
                     </tbody>
                   </table>
+                  <p className="text-[10px] text-gray-500 italic mt-2 leading-relaxed">
+                    Limits above are product-class typical defaults — not pulled from a per-ingredient reference. Tighten where applicable to your finished-product category (e.g., RTE / refrigerated foods, infant nutrition, dietary supplements) and confirm acceptance with your supplier prior to first lot. Test method citations (AOAC, FDA BAM) are authoritative.
+                  </p>
                 </section>
 
-                {/* Certification Requirements */}
+                {/* Certification Requirements — Class 3 (buyer requirement), not a prediction. */}
                 <section className="mb-6">
-                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">4. Certification Requirements</h2>
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3 flex items-center justify-between">
+                    <span>4. Certification Requirements</span>
+                    <span className="px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-slate-100 text-slate-700 border-slate-300">we require</span>
+                  </h2>
                   <div className="flex flex-wrap gap-2 text-xs">
                     {profile.organicAvailable && /\borganic\b/i.test(ing.name) && (
                       <span className="px-2 py-1 bg-emerald-50 border border-emerald-300 rounded">USDA Organic (NOP)</span>
@@ -6705,9 +6743,12 @@ export default function FormulationWizard() {
                   </div>
                 </section>
 
-                {/* Documentation Required */}
+                {/* Documentation Required — Class 3 (buyer requirement). */}
                 <section className="mb-6">
-                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">5. Documentation Required with Each Lot</h2>
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3 flex items-center justify-between">
+                    <span>5. Documentation Required with Each Lot</span>
+                    <span className="px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-slate-100 text-slate-700 border-slate-300">we require</span>
+                  </h2>
                   <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
                     <li>Certificate of Analysis (COA) with lot number, manufacture date, values vs. spec</li>
                     <li>Allergen Statement / Letter of Guarantee</li>
@@ -6719,24 +6760,58 @@ export default function FormulationWizard() {
                   </ul>
                 </section>
 
-                {/* Commercial Terms */}
+                {/* Commercial Terms — mixed: Target Cost is Class 1a (a prediction with confidence
+                    + range), the other rows are Class 3 (buyer requirements). Per-row treatment.
+                    See feedback memory three_class_value_taxonomy.md. */}
                 <section className="mb-6">
-                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">6. Commercial Terms (Target)</h2>
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">6. Commercial Terms</h2>
                   <table className="w-full text-sm border border-gray-200">
                     <tbody>
-                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium w-48">Target Cost</td><td className="py-1.5 px-3 font-mono">${(ing.costPerKg || 0).toFixed(2)}/kg (delivered)</td></tr>
-                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Minimum Order Quantity</td><td className="py-1.5 px-3">To be agreed — target 1 pallet / 1,000 kg typical</td></tr>
-                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Lead Time</td><td className="py-1.5 px-3">≤ 2 weeks from order release</td></tr>
-                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Shelf Life at Receipt</td><td className="py-1.5 px-3">≥ 75% of labeled shelf life remaining</td></tr>
-                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Payment Terms</td><td className="py-1.5 px-3">Net 30, terms negotiable</td></tr>
-                      <tr className="border-b border-gray-100"><td className="py-1.5 px-3 font-medium">Preferred Suppliers (in order)</td><td className="py-1.5 px-3 text-[11px]">{(dbData?.suppliers || []).join(' / ') || '—'}</td></tr>
+                      {/* Target Cost — Class 1a, cost-class confidence + range (default ESTIMATED ±25%
+                          for industry-typical scaffolding; MEASURED ±5% if a verified supplier quote
+                          with valid costValidUntil is attached). */}
+                      {(() => {
+                        const cost = ing.costPerKg || 0;
+                        if (cost <= 0 || costConfidence === 'unknown') {
+                          return (
+                            <tr className="border-b border-gray-100">
+                              <td className="py-1.5 px-3 font-medium w-48">Target Cost</td>
+                              <td className="py-1.5 px-3 font-mono text-gray-400">— (no cost data)</td>
+                            </tr>
+                          );
+                        }
+                        const rv = costRangedSpec(cost, costConfidence);
+                        const delta = rv.range.high - rv.value;
+                        const stale = dbData?.costSource === 'verified-quote' && costConfidence === 'estimated';
+                        // Use 4 decimals for very-low-cost items (e.g. potable water at $0.002/kg
+                        // would round to "$0.00" at 2 decimals); 2 decimals for everything else.
+                        const dec = cost < 0.10 ? 4 : 2;
+                        return (
+                          <tr className="border-b border-gray-100">
+                            <td className="py-1.5 px-3 font-medium w-48">Target Cost</td>
+                            <td className="py-1.5 px-3 font-mono">
+                              ${cost.toFixed(dec)}/kg ± ${delta.toFixed(dec)}/kg (delivered)
+                              {renderPill(costConfidence)}
+                              {stale && <span className="ml-2 text-[10px] italic text-amber-700">stale quote — verify current pricing</span>}
+                            </td>
+                          </tr>
+                        );
+                      })()}
+                      {renderRequirementRow('Minimum Order Quantity', 'To be agreed — target 1 pallet / 1,000 kg typical')}
+                      {renderRequirementRow('Lead Time', '≤ 2 weeks from order release')}
+                      {renderRequirementRow('Shelf Life at Receipt', '≥ 75% of labeled shelf life remaining')}
+                      {renderRequirementRow('Payment Terms', 'Net 30, terms negotiable')}
+                      {renderRequirementRow('Preferred Suppliers (in order)', <span className="text-[11px]">{(dbData?.suppliers || []).join(' / ') || '—'}</span>)}
                     </tbody>
                   </table>
                 </section>
 
-                {/* Incoming Inspection Protocol */}
+                {/* Incoming Inspection Protocol — Class 3 (buyer-side QA process). */}
                 <section className="mb-6">
-                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">7. Incoming QA Inspection</h2>
+                  <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3 flex items-center justify-between">
+                    <span>7. Incoming QA Inspection</span>
+                    <span className="px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-slate-100 text-slate-700 border-slate-300">we require</span>
+                  </h2>
                   <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
                     <li>COA review against spec — reject any lot with out-of-spec parameter without pre-arranged deviation approval</li>
                     <li>Visual inspection for damage, contamination, infestation</li>

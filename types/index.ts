@@ -507,6 +507,26 @@ export interface IndustrialIngredient {
    */
   potencyFactor?: number;
 
+  // ─── Cost provenance (2026-05-07 confidence taxonomy) ─────────────────
+  /**
+   * Source of the costPerKg value. Drives cost-class confidence rendering on
+   * the spec-sheet Target Cost row and downstream rollups (formula totals,
+   * per-package, per-serving). Undefined defaults to 'industry-typical' for
+   * scaffolded ingredients (the vast majority of the database today).
+   *   • verified-quote   — explicit supplier quote with a known capture date
+   *                        → MEASURED while within costValidUntil, ESTIMATED past
+   *   • industry-typical — AI-estimate / commodity-pricing scaffolding → ESTIMATED
+   *   • category-default — extrapolated from category mean → INFERRED
+   */
+  costSource?: 'verified-quote' | 'industry-typical' | 'category-default';
+  /**
+   * ISO date (YYYY-MM-DD) when a 'verified-quote' costPerKg expires. After this
+   * date the value auto-downgrades to ESTIMATED ('stale quote'). Default
+   * staleness when ingesting new quotes is 60 days from capture. Has no effect
+   * for sources other than 'verified-quote'.
+   */
+  costValidUntil?: string;
+
   // ─── Functional / nutraceutical metadata (optional) ────────────────────
   /**
    * One or more functional roles this ingredient serves. Used by the Nutraceuticals
