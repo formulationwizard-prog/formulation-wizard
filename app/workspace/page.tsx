@@ -38,6 +38,7 @@ import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/li
 import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
 import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec, mapCostToConfidence, formatRangedValue, rollupCostConfidence, worstConfidence, type SpecMetric } from '@/lib/foodScience';
 import { getTrackedSpecDefaults, TRACKED_SPEC_LABELS, TRACKED_SPEC_ORDER, type TrackedSpec } from '@/lib/trackedSpecs';
+import { ConfidencePill } from '@/components/ConfidencePill';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { getPackagingSustainability } from '@/lib/packagingSustainability';
@@ -1575,53 +1576,80 @@ export default function FormulationWizard() {
                   <span className={`font-mono font-semibold text-${readinessColor}-700`}>{filingReadinessPct}%</span>
                 </div>
 
-                {/* Issues pill — clicking scrolls to first critical (Phase 2 will swap to drawer) */}
-                <button
-                  type="button"
-                  onClick={onIssuesClick}
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-semibold transition ${
-                    issueCounts.critical > 0 ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
-                    : issueCounts.warnings > 0 ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
-                    : issueCounts.unknown > 0 ? 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
-                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                  }`}
-                  aria-label={totalIssues > 0 ? `${issuesLabel}: ${totalIssues}` : noIssuesLabel}
-                  disabled={totalIssues === 0}
-                >
-                  {totalIssues === 0 ? (
-                    <>
-                      <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />
-                      <span>{noIssuesLabel}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-gray-500 font-normal">{issuesLabel}:</span>
+                {/* Status pill — Design Y state machine (per Round 1 directive 2026-05-07):
+                    consumes findings PRIMARILY; the only Determination-Engine state it picks up
+                    is "Pending classification" when the engine returns insufficient-data /
+                    undetermined / '—'. Filing-readiness bar to the left handles the regulated-
+                    pathway-completeness question separately (acidified-foods stays "No active
+                    issues" if findings are clean). */}
+                {(() => {
+                  type StatusTone = 'emerald' | 'amber' | 'rose';
+                  type Status = { label: string; tone: StatusTone; icon: typeof CheckCircle2 };
+                  const status: Status = (() => {
+                    if (ingredients.length === 0) {
+                      return { label: noIssuesLabel, tone: 'emerald', icon: CheckCircle2 };
+                    }
+                    if (issueCounts.critical > 0) {
+                      return { label: 'Blocked', tone: 'rose', icon: OctagonX };
+                    }
+                    const cls = specs.productClassification;
+                    if (cls === '—' || cls === 'insufficient-data') {
+                      return { label: 'Pending classification', tone: 'amber', icon: AlertCircle };
+                    }
+                    if (issueCounts.warnings > 0 || issueCounts.unknown > 0) {
+                      return { label: 'Action required', tone: 'amber', icon: AlertTriangle };
+                    }
+                    return { label: noIssuesLabel, tone: 'emerald', icon: CheckCircle2 };
+                  })();
+                  const StatusIcon = status.icon;
+                  const toneClasses = status.tone === 'rose'
+                    ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                    : status.tone === 'amber'
+                      ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-700';
+                  const iconColor = status.tone === 'rose'
+                    ? 'text-rose-600'
+                    : status.tone === 'amber'
+                      ? 'text-amber-600'
+                      : 'text-emerald-600';
+                  // Click handler still scrolls to first critical/banned finding when there are
+                  // findings; for "Pending classification" with no findings, no-op (the Determination
+                  // Engine card on the Build tab is where the user sees why it can't classify).
+                  const clickable = totalIssues > 0;
+                  return (
+                    <button
+                      type="button"
+                      onClick={onIssuesClick}
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-semibold transition ${toneClasses}`}
+                      aria-label={totalIssues > 0 ? `${issuesLabel}: ${totalIssues}` : status.label}
+                      disabled={!clickable}
+                    >
+                      <StatusIcon className={`h-3 w-3 ${iconColor}`} aria-hidden="true" />
+                      <span>{status.label}</span>
                       {issueCounts.critical > 0 && (
-                        <span className="inline-flex items-center gap-0.5">
-                          <OctagonX className="h-3 w-3 text-rose-600" aria-hidden="true" />
+                        <span className="inline-flex items-center gap-0.5 ml-1 text-rose-700">
                           {issueCounts.critical} {criticalShort}
                         </span>
                       )}
                       {issueCounts.warnings > 0 && (
-                        <span className="inline-flex items-center gap-0.5">
-                          <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
+                        <span className="inline-flex items-center gap-0.5 ml-1 text-amber-700">
                           {issueCounts.warnings} {warningsShort}
                         </span>
                       )}
                       {issueCounts.unknown > 0 && (
-                        <span className="inline-flex items-center gap-0.5">
-                          <AlertCircle className="h-3 w-3 text-amber-500" aria-hidden="true" />
+                        <span className="inline-flex items-center gap-0.5 ml-1 text-amber-600">
                           {issueCounts.unknown} {unknownShort}
                         </span>
                       )}
-                    </>
-                  )}
-                </button>
+                    </button>
+                  );
+                })()}
 
-                {/* Compact metric chips */}
+                {/* Compact metric chips — pH gets Class 1a confidence + range treatment. */}
                 {specs.pH > 0 && (
-                  <span className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700 font-mono">
-                    pH {specs.pH.toFixed(2)}
+                  <span className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700 font-mono inline-flex items-center gap-1.5">
+                    <span>pH {formatRangedValue('pH', specs.pH, specs.confidence.pH, 2).text}</span>
+                    <ConfidencePill conf={specs.confidence.pH} size="xs" />
                   </span>
                 )}
                 {allergenStatement.length > 0 && (
@@ -1630,11 +1658,23 @@ export default function FormulationWizard() {
                     <span>{allergenStatement.length} allergen{allergenStatement.length !== 1 ? 's' : ''}</span>
                   </span>
                 )}
-                {perUnitCost > 0 && (
-                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-700 font-mono font-semibold">
-                    ${perUnitCost.toFixed(2)}/unit
-                  </span>
-                )}
+                {perUnitCost > 0 && (() => {
+                  // Same cost rollup confidence the Unit Economics block uses (>=5% mass threshold
+                  // floor across per-ingredient costSource confidences).
+                  const costContribs = ingredients.map(i => {
+                    const iDb = i.foodData?.type === 'industrial' ? (i.foodData.data as IndustrialIngredient) : null;
+                    return { massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1), confidence: mapCostToConfidence(iDb) };
+                  });
+                  const headerCostConfidence = rollupCostConfidence(costContribs);
+                  const perUnitDelta = costRangedSpec(perUnitCost, headerCostConfidence).range.high - perUnitCost;
+                  const dec = perUnitCost < 0.10 ? 4 : 2;
+                  return (
+                    <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-700 font-mono font-semibold inline-flex items-center gap-1.5">
+                      <span>${perUnitCost.toFixed(dec)} ± ${perUnitDelta.toFixed(dec)}/unit</span>
+                      <ConfidencePill conf={headerCostConfidence} size="xs" />
+                    </span>
+                  );
+                })()}
                 {/* Last saved indicator */}
                 <span className={`text-[11px] ${hasUnsavedChanges ? 'text-amber-600 font-semibold' : 'text-gray-500'}`}>
                   {hasUnsavedChanges ? '● Unsaved changes' : lastModifiedStr}
@@ -3131,10 +3171,7 @@ export default function FormulationWizard() {
                                 may add an explicit override flag to track user-edited values separately). */}
                             {(() => {
                               const ingDb = ing.foodData?.type === 'industrial' ? (ing.foodData.data as IndustrialIngredient) : null;
-                              const conf = mapCostToConfidence(ingDb);
-                              if (conf !== 'estimated' && conf !== 'inferred') return null;
-                              const pillClass = conf === 'estimated' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-stone-100 text-stone-700 border-stone-300';
-                              return <span className={`px-1 py-0 text-[8px] rounded border uppercase tracking-wide font-semibold ${pillClass}`}>{conf}</span>;
+                              return <ConfidencePill conf={mapCostToConfidence(ingDb)} size="xs" />;
                             })()}
                             <span className="text-emerald-600 font-medium">${(grams / 1000 * (ing.costPerKg || 0)).toFixed(3)} total</span>
                             <span className="text-gray-400">• {grams.toFixed(1)} g</span>
@@ -4089,13 +4126,7 @@ export default function FormulationWizard() {
                   return { massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1), confidence: mapCostToConfidence(iDb) };
                 });
                 const formulaCostConfidence = rollupCostConfidence(costContribs);
-                const showCostPill = formulaCostConfidence === 'estimated' || formulaCostConfidence === 'inferred';
-                const costPillClass = formulaCostConfidence === 'estimated'
-                  ? 'bg-amber-100 text-amber-800 border-amber-300'
-                  : 'bg-stone-100 text-stone-700 border-stone-300';
-                const costPill = showCostPill && (
-                  <span className={`px-1 py-0 text-[8px] rounded border uppercase tracking-wide font-semibold ${costPillClass}`}>{formulaCostConfidence}</span>
-                );
+                const costPill = <ConfidencePill conf={formulaCostConfidence} size="xs" />;
                 // Range-half-width for each rolled cost (relative tolerance on the rolled-up number).
                 const perKg = totalWeightKg > 0 ? totalCost / totalWeightKg : 0;
                 const perKgDelta = perKg > 0 ? (costRangedSpec(perKg, formulaCostConfidence).range.high - perKg) : 0;
@@ -6679,25 +6710,17 @@ export default function FormulationWizard() {
         const profile = getSustainabilityProfile({ name: ing.name, category: dbData?.category || '' });
         const today = new Date().toISOString().slice(0, 10);
 
-        // Confidence pill — only rendered for ESTIMATED and INFERRED. MEASURED/CALCULATED
-        // are unmarked (absence of pill = trust the number); UNKNOWN is rendered as em-dash
-        // by the caller, not as a pill.
-        const renderPill = (conf: Confidence) => {
-          if (conf !== 'estimated' && conf !== 'inferred') return null;
-          const pillClass = conf === 'estimated'
-            ? 'bg-amber-100 text-amber-800 border-amber-300'
-            : 'bg-stone-100 text-stone-700 border-stone-300';
-          return (
-            <span className={`ml-2 px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border ${pillClass}`}>
-              {conf}
-            </span>
-          );
-        };
+        // Confidence pill — uses shared ConfidencePill (Round 1 color language: MEASURED/UNKNOWN
+        // no pill, CALCULATED slate, ESTIMATED/INFERRED amber). Wrapping span adds left margin.
+        const renderPill = (conf: Confidence) => (
+          <span className="ml-2 inline-block"><ConfidencePill conf={conf} /></span>
+        );
 
         // Class 3 ("we require") pill — buyer requirement, not a prediction. Slate family
-        // to distinguish from Class 1a confidence pills (amber/stone).
+        // is reserved for Class 3; CALCULATED Class 1a uses stone. ESTIMATED/INFERRED Class 1a
+        // use amber. Three distinct pill colors keep classes visually separable.
         const requirementPill = (
-          <span className="ml-2 px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-slate-100 text-slate-700 border-slate-300 whitespace-nowrap">
+          <span className="ml-2 px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-slate-100 text-slate-700 border-slate-300 whitespace-nowrap font-semibold">
             we require
           </span>
         );
@@ -6836,7 +6859,7 @@ export default function FormulationWizard() {
                 <section className="mb-6">
                   <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3 flex items-center justify-between">
                     <span>3. Microbiological Criteria</span>
-                    <span className="px-1.5 py-0.5 text-[9px] rounded font-sans uppercase tracking-wide border bg-stone-100 text-stone-700 border-stone-300 normal-case">inferred</span>
+                    <ConfidencePill conf="inferred" />
                   </h2>
                   <table className="w-full text-sm border border-gray-200">
                     <thead className="bg-gray-50 border-b border-gray-200">
@@ -8850,8 +8873,9 @@ function SpecTile(props: {
   value: string;
   hint: ReactNode;
   color: 'emerald' | 'amber' | 'red' | 'gray';
-  /** Optional Class 1a confidence indicator. When 'estimated' / 'inferred' a pill renders
-   *  next to the label; 'measured' / 'calculated' / 'unknown' / undefined render unmarked. */
+  /** Optional Class 1a confidence indicator. ConfidencePill returns null for
+   *  'measured' / 'unknown' / undefined; renders amber for 'estimated'/'inferred',
+   *  slate for 'calculated'. */
   confidence?: Confidence;
 }) {
   const bgMap = {
@@ -8860,19 +8884,11 @@ function SpecTile(props: {
     red: 'bg-red-50 border-red-200 text-red-800',
     gray: 'bg-gray-50 border-gray-200 text-gray-700',
   };
-  const showPill = props.confidence === 'estimated' || props.confidence === 'inferred';
-  const pillClass = props.confidence === 'estimated'
-    ? 'bg-amber-100 text-amber-800 border-amber-300'
-    : 'bg-stone-100 text-stone-700 border-stone-300';
   return (
     <div className={`rounded-lg border p-3 ${bgMap[props.color]}`}>
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between mb-1 gap-1">
         <p className="text-[10px] uppercase tracking-wide text-gray-500">{props.label}</p>
-        {showPill && (
-          <span className={`px-1 py-0.5 text-[8px] rounded font-sans uppercase tracking-wide border ${pillClass}`}>
-            {props.confidence}
-          </span>
-        )}
+        <ConfidencePill conf={props.confidence} size="xs" />
       </div>
       <p className="text-xl font-bold">{props.value}</p>
       <p className="text-[10px] text-gray-500 mt-0.5">{props.hint}</p>

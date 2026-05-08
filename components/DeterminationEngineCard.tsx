@@ -18,11 +18,12 @@ import {
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
-import type { FormulationSpecs } from '../lib/foodScience';
+import { formatRangedValue, type FormulationSpecs } from '../lib/foodScience';
 import type { FilingRequirement } from '../lib/scheduledProcess';
 import { getCopy, type CopyKey } from '../lib/copy';
 import { useTier } from '../lib/hooks/useTier';
 import { AdvisoryNotice } from './AdvisoryNotice';
+import { ConfidencePill } from './ConfidencePill';
 
 type Severity = 'banned' | 'critical' | 'warning' | 'caution' | 'ok' | 'info';
 
@@ -129,7 +130,13 @@ function classifyForCard(
   }
 }
 
-/** Build the "driving metrics" sub-line. Different modes care about different signals. */
+/**
+ * Build the "driving metrics" sub-line. Different modes care about different signals.
+ *
+ * Round 1 directive 2026-05-07: pH, a_w, and LAC% render with Class 1a confidence
+ * treatment (range + ConfidencePill matching Spec Analysis panel). Spec coverage
+ * stays plain — it's a meta-spec about input completeness, not a chemistry estimate.
+ */
 function metricsLine(modeId: string, specs: FormulationSpecs): ReactNode {
   if (modeId === 'supplements') {
     return (
@@ -141,13 +148,47 @@ function metricsLine(modeId: string, specs: FormulationSpecs): ReactNode {
   if (specs.totalWeightG <= 0) {
     return <span className="text-xs text-gray-500 italic">No ingredients yet.</span>;
   }
-  const pieces: string[] = [];
-  if (specs.pH > 0)   pieces.push(`Equilibrium pH ${specs.pH.toFixed(2)}`);
-  if (specs.aw > 0)   pieces.push(`a_w ${specs.aw.toFixed(2)}`);
-  if (specs.lowAcidComponentPct > 0) pieces.push(`Low-acid components ${specs.lowAcidComponentPct.toFixed(1)}%`);
-  if (specs.coverage > 0) pieces.push(`Spec coverage ${(specs.coverage * 100).toFixed(0)}%`);
-  if (pieces.length === 0) return <span className="text-xs text-gray-500 italic">Awaiting spec data.</span>;
-  return <span className="text-xs text-gray-700 font-mono">{pieces.join(' · ')}</span>;
+  const items: ReactNode[] = [];
+  if (specs.pH > 0) {
+    items.push(
+      <span key="ph" className="inline-flex items-center gap-1">
+        <span>Equilibrium pH {formatRangedValue('pH', specs.pH, specs.confidence.pH, 2).text}</span>
+        <ConfidencePill conf={specs.confidence.pH} size="xs" />
+      </span>
+    );
+  }
+  if (specs.aw > 0) {
+    items.push(
+      <span key="aw" className="inline-flex items-center gap-1">
+        <span>a_w {formatRangedValue('aw', specs.aw, specs.confidence.aw, 3).text}</span>
+        <ConfidencePill conf={specs.confidence.aw} size="xs" />
+      </span>
+    );
+  }
+  if (specs.lowAcidComponentPct > 0) {
+    // LAC% derived from per-ingredient pH classifications — inherits pH confidence.
+    items.push(
+      <span key="lac" className="inline-flex items-center gap-1">
+        <span>Low-acid components {specs.lowAcidComponentPct.toFixed(1)}%</span>
+        <ConfidencePill conf={specs.confidence.pH} size="xs" />
+      </span>
+    );
+  }
+  if (specs.coverage > 0) {
+    // Plain — meta-spec about input completeness, not a chemistry estimate.
+    items.push(<span key="cov">Spec coverage {(specs.coverage * 100).toFixed(0)}%</span>);
+  }
+  if (items.length === 0) return <span className="text-xs text-gray-500 italic">Awaiting spec data.</span>;
+  return (
+    <span className="text-xs text-gray-700 font-mono inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {items.map((it, i) => (
+        <span key={i} className="inline-flex items-center gap-2">
+          {it}
+          {i < items.length - 1 && <span className="text-gray-400">·</span>}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export function DeterminationEngineCard({
