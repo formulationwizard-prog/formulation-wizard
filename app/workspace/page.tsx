@@ -41,6 +41,7 @@ import { getTrackedSpecDefaults, TRACKED_SPEC_LABELS, TRACKED_SPEC_ORDER, type T
 import { ConfidencePill } from '@/components/ConfidencePill';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
+import { buildIngredientStatement } from '@/lib/ingredientStatement';
 import { getPackagingSustainability } from '@/lib/packagingSustainability';
 import { CERT_LABELS, getSupplierInfo } from '@/lib/data/suppliers';
 import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualification, SupplierDocType } from '@/types';
@@ -547,7 +548,12 @@ export default function FormulationWizard() {
     setNutrition(n);
     setAllergenStatement(Array.from(allAllergens));
     const sorted = [...currentIngredients].sort((a, b) => (b.qty * (UNIT_TO_GRAMS[b.unit] || 1)) - (a.qty * (UNIT_TO_GRAMS[a.unit] || 1)));
-    setIngredientStatement(sorted.map(i => i.subIngredients?.length > 0 ? `${i.name} (${i.subIngredients.join(', ')})` : i.name).join(', '));
+    // Round 4 fix (2026-05-07): centralized assembly via buildIngredientStatement.
+    // Old inline logic produced "Honey (Industrial Grade) (Honey)" double-parens
+    // bug — slapped sub-ingredients in parens regardless of whether the sub list
+    // was just the simple name. New helper applies match-based simple/compound
+    // discrimination. See lib/ingredientStatement.ts.
+    setIngredientStatement(buildIngredientStatement(sorted));
   };
 
   const totalCost = ingredients.reduce((sum, ing) => sum + ((ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000) * (ing.costPerKg || 0), 0);
