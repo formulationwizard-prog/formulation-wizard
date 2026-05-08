@@ -15,6 +15,29 @@
 import type { IndustrialIngredient } from '../types';
 import { UNITS } from './utils';
 
+/**
+ * Confidence tier for a bulk-paste match. Round 5 directive 2026-05-07:
+ *   • Tier 1 — exact match (catalog name OR sub-ingredient single-item match)
+ *   • Tier 2 — high-confidence partial (synonym / stripped grade-qualifier /
+ *     whole-word prefix / head-token + tail-token overlap)
+ *   • Tier 3 — medium-confidence partial (head-token mismatch or head-only
+ *     ambiguity); REQUIRES user confirmation before import. The Celery Seed
+ *     → Chia Seeds suffix-similarity bug surfaces here instead of silently
+ *     substituting.
+ *   • Tier 4 — no confident match; surface "no match found" with actions.
+ *
+ * Default `accepted` flag follows: Tier 1/2 = true, Tier 3/4 = false.
+ */
+export type MatchTier = 1 | 2 | 3 | 4;
+
+export interface MatchResult {
+  item: IndustrialIngredient | null;
+  tier: MatchTier;
+  /** Human-readable reason for Tier 2/3 matches — surfaces in the UI for
+   *  Tier 3 confirmations ("matched on suffix similarity, head token differs"). */
+  reason?: string;
+}
+
 export interface ParsedRow {
   /** Original pasted line (for display/debugging). */
   originalLine: string;
@@ -26,7 +49,11 @@ export interface ParsedRow {
   parsedUnit: string;
   /** Best match from the industrial DB, or null if no confident match. */
   matchedItem: IndustrialIngredient | null;
-  /** Whether the user wants to include this row (defaults true if matched). */
+  /** Confidence tier for the match (Round 5). 4 = no match. */
+  matchTier: MatchTier;
+  /** Human-readable reason for the match (Tier 2/3 only). */
+  matchReason?: string;
+  /** Whether the user wants to include this row. Tier 1/2 default true; Tier 3/4 default false. */
   accepted: boolean;
   /** If a volume unit was converted to mass using ingredient density, a human-readable note. */
   volumeNote?: string;
@@ -240,56 +267,181 @@ export function rankIngredientMatch(name: string, query: string): number {
 }
 
 /**
- * Find the best industrial-DB match for a given name string.
- * Returns null if no confident match can be made.
+ * Round 5 (2026-05-07) — synonym / common-name table for bulk-paste matching.
+ * Maps lowercase common names to canonical catalog names. Lets a formulator
+ * paste "white vinegar" or "sugar" and get the right catalog entry without
+ * tripping the suffix-similarity matching path. Grow this table as customer
+ * gaps surface.
  */
-export function findBestMatch(name: string, db: IndustrialIngredient[]): IndustrialIngredient | null {
-  if (!name || name.length < 2) return null;
+const SYNONYMS: Record<string, string> = {
+  'white vinegar':       'Distilled White Vinegar (50 Grain / 5%)',
+  'distilled vinegar':   'Distilled White Vinegar (50 Grain / 5%)',
+  'sugar':               'Granulated Sugar (Sucrose)',
+  'granulated sugar':    'Granulated Sugar (Sucrose)',
+  'cane sugar':          'Granulated Sugar (Sucrose)',
+  'salt':                'Salt (Food Grade Fine)',
+  'water':               'Water (Potable / Treated)',
+  'potable water':       'Water (Potable / Treated)',
+  'honey':               'Honey (Industrial Grade)',
+  'apple cider vinegar': 'Apple Cider Vinegar (5%)',
+  'acv':                 'Apple Cider Vinegar (5%)',
+};
+
+/** Strip the trailing parens-qualifier from a catalog name. Same regex as
+ *  lib/ingredientStatement.ts; kept inline here to avoid the cross-module
+ *  import for a single regex. */
+function stripCatalogTrailingParens(name: string): string {
+  return name.replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
+/** Tokens that appear across many ingredients and don't carry distinctive
+ *  semantic content. Skipped during head-token comparisons so matching
+ *  focuses on the meaningful head ("Celery" vs "Chia") rather than shared
+ *  structural tail words ("Seeds (Whole)"). */
+const STRUCTURAL_TOKENS = new Set([
+  'the', 'and', 'with', 'for', 'industrial', 'food', 'grade', 'pure',
+  'organic', 'fresh', 'dried', 'whole', 'ground', 'powder', 'powdered',
+  'fine', 'coarse', 'extract', 'concentrate',
+]);
+
+/** Tokenize an ingredient name for head-priority matching. Drops short
+ *  tokens (length ≤ 2) and structural words like "whole" / "industrial". */
+function tokenizeForMatching(s: string): string[] {
+  return s.toLowerCase()
+    .split(/[\s,/()]+/)
+    .filter(t => t.length > 2 && !STRUCTURAL_TOKENS.has(t));
+}
+
+/**
+ * Find the best industrial-DB match for a given name string and assign a
+ * confidence tier (1–4) per Round 5 directive 2026-05-07.
+ *
+ * Tier ladder:
+ *   1 = exact match (catalog name OR single sub-ingredient match)
+ *   2 = high-confidence partial (synonym / stripped name / whole-word prefix
+ *       / head-token + ≥1 tail-token overlap)
+ *   3 = medium-confidence partial (head-only match with multi-token name OR
+ *       no head match but ≥2 tail-token overlap — surface for confirmation)
+ *   4 = no confident match
+ *
+ * The Celery Seed → Chia Seeds suffix-similarity bug previously fired here:
+ * the old token-overlap path counted shared structural tokens ('seed' +
+ * 'whole') equally with distinctive head tokens ('celery' vs 'chia') and
+ * silently returned Chia Seeds. The new path requires the head token to
+ * match for a Tier 2 result; head-mismatch with tail-only overlap drops
+ * to Tier 3 (user confirmation required).
+ */
+export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]): MatchResult {
+  if (!name || name.length < 2) return { item: null, tier: 4 };
   const lower = name.toLowerCase().trim();
 
-  // 1. Exact match
+  // ─── Tier 1: exact match on catalog name ──────────────────────────
   const exact = db.find(i => i.name.toLowerCase() === lower);
-  if (exact) return exact;
+  if (exact) return { item: exact, tier: 1 };
 
-  // 2. DB name contains query — ranked (whole-word beats letter-prefix beats substring).
-  //    This is what makes "water" match "Water (Potable...)" instead of "Watermelon Juice".
-  const ranked = db
-    .map(i => ({ item: i, s: rankIngredientMatch(i.name, lower) }))
-    .filter(x => x.s < 99)
-    .sort((a, b) => a.s - b.s || a.item.name.length - b.item.name.length);
-  if (ranked.length > 0) return ranked[0].item;
-
-  // 3. Reverse direction — query contains a DB name (e.g. pasted line containing a shorter DB name)
-  const reverseContain = db.find(i => lower.includes(i.name.toLowerCase()));
-  if (reverseContain) return reverseContain;
-
-  // 4. Token overlap — best scoring match
-  const skipWords = new Set(['the', 'and', 'with', 'for', 'industrial', 'food', 'grade', 'pure', 'organic', 'fresh', 'dried']);
-  const tokens = lower
-    .split(/[\s,/()]+/)
-    .filter(t => t.length > 2 && !skipWords.has(t));
-  if (tokens.length === 0) return null;
-
-  let bestMatch: IndustrialIngredient | null = null;
-  let bestScore = 0;
-  for (const item of db) {
-    const itemLower = item.name.toLowerCase();
-    const itemTokens = itemLower.split(/[\s,/()]+/).filter(t => t.length > 2);
-    let score = 0;
-    for (const t of tokens) {
-      if (itemTokens.some(it => it === t || it.startsWith(t) || t.startsWith(it))) {
-        score++;
-      }
-    }
-    // Prefer longer matches when scores tie (more specific is better)
-    if (score > bestScore || (score === bestScore && bestMatch && item.name.length < bestMatch.name.length)) {
-      bestScore = score;
-      bestMatch = item;
+  // ─── Tier 1: exact match on a single-item sub-ingredient statement ─
+  // ("Honey (Industrial Grade)" with subIngredients=['Honey'] → match for input "Honey")
+  for (const i of db) {
+    const subs = i.subIngredients ?? [];
+    if (subs.length === 1 && subs[0].toLowerCase() === lower) {
+      return { item: i, tier: 1 };
     }
   }
-  // Require at least 2 matching tokens (or 1 if the name is only 1-2 tokens)
-  const threshold = tokens.length >= 3 ? 2 : 1;
-  return bestScore >= threshold ? bestMatch : null;
+
+  // ─── Tier 2: synonym table ────────────────────────────────────────
+  const syn = SYNONYMS[lower];
+  if (syn) {
+    const item = db.find(i => i.name === syn);
+    if (item) return { item, tier: 2, reason: 'common-name synonym' };
+  }
+
+  // ─── Tier 2: stripped-name match ──────────────────────────────────
+  // Catalog "Salt (Food Grade Fine)" stripped to "Salt" matches input "Salt".
+  for (const i of db) {
+    if (stripCatalogTrailingParens(i.name).toLowerCase() === lower) {
+      return { item: i, tier: 2, reason: 'catalog name minus grade qualifier' };
+    }
+  }
+
+  // ─── Tier 2: whole-word prefix on the catalog side ────────────────
+  // rankIngredientMatch tier 1 means "catalog name starts with query as a
+  // whole word." Input "honey mustard" matches catalog "Honey Mustard
+  // (Industrial)". Sort by name length so the most specific entry wins.
+  const wholeWordPrefix = db
+    .map(i => ({ item: i, s: rankIngredientMatch(i.name, lower) }))
+    .filter(x => x.s === 1)
+    .sort((a, b) => a.item.name.length - b.item.name.length);
+  if (wholeWordPrefix.length > 0) {
+    return { item: wholeWordPrefix[0].item, tier: 2, reason: 'whole-word prefix match' };
+  }
+
+  // ─── Token overlap with HEAD-TOKEN PRIORITY ───────────────────────
+  // The Celery Seed → Chia Seeds bug fix lives here. Score by:
+  //   • head-token match (10 points) — distinctive content ("celery")
+  //   • each tail-token match (1 point) — supporting ("seed", "whole")
+  // Then assign tier:
+  //   • head + ≥1 tail tokens         → Tier 2 (high confidence)
+  //   • head only on a 1-token name   → Tier 2 (no tail to disagree)
+  //   • head only on multi-token name → Tier 3 (head matches but family differs)
+  //   • no head + ≥2 tail tokens      → Tier 3 (real semantic neighborhood — confirm)
+  //   • no head + 1 tail token        → Tier 4 (likely catalog gap, don't substitute)
+  //   • no overlap                    → Tier 4
+  const queryTokens = tokenizeForMatching(lower);
+  if (queryTokens.length === 0) return { item: null, tier: 4 };
+  const queryHead = queryTokens[0];
+
+  type Cand = { item: IndustrialIngredient; tailScore: number; headMatch: boolean; itemTokenCount: number; };
+  const candidates: Cand[] = [];
+  for (const item of db) {
+    const itemTokens = tokenizeForMatching(item.name);
+    if (itemTokens.length === 0) continue;
+    const itemHead = itemTokens[0];
+    const headMatch = itemHead === queryHead || itemHead.startsWith(queryHead) || queryHead.startsWith(itemHead);
+    let tailScore = 0;
+    for (let qi = 1; qi < queryTokens.length; qi++) {
+      const t = queryTokens[qi];
+      if (itemTokens.some(it => it === t || it.startsWith(t) || t.startsWith(it))) {
+        tailScore++;
+      }
+    }
+    candidates.push({ item, tailScore, headMatch, itemTokenCount: itemTokens.length });
+  }
+
+  // Sort: head-match first (highest priority), then by tail score, then prefer shorter (more specific) names.
+  candidates.sort((a, b) =>
+    Number(b.headMatch) - Number(a.headMatch) ||
+    b.tailScore - a.tailScore ||
+    a.item.name.length - b.item.name.length
+  );
+  const best = candidates[0];
+  if (!best || (!best.headMatch && best.tailScore === 0)) return { item: null, tier: 4 };
+
+  if (best.headMatch && best.tailScore >= 1) {
+    return { item: best.item, tier: 2, reason: 'head + tail-token overlap' };
+  }
+  if (best.headMatch && best.itemTokenCount === 1) {
+    return { item: best.item, tier: 2, reason: 'head match (single-token catalog name)' };
+  }
+  if (best.headMatch) {
+    return { item: best.item, tier: 3, reason: 'head matches but supporting tokens differ' };
+  }
+  if (best.tailScore >= 2) {
+    return { item: best.item, tier: 3, reason: `tail-token similarity (${best.tailScore} shared) but head token differs` };
+  }
+  return { item: null, tier: 4 };
+}
+
+/**
+ * Backwards-compatible wrapper — returns the matched item or null without
+ * tier information. Callers that need the tier should switch to
+ * findBestMatchWithTier.
+ */
+export function findBestMatch(name: string, db: IndustrialIngredient[]): IndustrialIngredient | null {
+  const result = findBestMatchWithTier(name, db);
+  // Only Tier 1/2 are confident enough to return as a "match" under the
+  // legacy contract; Tier 3 requires user confirmation, so callers without
+  // tier-awareness should treat it as no-match.
+  return result.tier <= 2 ? result.item : null;
 }
 
 /**
@@ -428,17 +580,20 @@ export function parsePastedFormula(text: string, db: IndustrialIngredient[]): Pa
       volumeNote = `${rawQty} ${rawUnit} → ${finalQty} g (density ${density.toFixed(2)} g/ml · ${densitySource})`;
     }
 
+    const match = findBestMatchWithTier(name, db);
     rows.push({
       originalLine: rawLine,
       parsedName: name,
       parsedQty: finalQty,
       parsedUnit: UNITS.includes(finalUnit) ? finalUnit : 'g',
-      matchedItem: findBestMatch(name, db),
-      accepted: false, // set true below if matched
+      matchedItem: match.item,
+      matchTier: match.tier,
+      matchReason: match.reason,
+      // Tier 1/2 default-accepted; Tier 3 requires user confirmation; Tier 4 = no match.
+      accepted: match.tier <= 2 && match.item !== null,
       volumeNote,
     });
   }
 
-  // Default-accept any row that found a DB match
-  return rows.map(r => ({ ...r, accepted: !!r.matchedItem }));
+  return rows;
 }

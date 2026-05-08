@@ -2958,22 +2958,45 @@ export default function FormulationWizard() {
                     </button>
                   </div>
 
-                  {parsedRows.length > 0 && (
+                  {parsedRows.length > 0 && (() => {
+                    // Round 5 (2026-05-07): tier-based rendering. Tier 1/2 = silent
+                    // import; Tier 3 = require confirmation (head-token mismatch or
+                    // suffix-only similarity — the Celery Seed → Chia Seeds case);
+                    // Tier 4 = no match found.
+                    const counts = parsedRows.reduce(
+                      (a, r) => {
+                        if (r.matchTier === 1 || r.matchTier === 2) a.confident++;
+                        else if (r.matchTier === 3) a.partial++;
+                        else a.unmatched++;
+                        return a;
+                      },
+                      { confident: 0, partial: 0, unmatched: 0 },
+                    );
+                    const importableCount = parsedRows.filter(r => r.accepted && r.matchedItem).length;
+                    const skipRow = (idx: number) => setParsedRows(parsedRows.filter((_, i) => i !== idx));
+                    return (
                     <div className="mt-4">
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                         <p className="text-sm font-medium text-gray-700">
                           Parsed {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''}
-                          {' '}<span className="text-emerald-600">({parsedRows.filter(r => r.matchedItem).length} matched)</span>
-                          {parsedRows.some(r => !r.matchedItem) && <span className="text-red-500"> • {parsedRows.filter(r => !r.matchedItem).length} unmatched</span>}
+                          {' '}<span className="text-emerald-600">({counts.confident} matched)</span>
+                          {counts.partial > 0 && <span className="text-amber-700"> • {counts.partial} need confirmation</span>}
+                          {counts.unmatched > 0 && <span className="text-red-500"> • {counts.unmatched} unmatched</span>}
                         </p>
                         <button
                           onClick={applyParsedRows}
-                          disabled={!parsedRows.some(r => r.accepted && r.matchedItem)}
+                          disabled={importableCount === 0}
                           className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50 transition font-medium"
                         >
-                          {replaceOnPaste && ingredients.length > 0 ? '⟳ Replace with' : '+ Add'} {parsedRows.filter(r => r.accepted && r.matchedItem).length} ingredient{parsedRows.filter(r => r.accepted && r.matchedItem).length !== 1 ? 's' : ''}
+                          {replaceOnPaste && ingredients.length > 0 ? '⟳ Replace with' : '+ Add'} {importableCount} ingredient{importableCount !== 1 ? 's' : ''}
                         </button>
                       </div>
+                      {counts.partial > 0 && (
+                        <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-900 leading-relaxed">
+                          <span className="font-semibold">⚠ {counts.partial} partial match{counts.partial !== 1 ? 'es' : ''} need confirmation.</span>{' '}
+                          Pasted ingredients with low-confidence matches (head-token mismatch or suffix similarity only). Confirm each below before importing — they will not be added until checked.
+                        </div>
+                      )}
                       {ingredients.length > 0 && (
                         <label className="flex items-start gap-2 text-xs text-gray-700 bg-amber-50 border border-amber-200 rounded p-2 mb-3 cursor-pointer">
                           <input
@@ -2992,8 +3015,19 @@ export default function FormulationWizard() {
                         </label>
                       )}
                       <div className="space-y-1 max-h-72 overflow-y-auto">
-                        {parsedRows.map((r, idx) => (
-                          <div key={idx} className={`flex items-start gap-2 p-2 rounded text-xs ${r.matchedItem ? 'bg-emerald-50 border border-emerald-100' : 'bg-red-50 border border-red-100'}`}>
+                        {parsedRows.map((r, idx) => {
+                          const tier = r.matchTier;
+                          // Row treatment by tier:
+                          //   Tier 1/2 (matched + accepted): emerald
+                          //   Tier 3 (partial — confirm):    amber
+                          //   Tier 4 (no match):             red
+                          const rowClass = tier === 1 || tier === 2
+                            ? 'bg-emerald-50 border border-emerald-100'
+                            : tier === 3
+                              ? 'bg-amber-50 border border-amber-200'
+                              : 'bg-red-50 border border-red-100';
+                          return (
+                          <div key={idx} className={`flex items-start gap-2 p-2 rounded text-xs ${rowClass}`}>
                             <input
                               type="checkbox"
                               checked={r.accepted}
@@ -3006,7 +3040,7 @@ export default function FormulationWizard() {
                               className="mt-0.5"
                             />
                             <div className="flex-1">
-                              {r.matchedItem ? (
+                              {(tier === 1 || tier === 2) && r.matchedItem && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-emerald-200 text-emerald-900 rounded font-medium">✓ Matched</span>
@@ -3021,7 +3055,44 @@ export default function FormulationWizard() {
                                     <p className="text-amber-700 mt-0.5">⚖️ {r.volumeNote}</p>
                                   )}
                                 </>
-                              ) : (
+                              )}
+                              {tier === 3 && r.matchedItem && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Confirm match</span>
+                                    <span className="font-semibold text-gray-800">{r.matchedItem.name}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} {r.parsedUnit}</span>
+                                    <span className="text-gray-400">• {r.matchedItem.category}</span>
+                                  </div>
+                                  <p className="text-gray-700 mt-0.5">
+                                    Did you mean <span className="font-semibold">{r.matchedItem.name}</span>? You pasted &ldquo;<span className="font-mono">{r.parsedName}</span>&rdquo; — {r.matchReason || 'low-confidence match'}.
+                                  </p>
+                                  <div className="flex gap-2 mt-1.5">
+                                    <button
+                                      onClick={() => {
+                                        const next = [...parsedRows];
+                                        next[idx] = { ...next[idx], accepted: true };
+                                        setParsedRows(next);
+                                      }}
+                                      disabled={r.accepted}
+                                      className="px-2 py-0.5 text-[11px] bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                    >
+                                      Confirm match
+                                    </button>
+                                    <button
+                                      onClick={() => skipRow(idx)}
+                                      className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition"
+                                    >
+                                      Skip this line
+                                    </button>
+                                    <span className="text-[11px] text-gray-500 self-center italic">or search below to pick a different ingredient manually</span>
+                                  </div>
+                                  {r.volumeNote && (
+                                    <p className="text-amber-700 mt-0.5">⚖️ {r.volumeNote}</p>
+                                  )}
+                                </>
+                              )}
+                              {tier === 4 && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-red-200 text-red-900 rounded font-medium">✗ No match</span>
@@ -3031,15 +3102,25 @@ export default function FormulationWizard() {
                                   {r.volumeNote && (
                                     <p className="text-amber-700 mt-0.5">⚖️ {r.volumeNote}</p>
                                   )}
-                                  <p className="text-gray-500 mt-0.5">Add this one manually via the search below (it may be in USDA).</p>
+                                  <div className="flex gap-2 mt-1">
+                                    <button
+                                      onClick={() => skipRow(idx)}
+                                      className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition"
+                                    >
+                                      Skip this line
+                                    </button>
+                                    <span className="text-[11px] text-gray-500 self-center italic">add manually via the search below — &ldquo;{r.parsedName}&rdquo; may be in USDA, or out of catalog scope</span>
+                                  </div>
                                 </>
                               )}
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
 
