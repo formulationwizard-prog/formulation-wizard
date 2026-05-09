@@ -59,6 +59,8 @@ import { MODES, MODE_ORDER, type ModeId } from '@/lib/modes';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
 import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
+import { computeFilingReadiness } from '@/lib/filingReadiness';
+import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
 import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV } from '@/lib/supplementLabeling';
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
@@ -1471,21 +1473,18 @@ export default function FormulationWizard() {
           ? totalCost * (packageSizeInG / totalBatchGrams) + (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0)
           : 0;
 
-        // ── Filing-readiness heuristic (Phase 1 placeholder) ──
-        // Six binary checks; Phase 4 will replace with a curated checklist.
+        // Filing Readiness — pathway-aware metric (Round 9, 2026-05-09).
+        // Replaces the prior Phase-1 boolean-checks heuristic that conflated spec
+        // coverage with filing-distance. v1 wires Acidified Foods (21 CFR 114) only;
+        // other pathways render as Surface 4 placeholders. See lib/filingReadiness.ts
+        // and docs/rounds/round-9-directive.md.
         const findingTiers = Object.values(perIngredientFindings).map(f => f.tier);
-        const hasOpenCritical = findingTiers.some(t => t === 'banned' || t === 'critical');
-        const checks = [
-          formulationName.trim().length > 0,                  // identity
-          ingredients.length > 0,                              // ≥1 ingredient
-          specs.productClassification !== '—',                 // determination resolved
-          !hasOpenCritical,                                    // no open critical findings
-          specs.coverage >= 0.7,                               // ≥70% spec coverage
-          selectedPackaging !== null,                          // packaging chosen
-        ];
-        const passed = checks.filter(Boolean).length;
-        const filingReadinessPct = Math.round((passed / checks.length) * 100);
-        const readinessColor = filingReadinessPct >= 80 ? 'emerald' : filingReadinessPct >= 50 ? 'amber' : 'rose';
+        const filingReadiness = computeFilingReadiness({
+          modeId: mode,
+          specs,
+          filing: filingReq,
+          haccpInferred: suggestedHaccp !== null,
+        });
 
         // ── Issues pill aggregate counts ──
         const issueCounts = findingTiers.reduce(
@@ -1529,7 +1528,6 @@ export default function FormulationWizard() {
         const curStatus = statusConfig[formulaStatus];
 
         const untitledLabel = getCopy('statusBar.untitled', tier);
-        const filingReadinessLabel = getCopy('statusBar.filingReadiness', tier);
         const issuesLabel = getCopy('statusBar.issuesLabel', tier);
         const noIssuesLabel = getCopy('statusBar.noIssues', tier);
         const criticalShort = getCopy('statusBar.criticalShort', tier);
@@ -1579,17 +1577,10 @@ export default function FormulationWizard() {
 
               {/* Right cluster — readiness, issues, metrics, save */}
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Filing-readiness progress bar */}
-                <div className="inline-flex items-center gap-2 text-[11px]" title="Filing-readiness — Phase 1 heuristic. Phase 4 will replace with a curated checklist.">
-                  <span className="text-gray-500">{filingReadinessLabel}</span>
-                  <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full bg-${readinessColor}-500 transition-[width] duration-300`}
-                      style={{ width: `${filingReadinessPct}%` }}
-                    />
-                  </div>
-                  <span className={`font-mono font-semibold text-${readinessColor}-700`}>{filingReadinessPct}%</span>
-                </div>
+                {/* Filing Readiness — pathway-aware widget (Round 9). Replaces the
+                    Phase-1 heuristic. Component handles its own copy, color (Round 8
+                    confidence vocabulary), escalation tracking, and blocker popover. */}
+                <FilingReadinessWidget result={filingReadiness} />
 
                 {/* Status pill — Design Y state machine (per Round 1 directive 2026-05-07):
                     consumes findings PRIMARILY; the only Determination-Engine state it picks up
