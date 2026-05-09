@@ -5525,11 +5525,16 @@ export default function FormulationWizard() {
                           color={specs.aceticMoistureRatio >= 0.5 ? 'emerald' : specs.aceticMoistureRatio > 0 ? 'amber' : 'gray'}
                         />
                       )}
-                      {/* Auto-derived: LAC% when pH tracked */}
+                      {/* Auto-derived: LAC% when pH tracked.
+                          Round 8 Item 2: 2-decimal precision. The 5%/10% filing thresholds
+                          (21 CFR 114) make sub-percent precision regulatorily meaningful —
+                          54.4% vs 54.35% across surfaces was confusing. Standardize on 2dp
+                          across Spec Analysis (here), Determination Engine threshold bar,
+                          and the spec-snapshot footer. */}
                       {showLowAcidComponentPct && (
                         <SpecTile
                           label="Low-Acid Components"
-                          value={`${specs.lowAcidComponentPct.toFixed(1)}%`}
+                          value={`${specs.lowAcidComponentPct.toFixed(2)}%`}
                           confidence={specs.pH > 0 ? specs.confidence.pH : undefined}
                           hint={
                             specs.lowAcidComponentPct >= 10
@@ -5967,10 +5972,21 @@ export default function FormulationWizard() {
                 );
               })()}
 
-              {/* Suggested HACCP Program */}
+              {/* Suggested HACCP Program.
+                  Round 8 Item 5: HACCP card uses standard confidence vocabulary
+                  (INFERRED for template-derived guidance, MEASURED once a
+                  PA-approved plan is uploaded — upload-flow lands in Round 9+).
+                  Today every plan rendered here is INFERRED — derived from the
+                  product-type process template, not from a verified facility-
+                  specific HACCP plan. The card-level INFERRED pill replaces the
+                  prior "Starter Template" vocabulary. The disclaimer text below
+                  also uses INFERRED to align with the rest of the workspace. */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                  <h2 className="text-lg font-semibold text-gray-800">🛡️ Suggested HACCP Program</h2>
+                  <h2 className="text-lg font-semibold text-gray-800 inline-flex items-center gap-2">
+                    <span>🛡️ Suggested HACCP Program</span>
+                    <ConfidencePill conf="inferred" />
+                  </h2>
                   <span className="text-xs text-gray-400">Auto-classified from product type + specs</span>
                 </div>
 
@@ -6129,9 +6145,14 @@ export default function FormulationWizard() {
                       </>
                     )}
 
+                    {/* Round 8 Item 5: vocabulary-unification footer. The card-level
+                        INFERRED pill (next to the heading) signals this is
+                        template-derived guidance; this footer states the substance
+                        — facility-specific PCQI / Process Authority validation is
+                        required to elevate the plan from INFERRED to MEASURED. */}
                     <p className="text-xs text-gray-400 mt-3 inline-flex items-start gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
-                      <span>This is a STARTER TEMPLATE. Every production facility must develop and validate its own HACCP plan with a qualified PCQI or certified Process Authority. Critical limits, monitoring frequency, and corrective actions must be validated for your specific product and equipment.</span>
+                      <span>This plan is INFERRED from the product type and process template — not yet a facility-specific verified HACCP plan. Every production facility must develop and validate its own HACCP plan with a qualified PCQI or certified Process Authority. Critical limits, monitoring frequency, and corrective actions must be validated for your specific product and equipment before this guidance is elevated to MEASURED.</span>
                     </p>
                   </>
                 )}
@@ -6169,11 +6190,23 @@ export default function FormulationWizard() {
                       <span className="text-[10px] uppercase tracking-wide text-gray-400">Organic / Non-GMO / Footprint</span>
                     </div>
 
-                    {/* ───── Headline score ───── */}
+                    {/* ───── Headline score ─────
+                        Round 8 Item 4 (Level 2 — per-tile pill, formulation-level
+                        rollup math deferred): Sustainability Score is a weighted
+                        composite (organic coverage + non-GMO + carbon + sector
+                        certs + supplier-diversity placeholder) — does not decompose
+                        cleanly by mass, so we pill it INFERRED at the formulation
+                        level. Round 9+ ticket: design rollup logic that does
+                        decompose (e.g., per-ingredient confidence floor on each
+                        component score, then a CALCULATED rollup if all inputs
+                        are MEASURED). */}
                     <div className={`rounded-xl p-4 mb-4 border-2 bg-${scoreColor}-50 border-${scoreColor}-300`}>
                       <div className="flex items-baseline justify-between flex-wrap gap-3">
                         <div>
-                          <div className="text-[10px] uppercase tracking-wide text-gray-600">Formula Sustainability Score</div>
+                          <div className="text-[10px] uppercase tracking-wide text-gray-600 inline-flex items-center gap-1.5">
+                            <span>Formula Sustainability Score</span>
+                            <ConfidencePill conf="inferred" size="xs" />
+                          </div>
                           <div className={`text-5xl font-bold text-${scoreColor}-700 leading-none`}>{sust.score}<span className="text-xl text-gray-500">/100</span></div>
                         </div>
                         <div className="text-right text-xs text-gray-600 space-y-1">
@@ -6183,17 +6216,32 @@ export default function FormulationWizard() {
                       </div>
                     </div>
 
-                    {/* ───── Footprint tiles ───── */}
+                    {/* ───── Footprint tiles ─────
+                        Round 8 Item 4 (Level 2): Carbon and Water values are
+                        mass-weighted averages of per-ingredient values that are
+                        themselves regex-pattern category lookups against published
+                        LCA (Poore & Nemecek 2018 carbon, Mekonnen & Hoekstra
+                        water). Per-ingredient confidence is INFERRED (category
+                        match), so the formulation rollup is INFERRED-floored.
+                        Round 9+ ticket: per-ingredient confidence override when
+                        a supplier-attested LCA is uploaded (would elevate to
+                        MEASURED). */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                       <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Carbon / unit</div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500 inline-flex items-center gap-1.5">
+                          <span>Carbon / unit</span>
+                          <ConfidencePill conf="inferred" size="xs" />
+                        </div>
                         <div className="text-xl font-bold text-gray-800 mt-1">
                           {carbonPerUnit < 1 ? `${(carbonPerUnit * 1000).toFixed(0)}g` : `${carbonPerUnit.toFixed(2)}kg`}
                         </div>
                         <div className="text-[10px] text-gray-400">CO₂e</div>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Water / unit</div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500 inline-flex items-center gap-1.5">
+                          <span>Water / unit</span>
+                          <ConfidencePill conf="inferred" size="xs" />
+                        </div>
                         <div className="text-xl font-bold text-gray-800 mt-1">
                           {waterPerUnit < 1 ? `${(waterPerUnit * 1000).toFixed(0)}mL` : `${waterPerUnit.toFixed(1)}L`}
                         </div>
@@ -6241,7 +6289,22 @@ export default function FormulationWizard() {
                               </div>
                             </div>
                             <div className="text-right">
-                              <div className="text-[10px] uppercase tracking-wide text-gray-500">Organic % of eligible mass</div>
+                              {/* Round 8 Item 4 (Level 2): the % itself is a
+                                  CALCULATED mass-weighted total, but the
+                                  per-ingredient organic flag is INFERRED via
+                                  name-substring detection (`/\borganic\b/i`)
+                                  rather than a per-batch certification check.
+                                  Until Companion Spec §B (org-cert upload) lands,
+                                  surface as INFERRED — the value depends on a
+                                  detection that may misclassify (e.g., an
+                                  "organic flavor" SKU that isn't actually
+                                  USDA-certified). Round 9+ ticket: pull
+                                  per-batch cert into the calculation, render
+                                  CALCULATED once organic flags are MEASURED. */}
+                              <div className="text-[10px] uppercase tracking-wide text-gray-500 inline-flex items-center gap-1.5 justify-end">
+                                <span>Organic % of eligible mass</span>
+                                <ConfidencePill conf="inferred" size="xs" />
+                              </div>
                               <div className={`text-2xl font-bold font-mono text-${tierColor}-700`}>
                                 {organicCompliance.percentOrganic.toFixed(1)}%
                               </div>
@@ -6416,7 +6479,17 @@ export default function FormulationWizard() {
                               <th className="py-1 text-center">GMO risk</th>
                               <th className="py-1 text-center">Organic?</th>
                               <th className="py-1 text-center">Non-GMO?</th>
-                              <th className="py-1 text-right">kg CO₂e/kg</th>
+                              {/* Round 8 Item 4: per-ingredient pill on the carbon column
+                                  header — the carbon value is from the regex-pattern category
+                                  lookup in lib/sustainability.ts → INFERRED. Header-level
+                                  pill avoids per-row visual clutter while still
+                                  communicating confidence at the column level. */}
+                              <th className="py-1 text-right">
+                                <span className="inline-flex items-center gap-1 justify-end">
+                                  <span>kg CO₂e/kg</span>
+                                  <ConfidencePill conf="inferred" size="xs" />
+                                </span>
+                              </th>
                               <th className="py-1">Certs available</th>
                             </tr>
                           </thead>
@@ -7108,10 +7181,16 @@ export default function FormulationWizard() {
                       {(() => {
                         const cost = ing.costPerKg || 0;
                         if (cost <= 0 || costConfidence === 'unknown') {
+                          // Round 8 Item 3: explicit UNKNOWN pill so users can distinguish
+                          // "we don't know this value" from a surface that simply has no
+                          // data here. Pill labels the absence; em-dash remains the value.
                           return (
                             <tr className="border-b border-gray-100">
                               <td className="py-1.5 px-3 font-medium w-48">Target Cost</td>
-                              <td className="py-1.5 px-3 font-mono text-gray-400">— (no cost data)</td>
+                              <td className="py-1.5 px-3 font-mono text-gray-400">
+                                — (no cost data)
+                                {renderPill('unknown')}
+                              </td>
                             </tr>
                           );
                         }
@@ -8244,7 +8323,8 @@ export default function FormulationWizard() {
                         <div><span className="text-gray-500">A/M ratio</span><br /><span className="font-bold text-lg">{specs.aceticMoistureRatio > 0 ? specs.aceticMoistureRatio.toFixed(2) + '%' : '—'}</span></div>
                       )}
                       {showLowAcidComponentPct && (
-                        <div><span className="text-gray-500">LAC%</span><br /><span className="font-bold text-lg">{specs.lowAcidComponentPct.toFixed(1)}%</span></div>
+                        // Round 8 Item 2: 2-decimal LAC precision (matches Spec Analysis + threshold bar).
+                        <div><span className="text-gray-500">LAC%</span><br /><span className="font-bold text-lg">{specs.lowAcidComponentPct.toFixed(2)}%</span></div>
                       )}
                     </div>
                   )}
@@ -9036,9 +9116,9 @@ function SpecTile(props: {
   value: string;
   hint: ReactNode;
   color: 'emerald' | 'amber' | 'red' | 'gray';
-  /** Optional Class 1a confidence indicator. ConfidencePill returns null for
-   *  'measured' / 'unknown' / undefined; renders amber for 'estimated'/'inferred',
-   *  slate for 'calculated'. */
+  /** Optional Class 1a confidence indicator. ConfidencePill returns null only
+   *  for 'measured' / undefined; renders amber for 'estimated'/'inferred',
+   *  stone for 'calculated', neutral-gray for 'unknown' (Round 8 Item 3). */
   confidence?: Confidence;
 }) {
   const bgMap = {

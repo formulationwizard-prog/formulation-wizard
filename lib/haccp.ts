@@ -10,11 +10,17 @@
 //   • Prerequisite programs that support the plan
 //   • Typical products
 //
-// These are STARTER TEMPLATES. Every production facility must
-// develop and validate its own HACCP plan with a qualified
-// PCQI (Preventive Controls Qualified Individual) or Process
-// Authority. Numbers cited (times, temps, pH, aw thresholds) are
-// commonly referenced but must be validated for YOUR product.
+// These plans are INFERRED template-derived guidance (Round 8 Item 5
+// vocabulary unification — supersedes the prior "Starter Template"
+// label to align with the workspace-wide confidence taxonomy:
+// MEASURED / CALCULATED / ESTIMATED / INFERRED / UNKNOWN). Every
+// production facility must develop and validate its own HACCP plan
+// with a qualified PCQI (Preventive Controls Qualified Individual)
+// or Process Authority. Numbers cited (times, temps, pH, aw thresholds)
+// are commonly referenced but must be validated for YOUR product.
+// Once a facility-specific PA-approved HACCP plan is on file, the
+// confidence pill on the workspace card elevates from INFERRED to
+// MEASURED (PA-upload flow lands in a follow-up round).
 // ============================================================
 
 export interface HaccpCCP {
