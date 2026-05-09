@@ -67,6 +67,47 @@ export const STRINGS: CopyCatalog = {
   'statusBar.warningsShort':              { pro: 'warnings',                                                                                  novice: '' },
   'statusBar.unknownShort':               { pro: 'unknown',                                                                                   novice: '' },
   'statusBar.noIssues':                   { pro: 'No active issues',                                                                          novice: '' },
+
+  // ─── Filing Readiness (Round 9, 2026-05-09) ───
+  // Pathway-aware distance to filing-ready state. Replaces the prior Phase-1
+  // boolean heuristic. v1 wires up Acidified Foods (21 CFR 114) only; other
+  // pathways render as Surface 4 placeholders. See docs/rounds/round-9-directive.md
+  // and docs/design/filing-readiness.md for the full spec.
+  'filingReadiness.widgetLabel':                  { pro: 'Filing Readiness',                                                                          novice: '' },
+  'filingReadiness.pathwayPrefix':                { pro: 'for',                                                                                       novice: '' },
+  'filingReadiness.tooltip':                      { pro: 'Pathway-aware distance to filing-ready state — measures how close your formulation is to having the documentation set your Process Authority needs to file under your specific regulatory pathway.', novice: '' },
+
+  // Surface 2 — pathway escalation event annotation
+  'filingReadiness.escalation.standard':          { pro: 'Pathway changed from {oldPathway} to {newPathway} — additional documentation required. Filing Readiness score recalculated against the new pathway requirements.', novice: '' },
+  'filingReadiness.escalation.toUnspecified':     { pro: 'Pathway changed from {oldPathway} to {newPathway}. Filing Readiness for {newPathway} is not yet available — see Spec coverage on the Build tab for data completeness.', novice: '' },
+  'filingReadiness.escalation.dismissLabel':      { pro: 'Dismiss',                                                                                   novice: '' },
+
+  // Surface 3 — blocker-surfacing diagnostic
+  'filingReadiness.blockerHeader':                { pro: 'Filing Readiness floored by',                                                              novice: '' },
+  'filingReadiness.blocker.deferred':             { pro: '{label} (UNKNOWN — not yet capturable in this tool)',                                     novice: '' },
+  'filingReadiness.blocker.wired.unknown':        { pro: '{label} (UNKNOWN — value not yet available)',                                             novice: '' },
+  'filingReadiness.blocker.wired.inferred':       { pro: '{label} (INFERRED — derived from category defaults; verify ingredient values to upgrade)', novice: '' },
+  'filingReadiness.blocker.wired.estimated':      { pro: '{label} (ESTIMATED — verify ingredient values to upgrade)',                               novice: '' },
+  'filingReadiness.blocker.haccp.inferred':       { pro: '{label} (INFERRED — template-derived; verified PA-approved upload not yet supported)',    novice: '' },
+  'filingReadiness.blocker.haccp.unknown':        { pro: '{label} (UNKNOWN — no HACCP category matched for this formulation)',                      novice: '' },
+  'filingReadiness.blockerFooter.deferredCount':  { pro: '{nTotal} requirements pending workflow support ({nCritical} critical, {nSupplementary} supplementary)', novice: '' },
+
+  // Surface 4 — pathway-not-specified placeholder copy (per pathway)
+  'filingReadiness.unavailable.lacf':             { pro: 'Filing Readiness for Low-Acid Canned Foods is not yet available. Pathway-specific requirements specification (21 CFR 113) is queued for a future release. Use Spec coverage on the Build tab as a proxy for data completeness while pathway requirements are being defined.', novice: '' },
+  'filingReadiness.unavailable.acidFood':         { pro: 'No scheduled-process filing required for Acid Foods under 21 CFR 114.3(b)(1). Pathway-specific requirements specification (reduced exemption set) is queued for a future release. Use Spec coverage on the Build tab for data completeness.', novice: '' },
+  'filingReadiness.unavailable.shelfStableDry':   { pro: 'No scheduled-process filing required for shelf-stable foods (a_w ≤ 0.85). Pathway-specific requirements specification is queued for a future release. Use Spec coverage on the Build tab for data completeness.', novice: '' },
+  'filingReadiness.unavailable.dietarySupplement': { pro: 'Filing Readiness for Dietary Supplement is not yet available. Pathway-specific requirements specification (21 CFR 111) is queued for a future release. Use Spec coverage on the Build tab as a proxy for data completeness while pathway requirements are being defined.', novice: '' },
+  'filingReadiness.unavailable.fsisMeat':         { pro: 'Filing Readiness for FSIS Meat (9 CFR) is not yet available. Pathway-specific requirements specification is queued for a future release. Use Spec coverage on the Build tab for data completeness.', novice: '' },
+  'filingReadiness.unavailable.pending':          { pro: 'Awaiting classification — add ingredients with verified specs to enable Filing Readiness.', novice: '' },
+  'filingReadiness.unavailable.unclassified':     { pro: 'Awaiting classification — Filing Readiness appears once the Determination Engine resolves a pathway.', novice: '' },
+
+  // Surface 1 — context-driven popover affordance text. Speaks to the user's
+  // internal state ("why is this 2%?" / "why does it say —?") rather than
+  // generic "click for details" framing. See Round 9 discoverability finding.
+  'filingReadiness.affordance.whyLow':            { pro: 'Why is this low?',                                                                          novice: '' },
+  'filingReadiness.affordance.whyUnavailable':    { pro: 'Why is this unavailable?',                                                                  novice: '' },
+  'filingReadiness.affordance.viewDetail':        { pro: 'View detail',                                                                               novice: '' },
+  'filingReadiness.affordance.close':             { pro: 'Close',                                                                                     novice: '' },
 };
 
 export type CopyKey = keyof typeof STRINGS;
