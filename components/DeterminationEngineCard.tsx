@@ -167,9 +167,11 @@ function metricsLine(modeId: string, specs: FormulationSpecs): ReactNode {
   }
   if (specs.lowAcidComponentPct > 0) {
     // LAC% derived from per-ingredient pH classifications — inherits pH confidence.
+    // Round 8 Item 2: 2-decimal precision (matches Spec Analysis tile + threshold bar).
+    // The 5%/10% filing thresholds make sub-percent precision regulatorily meaningful.
     items.push(
       <span key="lac" className="inline-flex items-center gap-1">
-        <span>Low-acid components {specs.lowAcidComponentPct.toFixed(1)}%</span>
+        <span>Low-acid components {specs.lowAcidComponentPct.toFixed(2)}%</span>
         <ConfidencePill conf={specs.confidence.pH} size="xs" />
       </span>
     );

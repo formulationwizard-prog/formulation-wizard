@@ -455,6 +455,17 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Mixed Tocopherols (d-Alpha, Food Grade)':   { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'low', source: 'ai-estimate', confidence: 'unverified', notes: 'Oil-soluble; chemistry follows the carrier oil profile (pH undefined in oil phase — treated as neutral for rollup). 200-500 ppm typical use rate as oxidation inhibitor.' },
   'Pickling Spice Blend (Mixed Whole)':        { brix: 0, moisture: 8, aw: 0.35, pH: 5.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Composite of whole-seed / leaf spices; chemistry profile follows typical dry-whole-spice baseline (low-acid contribution).' },
   'Smoke Flavor (Liquid, Natural)':            { brix: 0, moisture: 80, aw: 0.95, pH: 2.3, aceticAcid: 5.0, source: 'ai-estimate', confidence: 'unverified', notes: 'Aqueous wood-pyrolysis condensate. Naturally acidic (pH 2.0-2.5) from acetic acid + phenolic + carbonyl compounds — surprisingly strong acidulant on top of being a flavor; functions as both flavor + preservative. 4-7% acetic acid in concentrated commercial form.' },
+  // Round 8 Item 6: Vinegar Powder + Apple Cider Vinegar Powder chemistry.
+  // Catalog entries existed in lib/data/ingredients.ts since Round 6, but had
+  // no INGREDIENT_SPECS mate — so spec sheets and Spec Analysis rendered
+  // em-dash for acetic acid even when a meaningful estimate is available.
+  // Commercial vinegar powders are spray-dried vinegar carried on maltodextrin
+  // (~50/50 vinegar:maltodextrin); resulting bound acetic acid is typically
+  // 5-7% by weight. pH is approximate — solid powder doesn't have a pH per se,
+  // but a 10% solution pH (the practical use case in dry-blends rehydrating
+  // in-product) reads ~3.5 for both products. Moisture ~3% (spray-dried).
+  'Vinegar Powder (White, Dried)':             { pH: 3.5, aceticAcid: 6.0, brix: 0, moisture: 3, aw: 0.30, source: 'ai-estimate', confidence: 'unverified', notes: 'Spray-dried vinegar on maltodextrin carrier. Typical 5-7% bound acetic acid by weight; pH ~3.5 in 10% solution (the in-product equilibrium that drives acidulation chemistry). Clean-label antimicrobial in deli meats, dry seasonings, snack coatings.' },
+  'Apple Cider Vinegar Powder (with Mother)':  { pH: 3.5, aceticAcid: 5.0, brix: 1, moisture: 4, aw: 0.35, source: 'ai-estimate', confidence: 'unverified', notes: 'Spray-dried apple cider vinegar with mother culture on maltodextrin carrier. ~5% bound acetic acid; functional supplement use for gummies, tablets, beverage mixes. Mother culture (acetobacter biomass) is informational — not a standardized bioactive.' },
 };
 
 // ----- Lookup ----------------------------------------------------------------
@@ -990,6 +1001,18 @@ export function rollupCostConfidence(
  * (clamping near aw=1.0 or moisture=100) by displaying the wider half-width
  * so the underlying tolerance is honest rather than understated by the
  * clamped side.
+ *
+ * Round 8 Item 1 — Brix display rounding ambiguity:
+ * When the tolerance rounds to zero at the requested display precision (e.g.
+ * Brix 0.2° on a relative-tolerance metric, where 0.2 × 0.05 = 0.01 rounds
+ * to "0.0" at 1-decimal precision), we auto-promote the display precision
+ * by enough decimals to surface the actual non-zero delta. This keeps
+ * tolerances honest at small-value tails without bloating precision globally.
+ *
+ * Cap precision growth at +3 decimals (so a Brix 0.0001° type case still
+ * renders a sane "± 0.000" rather than spinning out indefinitely). When
+ * the underlying delta is genuinely zero (only at the unknown tolerance
+ * level, where the range is degenerate), we skip the promotion.
  */
 export function formatRangedValue(
   metric: SpecMetric,
@@ -1000,8 +1023,23 @@ export function formatRangedValue(
 ): { text: string; rv: RangedValue } {
   const rv = rangedSpec(metric, value, confidence);
   const delta = Math.max(rv.value - rv.range.low, rv.range.high - rv.value);
+
+  // Round 8 Item 1: auto-promote precision when the tolerance would render as
+  // "0.0" but is actually nonzero. Only promotes if delta > 0 — degenerate
+  // unknown-confidence ranges (delta=0) keep the original precision.
+  let displayDecimals = decimals;
+  if (delta > 0) {
+    const MAX_EXTRA_DECIMALS = 3;
+    while (
+      displayDecimals < decimals + MAX_EXTRA_DECIMALS &&
+      Number(delta.toFixed(displayDecimals)) === 0
+    ) {
+      displayDecimals++;
+    }
+  }
+
   return {
-    text: `${value.toFixed(decimals)}${unit} ± ${delta.toFixed(decimals)}${unit}`,
+    text: `${value.toFixed(displayDecimals)}${unit} ± ${delta.toFixed(displayDecimals)}${unit}`,
     rv,
   };
 }
