@@ -56,6 +56,38 @@ export interface IngredientSpec {
   aceticAcid?: number;
   /** Qualitative contribution to thickness. */
   viscosityContrib?: 'none' | 'low' | 'medium' | 'high' | 'very high';
+  /**
+   * First dissociation constant (pKa1) for standalone food acids. Drives
+   * the Section 2 Henderson-Hasselbalch pH computation under Rules A/B
+   * (see lib/foodScience.ts:computeSingleAcidPH). Optional — only the
+   * eight standalone acids carry this metadata in v1; vinegars and
+   * GDL-style slow-release acids are intentionally left untagged so
+   * Rule A falls back to the existing log-space [H+] math for those
+   * cases. Multi-protic acid second/third pKas are out of scope for
+   * Tier A and not represented here.
+   */
+  pKa1?: number;
+  /**
+   * Molecular weight of the acid molecule in g/mol (anhydrous form for
+   * crystalline acids; molecular formula MW for liquid concentrates).
+   * Used together with the entry's `moisture` field to compute moles of
+   * acid per gram of entry. For solution forms (lactic 88%, phosphoric
+   * 85%), `moisture` carries the dilution and `(1 - moisture/100)` is
+   * the acid-mass fraction. For crystalline monohydrates (citric mono),
+   * `moisture` carries water-of-crystallization and the same formula
+   * works arithmetically.
+   */
+  acidMolarMass?: number;
+  /**
+   * Flags ingredients whose matrix composition exceeds single-acid H-H
+   * reach. When ANY ingredient in a formulation carries this flag, Rule
+   * B fires and Tier A falls back from CALCULATED to ESTIMATED pH —
+   * preventing the engine from emitting confidently-wrong CALCULATED
+   * output for buffered systems (tomato, dairy, meat, eggs, gelatin,
+   * protein isolates). v1 is binary; multi-tier classification
+   * ('mild-buffering', 'amphoteric') is deferred to Tier B / Round 11+.
+   */
+  bufferingBehavior?: 'known-buffering';
   /** Where this entry's numeric values came from. Required. */
   source: SpecSource;
   /** Citation for the values. Required when source is 'commodity-standard' or 'cited-reference'. */
@@ -153,7 +185,7 @@ export const CATEGORY_SPECS: Record<string, IngredientSpec> = {
   'Produce':                { brix: 12, moisture: 85, aw: 0.96, pH: 4.0, source: 'category-default', confidence: 'unverified' },
   'Fresh Herbs':            { brix: 5,  moisture: 88, aw: 0.97, pH: 6.2, source: 'category-default', confidence: 'unverified' },
   'Spices':                 { brix: 0,  moisture: 8,  aw: 0.35, pH: 6.0, source: 'category-default', confidence: 'unverified' },
-  'Egg Products':           { brix: 0,  moisture: 5,  aw: 0.25, pH: 7.5, source: 'category-default', confidence: 'unverified' },
+  'Egg Products':           { brix: 0,  moisture: 5,  aw: 0.25, pH: 7.5, bufferingBehavior: 'known-buffering', source: 'category-default', confidence: 'unverified' },
   'Legumes & Nuts & Seeds': { brix: 0,  moisture: 5,  aw: 0.40, pH: 6.5, viscosityContrib: 'low', source: 'category-default', confidence: 'unverified' },
   'Dried Beans':            { brix: 0,  moisture: 11, aw: 0.55, pH: 6.5, source: 'category-default', confidence: 'unverified' },
   'Canned Beans':           { brix: 0,  moisture: 75, aw: 0.96, pH: 6.2, source: 'category-default', confidence: 'unverified' },
@@ -163,7 +195,7 @@ export const CATEGORY_SPECS: Record<string, IngredientSpec> = {
   // Baking / bakery-centric categories ---------------------------------------
   'Flours & Grains':        { brix: 1,  moisture: 13, aw: 0.55, pH: 6.2, source: 'category-default', confidence: 'unverified' },
   'Leavening':              { brix: 0,  moisture: 8,  aw: 0.40, pH: 7.5, source: 'category-default', confidence: 'unverified' },
-  'Dairy':                  { brix: 4,  moisture: 88, aw: 0.99, pH: 6.5, source: 'category-default', confidence: 'unverified' },
+  'Dairy':                  { brix: 4,  moisture: 88, aw: 0.99, pH: 6.5, bufferingBehavior: 'known-buffering', source: 'category-default', confidence: 'unverified' },
   'Chocolate & Cocoa':      { brix: 55, moisture: 1,  aw: 0.40, pH: 6.2, source: 'category-default', confidence: 'unverified' },
   'Nuts & Nut Products':    { brix: 4,  moisture: 4,  aw: 0.50, pH: 6.4, source: 'category-default', confidence: 'unverified' },
   'Seeds':                  { brix: 1,  moisture: 6,  aw: 0.50, pH: 6.4, source: 'category-default', confidence: 'unverified' },
@@ -182,9 +214,17 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   // VERIFIED — commodity-standard concentrations per FDA CPG Sec. 525.825.
   'Distilled White Vinegar (40 Grain / 4%)':   { pH: 2.7, aceticAcid: 4.0,  brix: 0.1, moisture: 96, aw: 0.99, source: 'commodity-standard', citation: 'FDA CPG Sec. 525.825 (Vinegar, Definitions) — 4% minimum acidity', confidence: 'verified', last_verified: '2026-04-30' },
   'Distilled White Vinegar (50 Grain / 5%)':   { pH: 2.5, aceticAcid: 5.0,  brix: 0.1, moisture: 95, aw: 0.98, source: 'commodity-standard', citation: 'FDA CPG Sec. 525.825 (Vinegar, Definitions); industry standard 5% acidity = 50 grain', confidence: 'verified', last_verified: '2026-04-30', notes: 'Standard retail concentration.' },
-  'Distilled White Vinegar (100 Grain / 10%)': { pH: 2.2, aceticAcid: 10.0, brix: 0.1, moisture: 90, aw: 0.95, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
-  'Distilled White Vinegar (120 Grain / 12%)': { pH: 2.1, aceticAcid: 12.0, brix: 0.1, moisture: 88, aw: 0.94, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
-  'Distilled White Vinegar (200 Grain / 20%)': { pH: 2.0, aceticAcid: 20.0, brix: 0.1, moisture: 80, aw: 0.90, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
+  // Round 10 Section 2 (2026-05-14): pKa1 + acidMolarMass tagged on distilled
+  // white vinegar entries (simple dilute acetic-in-water matrices where
+  // (1 - moisture/100) ≈ aceticAcid/100 ≈ true acetic mass fraction). Complex-
+  // matrix vinegars (balsamic, vinegar powders, smoke flavor) are intentionally
+  // left untagged — their non-water solute content breaks the (1 - moisture/100)
+  // acid-mass approximation. See Finding #11 in directive for the deferred
+  // acidMassFraction schema addition that would handle complex matrices in
+  // Tier B / Round 11+.
+  'Distilled White Vinegar (100 Grain / 10%)': { pH: 2.2, aceticAcid: 10.0, brix: 0.1, moisture: 90, aw: 0.95, pKa1: 4.76, acidMolarMass: 60.05, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30' },
+  'Distilled White Vinegar (120 Grain / 12%)': { pH: 2.1, aceticAcid: 12.0, brix: 0.1, moisture: 88, aw: 0.94, pKa1: 4.76, acidMolarMass: 60.05, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30' },
+  'Distilled White Vinegar (200 Grain / 20%)': { pH: 2.0, aceticAcid: 20.0, brix: 0.1, moisture: 80, aw: 0.90, pKa1: 4.76, acidMolarMass: 60.05, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30' },
   // UNVERIFIED — flavored vinegars; pH/aw are AI estimates.
   'Apple Cider Vinegar (5%)':                  { pH: 3.1, aceticAcid: 5.0,  brix: 1.0, moisture: 94, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
   'Red Wine Vinegar':                          { pH: 3.0, aceticAcid: 6.0,  brix: 1.5, moisture: 93, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
@@ -192,30 +232,47 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Rice Wine Vinegar':                         { pH: 3.2, aceticAcid: 4.3,  brix: 0.5, moisture: 95, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
   'Malt Vinegar':                              { pH: 3.0, aceticAcid: 5.0,  brix: 1.0, moisture: 94, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
   // VERIFIED — glacial acetic acid (food grade), GRAS per 21 CFR 184.1005.
-  'Acetic Acid (Glacial Food Grade)':          { aceticAcid: 99.5, brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1005 (Acetic Acid, GRAS); Food Chemicals Codex 3rd ed. p. 8', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 64-19-7. IUPAC: ethanoic acid. Industrial assay typically 99.5–100.5%. pH undefined for the neat liquid; in 1% aqueous solution pH ~2.4. Per FDA CPG 562.100, diluted glacial acetic acid is NOT vinegar and cannot substitute for vinegar in standardized foods.' },
+  'Acetic Acid (Glacial Food Grade)':          { aceticAcid: 99.5, brix: 0, moisture: 0.5, aw: 0, pKa1: 4.76, acidMolarMass: 60.05, source: 'commodity-standard', citation: '21 CFR 184.1005 (Acetic Acid, GRAS); Food Chemicals Codex 3rd ed. p. 8; pKa from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 64-19-7. IUPAC: ethanoic acid. Industrial assay typically 99.5–100.5%. pH undefined for the neat liquid; in 1% aqueous solution pH ~2.4. Per FDA CPG 562.100, diluted glacial acetic acid is NOT vinegar and cannot substitute for vinegar in standardized foods. Section 2 (Round 10) tags pKa1 4.76 and MW 60.05 g/mol for Henderson-Hasselbalch single-acid pH computation; moisture 0.5 reflects the 99.5% industrial assay.' },
   // ─── Acids & preservatives ────────────────────────────────────────────────
   // Round 6 Step 2 (2026-05-07): all 8 standalone food acids carry pH values
-  // reflecting their 1% aqueous-solution measurement. The mass-weighted pH
-  // rollup at lib/foodScience.ts:706 uses each ingredient's pH spec as if the
-  // ingredient were a homogeneous solution at that pH; this is mathematically
-  // optimistic at very low use levels (<0.5%) — a 0.5% citric acid in water
-  // formulation will compute higher pH than measured because the rollup
-  // doesn't model acid dissociation in the water phase. For the typical
-  // formulation use range of 0.1%–2% mass, the 1%-solution-pH convention
-  // produces reasonable estimates and is consistent with the existing vinegar
-  // entries (which carry their as-poured pH, not their dissociation-state pH).
-  // Henderson-Hasselbalch with buffer modeling is out of scope.
+  // reflecting their 1% aqueous-solution measurement. These pH values
+  // continue to drive the legacy mass-weighted log-[H+] rollup for
+  // ingredients that don't have pKa1 metadata, and for formulations where
+  // Rules A/B fall back from Henderson-Hasselbalch to ESTIMATED.
+  //
+  // Round 10 Section 2 (2026-05-14): Tier A overrides the legacy
+  // 1%-solution proxy with chemistry-sound Henderson-Hasselbalch math at
+  // computeSingleAcidPH() for single-acid non-buffered formulations. The
+  // 2026-05-14 bench test confirmed the legacy proxy produces 2-pH-unit
+  // errors (engine 4.20 vs reference 2.20 on 1% citric + water).
+  //
+  // Tier A activation requires Rules A/B to clear:
+  //   Rule A — exactly one ingredient in the formulation carries pKa1 > 0
+  //   Rule B — no ingredient carries bufferingBehavior: 'known-buffering'
+  // When both clear, output is CALCULATED via H-H. When either falls
+  // back, output is ESTIMATED via the existing log-space math.
+  //
+  // The eight standalone acids below carry pKa1 + acidMolarMass for
+  // Tier A. GDL is intentionally left untagged — its slow-release
+  // hydrolysis kinetics violate the static-equilibrium assumption that
+  // H-H requires; formulations with GDL fall through to the legacy
+  // log-space rollup with ESTIMATED confidence per the bench-test
+  // observation that GDL pH drifts with hold time.
+  //
+  // Tier B (multi-acid buffer equilibrium) and multi-protic pKa2/pKa3
+  // handling remain out of scope pending validation data.
   // VERIFIED — citric acid anhydrous & monohydrate, GRAS per 21 CFR 184.1033.
-  'Citric Acid (Anhydrous)':                   { pH: 2.2, brix: 0, moisture: 0, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS); Food Chemicals Codex 3rd ed. pp. 86-87', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 77-92-9. IUPAC: 2-hydroxy-1,2,3-propanetricarboxylic acid. pH 2.2 reflects 1% aqueous solution (the dry crystal itself has undefined pH).' },
-  'Citric Acid (Monohydrate, Fine)':           { pH: 2.2, brix: 0, moisture: 8.6, aw: 0, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS) — monohydrate form', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 5949-29-1. Approximately 9% heavier than anhydrous due to water of hydration. pH 2.2 same as anhydrous in solution. Round 6 Step 3 rename — was "Citric Acid (Monohydrate)", aligned to catalog name "Citric Acid (Monohydrate, Fine)".' },
-  // UNVERIFIED — pH/aw values are AI estimates per 1% solution convention.
-  'Malic Acid (L-Malic, Food Grade)':          { pH: 2.4, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 97-67-6. E296. pH 2.4 in 1% solution. "Apple-tart" acidulant.' },
-  'Tartaric Acid (Natural L-)':                { pH: 2.2, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 87-69-4. E334. pH 2.2 in 1% solution. Wine industry acidulant.' },
-  'Fumaric Acid (Food Grade)':                 { pH: 2.6, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 110-17-8. E297. Low water solubility (~0.6 g/100mL at 25°C); pH 2.6 reflects saturated solution (the upper limit of typical use). Slow-release acid for dry-mix beverages.' },
-  'Lactic Acid (88%, Corn-Derived)':           { pH: 2.4, brix: 0, moisture: 12, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 50-21-5. E270. The 88% liquid concentrate has pH ~0.5 neat; pH 2.4 reflects typical 1% aqueous use. Catalog SKU is 88% concentrate by convention; moisture 12% reflects the 88/12 acid/water ratio.' },
-  'Phosphoric Acid (85%, Food Grade)':         { pH: 1.5, brix: 0, moisture: 15, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 7664-38-2. E338. The 85% concentrate has pH ~1.5 directly; this is the strongest food acid in the catalog. Cola beverage standard.' },
-  'Gluconic Acid (Glucono-Delta-Lactone, GDL)': { pH: 3.5, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 90-80-2. E575. Slow-release acidulant — pH starts ~3.5 at initial dissolution and drifts down as GDL hydrolyzes to gluconic acid (final pH ~2.4 at full hydrolysis). The 3.5 here reflects working pH within the typical hold window for tofu / sausage / sourdough applications. For long-hold formulations, the lower hydrolyzed pH may need to be modeled separately.' },
-  'Ascorbic Acid (Vitamin C, Food Grade)':     { pH: 2.4, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 50-81-7. E300. pH 2.4 in 1% solution. Antioxidant + browning inhibitor + nutrient fortifier.' },
+  'Citric Acid (Anhydrous)':                   { pH: 2.2, brix: 0, moisture: 0, aw: 0, pKa1: 3.13, acidMolarMass: 192.12, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS); Food Chemicals Codex 3rd ed. pp. 86-87; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 77-92-9. IUPAC: 2-hydroxy-1,2,3-propanetricarboxylic acid. Triprotic acid with pKa1 3.13 / pKa2 4.76 / pKa3 6.40; v1 H-H uses pKa1 only (Tier B will handle multi-protic). pH 2.2 reflects 1% aqueous solution (legacy 1%-solution-proxy retained for non-Tier-A fallback).' },
+  'Citric Acid (Monohydrate, Fine)':           { pH: 2.2, brix: 0, moisture: 8.6, aw: 0, pKa1: 3.13, acidMolarMass: 192.12, source: 'commodity-standard', citation: '21 CFR 184.1033 (Citric Acid, GRAS) — monohydrate form; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30', notes: 'CAS 5949-29-1. Approximately 9% heavier than anhydrous due to water of hydration; moisture 8.6 carries the water-of-crystallization. pKa1 + acidMolarMass match anhydrous form (the acid molecule is identical). Round 6 Step 3 rename — was "Citric Acid (Monohydrate)", aligned to catalog name "Citric Acid (Monohydrate, Fine)".' },
+  // UNVERIFIED — pH/aw values are AI estimates per 1% solution convention. pKa1 values from CRC Handbook 97th ed. (well-established physical constants).
+  'Malic Acid (L-Malic, Food Grade)':          { pH: 2.4, brix: 0, moisture: 0, aw: 0, pKa1: 3.40, acidMolarMass: 134.09, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 97-67-6. E296. Diprotic; pKa1 3.40 / pKa2 5.11. pH 2.4 in 1% solution. "Apple-tart" acidulant.' },
+  'Tartaric Acid (Natural L-)':                { pH: 2.2, brix: 0, moisture: 0, aw: 0, pKa1: 2.98, acidMolarMass: 150.09, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 87-69-4. E334. Diprotic; pKa1 2.98 / pKa2 4.34. pH 2.2 in 1% solution. Wine industry acidulant.' },
+  'Fumaric Acid (Food Grade)':                 { pH: 2.6, brix: 0, moisture: 0, aw: 0, pKa1: 3.03, acidMolarMass: 116.07, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 110-17-8. E297. Diprotic; pKa1 3.03 / pKa2 4.44. Low water solubility (~0.6 g/100mL at 25°C); pH 2.6 reflects saturated solution. Slow-release acid for dry-mix beverages — but the dissolution-rate limitation differs from GDL hydrolysis; H-H still applies once dissolved.' },
+  'Lactic Acid (88%, Corn-Derived)':           { pH: 2.4, brix: 0, moisture: 12, aw: 0, pKa1: 3.86, acidMolarMass: 90.08, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 50-21-5. E270. Monoprotic; pKa 3.86. The 88% liquid concentrate has pH ~0.5 neat; pH 2.4 reflects typical 1% aqueous use. Catalog SKU is 88% concentrate by convention; moisture 12% reflects the 88/12 acid/water ratio — H-H math uses (1 - moisture/100) as the acid-mass fraction.' },
+  'Phosphoric Acid (85%, Food Grade)':         { pH: 1.5, brix: 0, moisture: 15, aw: 0, pKa1: 2.15, acidMolarMass: 97.99, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 7664-38-2. E338. Triprotic; pKa1 2.15 / pKa2 7.20 / pKa3 12.38. The 85% concentrate has pH ~1.5 directly; this is the strongest food acid in the catalog. Cola beverage standard. moisture 15% reflects the 85/15 acid/water ratio.' },
+  // Gluconic Acid (GDL) intentionally left without pKa1 — slow-release hydrolysis kinetics violate H-H's static-equilibrium assumption; falls through to legacy log-space math with ESTIMATED confidence.
+  'Gluconic Acid (Glucono-Delta-Lactone, GDL)': { pH: 3.5, brix: 0, moisture: 0, aw: 0, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 90-80-2. E575. Slow-release acidulant — pH starts ~3.5 at initial dissolution and drifts down as GDL hydrolyzes to gluconic acid (final pH ~2.4 at full hydrolysis). The 3.5 here reflects working pH within the typical hold window for tofu / sausage / sourdough applications. For long-hold formulations, the lower hydrolyzed pH may need to be modeled separately. Tier A does not apply (hydrolysis kinetics violate H-H static-equilibrium).' },
+  'Ascorbic Acid (Vitamin C, Food Grade)':     { pH: 2.4, brix: 0, moisture: 0, aw: 0, pKa1: 4.10, acidMolarMass: 176.12, source: 'ai-estimate', confidence: 'unverified', notes: 'CAS 50-81-7. E300. Diprotic; pKa1 4.10 / pKa2 11.79. pH 2.4 in 1% solution. Antioxidant + browning inhibitor + nutrient fortifier.' },
   // ─── Preservatives ────────────────────────────────────────────────────────
   // UNVERIFIED — preservatives; pH/aw values are AI estimates.
   'Sodium Benzoate (Food Grade)':              { pH: 8.0, moisture: 0.2, brix: 0, aw: 0.20, source: 'ai-estimate', confidence: 'unverified' },
@@ -246,7 +303,7 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Pineapple Juice (NFC)':                     { brix: 13, moisture: 86, aw: 0.98, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
   'Cranberry Juice (100%, No Sugar)':          { brix: 7.5, moisture: 92, aw: 0.99, pH: 2.5, source: 'ai-estimate', confidence: 'unverified' },
   'Pomegranate Juice (100%)':                  { brix: 16, moisture: 84, aw: 0.97, pH: 3.1, source: 'ai-estimate', confidence: 'unverified' },
-  'Tomato Juice (NFC, Industrial)':            { brix: 6,  moisture: 93, aw: 0.99, pH: 4.2, source: 'ai-estimate', confidence: 'unverified' },
+  'Tomato Juice (NFC, Industrial)':            { brix: 6,  moisture: 93, aw: 0.99, pH: 4.2, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
   'Apple Juice Concentrate (70 Brix)':         { brix: 70, moisture: 30, aw: 0.75, pH: 3.3, source: 'ai-estimate', confidence: 'unverified' },
   'Orange Juice Concentrate (65 Brix)':        { brix: 65, moisture: 35, aw: 0.78, pH: 3.8, source: 'ai-estimate', confidence: 'unverified' },
   'Pineapple Juice Concentrate (60 Brix)':     { brix: 60, moisture: 40, aw: 0.80, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
@@ -274,8 +331,8 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'IQF Diced Tomato':                          { brix: 3,  moisture: 94, aw: 0.99, pH: 4.4, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw tomato pH 4.3-4.9 (varies by variety/ripeness); midpoint 4.4. Calcium chloride firming agent does not meaningfully shift pH.' },
   'IQF Ginger (Minced)':                       { brix: 5,  moisture: 80, aw: 0.97, pH: 5.5, source: 'ai-estimate', confidence: 'unverified', notes: 'Raw ginger frozen — mildly acidic to neutral.' },
   // ─── Tomato products ──────────────────────────────────────────────────────
-  'Tomato Paste (28-30 Brix)':                 { brix: 29, moisture: 71, aw: 0.96, pH: 4.3, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
-  'Tomato Puree (Aseptic)':                    { brix: 11, moisture: 89, aw: 0.99, pH: 4.2, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  'Tomato Paste (28-30 Brix)':                 { brix: 29, moisture: 71, aw: 0.96, pH: 4.3, viscosityContrib: 'high', bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
+  'Tomato Puree (Aseptic)':                    { brix: 11, moisture: 89, aw: 0.99, pH: 4.2, viscosityContrib: 'medium', bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
   'Mango Puree (Aseptic)':                     { brix: 15, moisture: 84, aw: 0.98, pH: 4.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
   'Apple Puree (Aseptic)':                     { brix: 11, moisture: 88, aw: 0.98, pH: 3.5, source: 'ai-estimate', confidence: 'unverified' },
   'Red Pepper Puree (Aseptic)':                { brix: 6,  moisture: 93, aw: 0.99, pH: 4.6, source: 'ai-estimate', confidence: 'unverified' },
@@ -402,7 +459,7 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   // citation; treat as a flavored/specialty beverage.
   'Alkaline Water (pH 9.5)':                   { brix: 0, moisture: 100, aw: 1.0, pH: 9.5, source: 'ai-estimate', confidence: 'unverified' },
   // ─── Egg products ─────────────────────────────────────────────────────────
-  'Whole Egg Powder':                          { brix: 0, moisture: 5, aw: 0.25, pH: 7.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Whole Egg Powder':                          { brix: 0, moisture: 5, aw: 0.25, pH: 7.5, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
   // ─── Baking-specific overrides ────────────────────────────────────────────
   'Fresh Yeast (Compressed / Cake)':           { brix: 0,  moisture: 70, aw: 0.98, pH: 5.5, source: 'ai-estimate', confidence: 'unverified' },
   'Active Dry Yeast (ADY)':                    { brix: 0,  moisture: 8,  aw: 0.40, pH: 6.2, source: 'ai-estimate', confidence: 'unverified' },
@@ -414,9 +471,9 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Baking Powder (Double-Acting, Aluminum-Free)': { brix: 0, moisture: 2, aw: 0.30, pH: 6.8, source: 'ai-estimate', confidence: 'unverified' },
   'Cream of Tartar (Potassium Bitartrate)':    { brix: 0,  moisture: 0.1, aw: 0.20, pH: 3.6, source: 'ai-estimate', confidence: 'unverified' },
   // ─── Dairy that isn't nearly water (butter) ───────────────────────────────
-  'Unsalted Butter (AA Grade, 82% MF)':        { brix: 0, moisture: 16, aw: 0.95, pH: 6.2, source: 'ai-estimate', confidence: 'unverified' },
-  'European-Style Butter (84%+ MF, Cultured)': { brix: 0, moisture: 14, aw: 0.94, pH: 5.1, source: 'ai-estimate', confidence: 'unverified' },
-  'Heavy Cream (36%+ MF)':                     { brix: 3, moisture: 57, aw: 0.98, pH: 6.5, source: 'ai-estimate', confidence: 'unverified' },
+  'Unsalted Butter (AA Grade, 82% MF)':        { brix: 0, moisture: 16, aw: 0.95, pH: 6.2, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
+  'European-Style Butter (84%+ MF, Cultured)': { brix: 0, moisture: 14, aw: 0.94, pH: 5.1, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
+  'Heavy Cream (36%+ MF)':                     { brix: 3, moisture: 57, aw: 0.98, pH: 6.5, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
   // ─── Vanilla / extracts / aromatics ───────────────────────────────────────
   'Vanilla Extract (Pure, Single-Fold)':       { brix: 5, moisture: 55, aw: 0.80, pH: 4.3, source: 'ai-estimate', confidence: 'unverified' },
   'Vanilla Bean Paste (Seeded)':               { brix: 68, moisture: 29, aw: 0.75, pH: 4.5, source: 'ai-estimate', confidence: 'unverified' },
@@ -426,8 +483,8 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Peppermint Extract (Pure)':                 { brix: 0, moisture: 20, aw: 0.75, pH: 5.0, source: 'ai-estimate', confidence: 'unverified' },
   'Rose Water (Food-Grade)':                   { brix: 0, moisture: 99, aw: 1.0, pH: 6.5, source: 'ai-estimate', confidence: 'unverified' },
   'Orange Blossom Water (Food-Grade)':         { brix: 0, moisture: 99, aw: 1.0, pH: 6.5, source: 'ai-estimate', confidence: 'unverified' },
-  'Egg Yolk Powder':                           { brix: 0, moisture: 5, aw: 0.30, pH: 6.4, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified' },
-  'Egg White Powder (Albumen)':                { brix: 0, moisture: 7, aw: 0.35, pH: 9.0, source: 'ai-estimate', confidence: 'unverified' },
+  'Egg Yolk Powder':                           { brix: 0, moisture: 5, aw: 0.30, pH: 6.4, viscosityContrib: 'high', bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
+  'Egg White Powder (Albumen)':                { brix: 0, moisture: 7, aw: 0.35, pH: 9.0, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
   // ─── Proteins / nut butters ───────────────────────────────────────────────
   'Tahini (Hulled Sesame Paste)':              { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
   'Tahini (Unhulled/Whole Sesame Paste)':      { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
@@ -444,12 +501,12 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Pickling Salt (Pure NaCl, No Anti-Caking)': { aw: 0.75, brix: 0, moisture: 0, source: 'commodity-standard', citation: '21 CFR 182 (basic GRAS list); Food Chemicals Codex monograph for sodium chloride', confidence: 'verified', last_verified: '2026-05-08', notes: 'CAS 7647-14-5. >99.9% NaCl, no additives. Same chemistry as fine salt; differentiator is sub-ingredient declaration discipline (no anti-caking agents, no iodine — both inhibit lactic-acid fermentation cultures).' },
   'White Wine Vinegar (Industrial, 6%)':       { pH: 3.0, aceticAcid: 6.0, brix: 1.0, moisture: 93, aw: 0.99, source: 'ai-estimate', confidence: 'unverified', notes: '6% acidity industrial standard. Same chemistry profile as Red Wine Vinegar; flavor / color differentiation only.' },
   'Sherry Vinegar (Spanish, 7%)':              { pH: 2.9, aceticAcid: 7.0, brix: 2.0, moisture: 91, aw: 0.98, source: 'ai-estimate', confidence: 'unverified', notes: 'Higher acidity (7%) than table vinegars — recompute 5% acidified-foods threshold math accordingly. Solera-aged sherry-base.' },
-  'Whole Peeled Tomatoes (Canned, in Juice)':  { brix: 5.5, moisture: 93, aw: 0.99, pH: 4.4, source: 'ai-estimate', confidence: 'unverified', notes: 'Borderline acidified (FDA threshold 4.6). Citric acid added during canning for pH safety; without it ripe tomato variants can hit 4.6+. Drained:liquid ratio ~60:40.' },
-  'Crushed Tomatoes (Canned, Conventional)':   { brix: 7.0, moisture: 91, aw: 0.98, pH: 4.3, source: 'ai-estimate', confidence: 'unverified', notes: 'More concentrated than whole peeled but less than puree. Marinara / pizza sauce base.' },
-  'Tomato Sauce (Canned)':                     { brix: 8.5, moisture: 89, aw: 0.97, pH: 4.2, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified', notes: 'Hunt\'s-style canned sauce (more concentrated than puree, less than paste). Mexican-style enchilada / Spanish-rice base.' },
-  'Anchovy Paste (Tinned)':                    { brix: 4, moisture: 50, aw: 0.86, pH: 5.5, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified', notes: 'Salt + oil suppress aw despite ~50% moisture. Mildly acidic from fermentation; not vinegar-acidulated.' },
+  'Whole Peeled Tomatoes (Canned, in Juice)':  { brix: 5.5, moisture: 93, aw: 0.99, pH: 4.4, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified', notes: 'Borderline acidified (FDA threshold 4.6). Citric acid added during canning for pH safety; without it ripe tomato variants can hit 4.6+. Drained:liquid ratio ~60:40.' },
+  'Crushed Tomatoes (Canned, Conventional)':   { brix: 7.0, moisture: 91, aw: 0.98, pH: 4.3, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified', notes: 'More concentrated than whole peeled but less than puree. Marinara / pizza sauce base.' },
+  'Tomato Sauce (Canned)':                     { brix: 8.5, moisture: 89, aw: 0.97, pH: 4.2, viscosityContrib: 'medium', bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified', notes: 'Hunt\'s-style canned sauce (more concentrated than puree, less than paste). Mexican-style enchilada / Spanish-rice base.' },
+  'Anchovy Paste (Tinned)':                    { brix: 4, moisture: 50, aw: 0.86, pH: 5.5, viscosityContrib: 'high', bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified', notes: 'Salt + oil suppress aw despite ~50% moisture. Mildly acidic from fermentation; not vinegar-acidulated. Fish protein matrix buffers acid additions; Section 2 Rule B flags this so Tier A falls back to ESTIMATED rather than applying single-acid H-H.' },
   'Prepared Horseradish (Brined, Industrial)': { brix: 5, moisture: 80, aw: 0.94, pH: 3.7, aceticAcid: 1.5, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified', notes: 'Vinegar-stabilized; pH 3.5-4.0 typical. Acidified-foods compatible.' },
-  'Pasteurized Liquid Egg Yolk (Salted, Industrial)': { brix: 0, moisture: 45, aw: 0.86, pH: 6.0, viscosityContrib: 'high', source: 'ai-estimate', confidence: 'unverified', notes: '10% salt addition lowers aw from raw-yolk 0.97 to 0.86 (refrigerated shelf-life extension). Salt addition pulls pH from raw 6.4 to ~6.0. Mayo / hollandaise base — different moisture profile from Egg Yolk Powder (5%).' },
+  'Pasteurized Liquid Egg Yolk (Salted, Industrial)': { brix: 0, moisture: 45, aw: 0.86, pH: 6.0, viscosityContrib: 'high', bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified', notes: '10% salt addition lowers aw from raw-yolk 0.97 to 0.86 (refrigerated shelf-life extension). Salt addition pulls pH from raw 6.4 to ~6.0. Mayo / hollandaise base — different moisture profile from Egg Yolk Powder (5%).' },
   'Sodium Citrate (Food Grade)':               { brix: 0, moisture: 0, aw: 0.20, pH: 8.0, source: 'commodity-standard', citation: '21 CFR 184.1751 (Sodium Citrate, GRAS); Food Chemicals Codex monograph for trisodium citrate dihydrate', confidence: 'verified', last_verified: '2026-05-08', notes: 'CAS 68-04-2 (anhydrous) / 6132-04-3 (dihydrate). pH 8.0 in 1% solution — basic, buffering toward neutral. Used as pH stabilizer (0.1-0.3% in dressings) and cheese-sauce melt-stabilizer.' },
   'Calcium Lactate (Food Grade)':              { brix: 0, moisture: 0, aw: 0.30, pH: 7.0, source: 'commodity-standard', citation: '21 CFR 184.1207 (Calcium Lactate, GRAS)', confidence: 'verified', last_verified: '2026-05-08', notes: 'CAS 814-80-2 (anhydrous) / 5743-47-5 (pentahydrate). 1% solution pH ~7 (essentially neutral). Pickle firming agent + nutrient-fortification calcium source.' },
   'Mixed Tocopherols (d-Alpha, Food Grade)':   { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'low', source: 'ai-estimate', confidence: 'unverified', notes: 'Oil-soluble; chemistry follows the carrier oil profile (pH undefined in oil phase — treated as neutral for rollup). 200-500 ppm typical use rate as oxidation inhibitor.' },
@@ -1044,6 +1101,144 @@ export function formatRangedValue(
   };
 }
 
+// ============================================================
+// Section 2 — Tier A single-acid Henderson-Hasselbalch
+// ------------------------------------------------------------
+// Round 10 Section 2 (2026-05-14) replaces the legacy 1%-solution-proxy pH
+// math with chemistry-sound Henderson-Hasselbalch for single-acid
+// non-buffered formulations. Bench test on 2026-05-14 confirmed the legacy
+// proxy produces 2-pH-unit errors (engine 4.20 vs reference 2.20 on 1%
+// citric + water — 100x error in [H+]).
+//
+// Tier A activation requires Rules A and B to clear:
+//   Rule A — exactly one ingredient in the formulation carries pKa1 > 0
+//   Rule B — no ingredient carries bufferingBehavior: 'known-buffering'
+//
+// When both clear, output is CALCULATED via H-H. When either falls back,
+// output retains legacy log-space pH but caps confidence at ESTIMATED
+// (the legacy math is not chemistry-sound across multi-acid or buffered
+// systems; honest framing requires the downgrade).
+//
+// Acceptance criteria (4 positive + 2 negative fixtures, per directive
+// Section 5):
+//   • 1% citric anhydrous + 99% water     → 2.20 ± 0.05 CALCULATED
+//   • 0.5% citric + 99.5% water           → 2.36 ± 0.05 CALCULATED
+//   • 0.1% citric + 99.9% water           → 2.71 ± 0.10 CALCULATED
+//   • 1% acetic glacial + 99% water       → 2.77 ± 0.05 CALCULATED
+//   • 1% citric + 1% acetic + 98% water   → ESTIMATED (Rule A multi-acid)
+//   • Ketchup (vinegar + tomato paste...) → ESTIMATED (Rule B buffering)
+// ============================================================
+
+/**
+ * Tier A pH computation outcome. Three branches:
+ *
+ *   • `applied`        — Rules A and B both cleared; pH is H-H-computed and
+ *                        carries the derived confidence (CALCULATED when the
+ *                        acid entry is MEASURED; ESTIMATED otherwise).
+ *   • `fallback`       — Rules declined H-H (multi-acid or known-buffering
+ *                        matrix); caller retains legacy pH but caps
+ *                        confidence at ESTIMATED.
+ *   • `not-applicable` — No pKa1-tagged acid present; Tier A doesn't fire
+ *                        and the legacy log-space [H+] math + its native
+ *                        confidence floor run unchanged.
+ */
+export type TierAPHResult =
+  | { kind: 'applied'; pH: number; confidence: Confidence; acidName: string }
+  | { kind: 'fallback'; reason: 'multi-acid' | 'known-buffering' }
+  | { kind: 'not-applicable' };
+
+/**
+ * Compute single-acid pH via Henderson-Hasselbalch when Rules A and B clear.
+ *
+ * Math: weak-acid equilibrium quadratic
+ *
+ *   [H+]² + Ka·[H+] − Ka·C = 0
+ *   ⇒ [H+] = ( −Ka + √(Ka² + 4·Ka·C) ) / 2
+ *
+ * (More accurate than the sqrt(Ka·C) approximation across the full
+ * dilute-to-moderate concentration range; matches bench-test fixtures
+ * within their stated tolerances.)
+ *
+ * Moles of acid are computed as
+ *
+ *   molesAcid = entryMass × (1 − moisture/100) / acidMolarMass
+ *
+ * The (1 − moisture/100) factor handles three cases uniformly:
+ *   • Pure crystalline acids (citric anhydrous, malic, etc.): moisture = 0,
+ *     full entry mass is acid.
+ *   • Solution concentrates (lactic 88%, phosphoric 85%): moisture = 12 or
+ *     15, so (1 − moisture/100) gives the acid mass fraction.
+ *   • Crystalline monohydrates (citric monohydrate): moisture carries the
+ *     water-of-crystallization; the math still produces the correct molar
+ *     count when paired with the anhydrous-form acidMolarMass.
+ *
+ * Volume of solution is approximated as totalMass / (1 g/mL) for dilute
+ * aqueous systems. Density-correction is Tier C (out of scope for v1).
+ *
+ * Out of scope:
+ *   • Multi-acid buffer equilibrium (Tier B / Round 11+)
+ *   • Multi-protic pKa2/pKa3 contributions (Tier B)
+ *   • Ionic strength corrections (Tier C, not on roadmap)
+ *   • GDL hydrolysis kinetics (catalog entry intentionally left without
+ *     pKa1 so this function returns `not-applicable` for GDL-only formulas)
+ */
+export function computeSingleAcidPH(
+  ingredients: SpecInputIngredient[],
+  totalMass: number,
+): TierAPHResult {
+  if (totalMass <= 0) return { kind: 'not-applicable' };
+
+  const acids: Array<{ massG: number; name: string; spec: IngredientSpec }> = [];
+  let hasKnownBuffering = false;
+
+  for (const ing of ingredients) {
+    const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+    if (g <= 0) continue;
+    const spec = getSpec(ing.name, ing.category);
+    if (
+      spec.pKa1 !== undefined && spec.pKa1 > 0 &&
+      spec.acidMolarMass !== undefined && spec.acidMolarMass > 0
+    ) {
+      acids.push({ massG: g, name: ing.name, spec });
+    }
+    if (spec.bufferingBehavior === 'known-buffering') {
+      hasKnownBuffering = true;
+    }
+  }
+
+  // Rule A — acid count check
+  if (acids.length === 0) return { kind: 'not-applicable' };
+  if (acids.length >= 2) return { kind: 'fallback', reason: 'multi-acid' };
+
+  // Rule B — buffering-ingredient check
+  if (hasKnownBuffering) return { kind: 'fallback', reason: 'known-buffering' };
+
+  // Both rules clear — apply Henderson-Hasselbalch weak-acid equilibrium.
+  const acid = acids[0];
+  const moisturePct = acid.spec.moisture ?? 0;
+  const purityFraction = 1 - moisturePct / 100;
+  const molesAcid = (acid.massG * purityFraction) / acid.spec.acidMolarMass!;
+  const volumeLiters = totalMass / 1000; // density ≈ 1 g/mL approximation
+  const concentration = molesAcid / volumeLiters;
+  const Ka = Math.pow(10, -acid.spec.pKa1!);
+  const hPlus = (-Ka + Math.sqrt(Ka * Ka + 4 * Ka * concentration)) / 2;
+  const pH = -Math.log10(hPlus);
+
+  // Confidence: pKa values are physical-chemistry constants of the acid
+  // molecule (well-established from CRC Handbook / Food Chemicals Codex).
+  // The entry-level confidence governs the output because the formulation
+  // chemistry — mass, moisture/dilution — carries that confidence.
+  const inputConfidence = mapSpecToConfidence(acid.spec);
+  const outputConfidence: Confidence =
+    inputConfidence === 'measured' ? 'calculated' :
+    inputConfidence === 'calculated' ? 'calculated' :
+    inputConfidence === 'estimated' ? 'estimated' :
+    inputConfidence === 'inferred' ? 'estimated' :
+    'unknown';
+
+  return { kind: 'applied', pH, confidence: outputConfidence, acidName: acid.name };
+}
+
 /**
  * Estimate formulation-level specs from the ingredient list.
  */
@@ -1118,6 +1313,15 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
   const aw = Math.max(massWeightedAw, awFromMoisture(moisture));
   const aceticAcid = sumAceticMass / totalMass;
   const pH = massForPH > 0 ? -Math.log10(sumHMass / massForPH) : 0;
+
+  // ─── Tier A: single-acid Henderson-Hasselbalch override (Section 2) ─────
+  // Replace the legacy 1%-solution-proxy pH with chemistry-sound H-H when
+  // Rules A and B clear. Multi-acid or buffered fallback keeps the legacy
+  // pH but caps confidence at ESTIMATED in the confidence block below.
+  // See computeSingleAcidPH for the rule details and bench-test context.
+  const tierA = computeSingleAcidPH(ingredients, totalMass);
+  const effectivePH = tierA.kind === 'applied' ? tierA.pH : pH;
+
   const aceticMoistureRatio = moisture > 0 ? (aceticAcid / moisture) * 100 : 0; // as %
 
   // Compute low-acid component percentage (for 21 CFR 114 acidified food determination).
@@ -1172,8 +1376,10 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
   const lowAcidComponentPct = (lowAcidMass / totalMass) * 100;
 
   // ─── Classification (extracted into classifyFormulation with provenance gate) ───
+  // Pass the Tier-A-effective pH so classifyFormulation uses chemistry-sound
+  // H-H output when Rules A/B clear, not the legacy 1%-solution-proxy.
   const classification = classifyFormulation({
-    ingredients, totalMass, pH, aw, lowAcidComponentPct, hasAcidulant,
+    ingredients, totalMass, pH: effectivePH, aw, lowAcidComponentPct, hasAcidulant,
   });
 
   // Recompute viscosity score in a clean pass (mass-weighted).
@@ -1209,8 +1415,21 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
     : 'very high';
 
   // Per-metric confidence floor across mass-significant contributors (>=5%).
+  // pH confidence respects Tier A status (Section 2):
+  //   • Tier A applied → use the H-H derived confidence (CALCULATED when the
+  //     acid entry is MEASURED; ESTIMATED otherwise)
+  //   • Tier A fallback (multi-acid / buffering) → cap legacy floor at
+  //     ESTIMATED — the legacy log-space [H+] math is not chemistry-sound
+  //     for these cases and honest framing requires the downgrade
+  //   • Tier A not-applicable (no pKa-tagged acid) → legacy floor governs
+  //     unchanged
+  const legacyPhFloor = floorConfidence(phContribs, totalMass);
+  const pHConfidence: Confidence =
+    tierA.kind === 'applied' ? tierA.confidence :
+    tierA.kind === 'fallback' ? worstConfidence(legacyPhFloor, 'estimated') :
+    legacyPhFloor;
   const confidence = {
-    pH:         floorConfidence(phContribs, totalMass),
+    pH:         pHConfidence,
     brix:       floorConfidence(brixContribs, totalMass),
     moisture:   floorConfidence(moistureContribs, totalMass),
     aw:         floorConfidence(awContribs, totalMass),
@@ -1218,7 +1437,7 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
   };
 
   return {
-    pH,
+    pH: effectivePH,
     brix,
     moisture,
     aw,
