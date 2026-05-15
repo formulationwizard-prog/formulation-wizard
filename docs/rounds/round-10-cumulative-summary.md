@@ -281,38 +281,69 @@ Captured in `docs/findings/round-10-visual-review.md`. Summary:
 
 ---
 
-## Round 11 priority sequence (revised per visual review session)
+## Round 11 priority sequence (revised per post-deploy smoke test 2026-05-15)
 
-Round 11's directive should open with this sequenced priority chain,
-executed in order. Rationale: Finding #22 architectural principle
-(co-sequence enforcement with catalog) drives the ordering — no new
-enforcement before catalog backing is verified.
+Two parallel launch-blocker tracks plus existing scope. Nutraceuticals workspace
+correctness (#25) becomes NEW first priority based on post-deploy smoke test
+revealing fundamental math model and regulatory framework issues that block
+August launch for the P1 vertical.
 
-1. **Finding #23: Regulatory table audit (FIRST priority).** Comprehensive
-   review of 18 regulatory entries. Classify each as operational /
-   forward-prepared / orphan. Action per entry: keep / annotate / remove.
+### Track A: Nutraceuticals workspace correctness (NEW launch-blocker, P1)
 
-2. **Findings #15 + #21: Catalog tagging pass.** Add sulfite preservatives
-   (sodium metabisulfite, potassium metabisulfite, SO2, sodium bisulfite —
-   per PA-verification queue) and synthetic antioxidants (BHA, BHT, TBHQ,
-   propyl gallate). Activates regulatory enforcement surviving the #23 audit.
+A1. **Finding #25 — Nutraceuticals workspace correctness pass.** Per-serving
+    dose math model replaces F&B recipe-percentage model; F&B regulatory panel
+    scope-out (21 CFR 113/114, Acid Food, LACF logic); 21 CFR 111 cGMP
+    supplement HACCP framework; supplement-context cost calculations; spec
+    coverage denominator fix.
 
-3. **Finding #16: Ascorbic acid Tier A promotion.** Confidence promotion
-   from unverified to verified per CC's draft memo with 21 CFR 182.3013 +
-   FCC + CRC citations. Batches with other Tier A acid promotions if any
-   surface during #23 audit.
+A2. **Findings #26 + #27 — Nutraceuticals workspace UX** (batch with A1).
+    Serving Size input decimal handling. Unit-change mass preservation.
 
-4. **Finding #24: Custom ingredient handling workflow.** Schema + UI +
-   PA export updates. Completes the ingredient-transparency architecture
-   as the operator-facing layer over the catalog/enforcement work in
-   #15/#21/#23.
+### Track B: F&B catalog and enforcement coherence (P2 launch)
 
-5. **Finding #20: Sulfite carryover schema (parallel work).** IngredientSpec
-   additions for so2ContentPpm + sulfiteCarrierClass. Composes with #15
-   catalog tagging. Can land in parallel with #23.
+B1. **Finding #23 — Regulatory table audit.** Classify each of 18 entries as
+    operational / forward-prepared / orphan. Action per entry: keep /
+    annotate / remove.
 
-Plus existing Round 11 scope (PA-review state machinery, PDS, Pre-production
-checklist, 5 harm-critical UNKNOWN items wired, HACCP upload, R9 leftovers).
+B2. **Findings #15 + #21 — Catalog tagging pass.** Sulfite preservatives
+    (sodium metabisulfite, potassium metabisulfite, SO2, sodium bisulfite —
+    per PA-verification queue) + synthetic antioxidants (BHA, BHT, TBHQ,
+    propyl gallate). Activates regulatory enforcement surviving the audit.
+
+B3. **Finding #16 — Ascorbic acid Tier A promotion.** Confidence promotion
+    with PA-verified citations (21 CFR 182.3013 + FCC + CRC).
+
+B4. **Finding #24 — Custom ingredient handling workflow.** Schema + UI +
+    PA-export updates. Completes the ingredient-transparency architecture
+    as the operator-facing layer over the catalog/enforcement work in
+    #15/#21/#23.
+
+B5. **Finding #20 — Sulfite carryover schema (parallel work within Track B).**
+    IngredientSpec additions for so2ContentPpm + sulfiteCarrierClass. Composes
+    with #15 catalog tagging.
+
+### Track C: Original Round 11 documentation infrastructure
+
+PA-review state machinery (field-level authority architecture, per-field
+locking, version history), Packaging Data Sheet, Pre-production checklist,
+five Round 9 harm-critical UNKNOWN items wired through architecture, verified
+HACCP upload surface, R9 leftovers (regulatory-classification panel naming,
+pathway-revert detection, Acid Food reduced-requirement set, Surface 1
+discoverability variant), pre-flight on Audit Items 1, 3, 6.
+
+### Sequencing rationale
+
+Track A is launch-critical for **P1 (Nutraceuticals August deadline)**. Track B
+is launch-critical for **P2 (F&B)**. Track C composes with both. Track A and
+Track B touch different code areas (`lib/supplement*.ts` + `app/workspace/page.tsx`
+Nutraceuticals path vs `lib/regulatoryLimits.ts` + `lib/data/*`) so they can
+proceed in parallel if capacity allows.
+
+Finding #22's architectural principle (co-sequence enforcement with catalog)
+still drives Track B's ordering — no new enforcement before catalog backing
+is verified. Track A's ordering is driven by the math-model dependency chain:
+correct math must land before correct regulatory framework can route against
+correct doses.
 
 ---
 

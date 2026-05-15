@@ -171,6 +171,73 @@ Plus inline documentation comments at each regulatory entry in lib/regulatoryLim
 
 ---
 
+### Finding #25 — Nutraceuticals workspace correctness pass
+
+**Observation.** Post-deploy smoke test (2026-05-15) of Immune Support Stack supplement formulation (Vitamin C 500 mg + Vitamin D3 25 mcg + Zinc Gluconate 15 mg, 2 capsules/serving) revealed the Supplement Facts panel displays values that don't match operator-entered amounts:
+
+| Ingredient | Entered | Displayed |
+|---|---|---|
+| Vitamin C | 500 mg | 1,942 mg (>999% DV) |
+| Vitamin D3 | 25 mcg | 0.2 mcg |
+| Zinc | 15 mg | 8.2 mg |
+
+Single-ingredient diagnostic (Vitamin C 500 mg alone) showed 2000 mg displayed = 100% × 2 g per-serving mass, confirming the F&B recipe-percentage-of-fill-mass model is leaking into the Nutraceuticals workspace. Operator workaround (align Serving Size to ingredient amount, Package Size to serving × servings-per-container) produces correct math but breaks Servings/Container to a nonsensical fractional value.
+
+Additional issues observed during diagnostic:
+
+- **F&B regulatory panels leaking into Nutraceuticals workflow.** 21 CFR 113/114 LACF/Acid Food classification panels, low-acid-component 5% threshold reporting, Acid Food Filing Readiness — all render despite the top-level engine determination correctly identifying "DSHEA-Regulated Dietary Supplement (21 CFR 111)" with "Acidified-foods and LACF logic do not apply." Direct contradiction between determination engine and rendered panels.
+- **HACCP template wrong framework.** Shelf-Stable Dry (Low-Moisture) food framework renders (Salmonella, E. coli on flour, Cronobacter for infant formula, mycotoxins) instead of 21 CFR 111 cGMP supplement framework (identity testing, master manufacturing record, batch production record, holding records, complaints handling).
+- **Cost calculations unit-mismatch warnings.** "Serving > batch — check unit", "Package > batch — check unit" — downstream of the math model issue; cost layer doesn't have supplement-context defaults.
+- **Spec coverage reports 0%** despite supplier-spec'd ingredients — downstream of math model issue (the denominator math floors the coverage rollup).
+- **UL gate fires on incorrectly-calculated displayed values.** Capable of false-positive HARD STOP on safe formulations OR false-negative on actually-dangerous ones. The UL caps themselves (lib/supplementSafetyLimits.ts) are correct; the inputs they receive from the math layer are wrong.
+
+**Hypothesis.** Per the operator's project memory ("take what's applicable from existing F&B AND existing supplement-specific code... plus build Nutraceuticals-specific regulatory engine on top, fill in what's missing — NOT greenfield, NOT simple F&B pivot"), the supplement-specific regulatory engine that overlays the F&B chassis hasn't been fully built. UL caps work (from `lib/supplement*.ts`); regulatory framework and math model layers ABOVE the UL caps are still F&B-native. Round 10 didn't touch this layer; the issues predate Round 10 and were not in Round 10 scope.
+
+**Severity:** LAUNCH-BLOCKING. Nutraceuticals is the P1 launch vertical (August deadline). Math model errors can produce false-positive hard-stops on safe formulations OR false-negative on actually-dangerous formulations — brand-credibility-fatal if shipped to customer-zero in current state. The honest-estimate framing the rest of Round 10 operationalized cannot hold if the underlying numbers are wrong.
+
+**Recommended Round assignment:** Round 11 **FIRST PRIORITY** (Track A, above the existing Round 11 documentation-infrastructure scope per the original Round 10/11 split).
+
+**Scope:**
+
+1. **Per-serving dose math model** — Nutraceuticals mode treats ingredient amounts as per-serving doses, not recipe percentages of fill mass. Replace F&B recipe-percentage model in Nutraceuticals workspace path.
+2. **F&B regulatory panel scope-out** — 21 CFR 113/114 panels, Acid Food classification, low-acid components, Filing Readiness for Acid Food all conditionally rendered behind `mode !== 'supplements'` (or equivalent guard). Match the existing `checkCompliance` skip-pattern at app/workspace/page.tsx.
+3. **21 CFR 111 cGMP supplement HACCP framework** — replace Shelf-Stable Dry food framework rendering in Nutraceuticals mode with supplement-appropriate framework (identity testing, MMR, BPR, holding records, complaints).
+4. **Supplement-context cost calculations** — per-serving cost as primary unit; remove F&B serving-vs-batch unit-mismatch warnings in supplement context.
+5. **Spec coverage denominator fix** — calculate against supplement-appropriate denominator (per-serving ingredient mass coverage, not recipe coverage).
+6. **Capsule capacity math sanity-check** against the fixed per-serving math.
+
+**Investigation status:** Findings logged here for Round 11 directive input. Optional Round 11 directive scoping memo at [nutraceuticals-workspace-audit-2026-05-15.md](nutraceuticals-workspace-audit-2026-05-15.md) maps the specific code locations that need attention. Not implemented in this session per SOW off-limits.
+
+---
+
+### Finding #26 — Serving Size input UX limitations
+
+**Observation.** In the Nutraceuticals workspace Serving & Package Size section, Serving Size arrow controls cycle `1 → 2 → ... → 30 → 1` (wrap-around at 30). Cannot enter decimal values below 1 (e.g., `0.5 g` for a powder serving). Operator workaround requires switching the unit dropdown from `g` to `mg`, which then triggers Finding #27.
+
+**Hypothesis.** Input control configured for integer-1-to-30 step range — likely defaults appropriate for F&B serving counts (e.g., 1-30 cookies per package) but wrong for supplement context where sub-gram doses are common.
+
+**Severity:** LOW-MODERATE. Blocks natural workflow for common supplement serving sizes (any sub-gram powder, any half-capsule splitting, etc.). Compounds Finding #25's math issues by pushing operators into Finding #27's unit-change trap as a workaround.
+
+**Recommended Round assignment:** Round 11+ Nutraceuticals workspace pass (batch with #25).
+
+**Investigation status:** Round 11 scoping deliverable. Bounded UX fix — allow decimal Serving Size values; adjust step / min / max attributes on the input control. Compose with Finding #25's per-serving math model.
+
+---
+
+### Finding #27 — Unit-change preserves number, not mass
+
+**Observation.** In the Serving & Package Size section, changing the unit dropdown from `g` to `mg` (or vice versa) preserves the numeric value rather than converting the mass. Example: Package Size `60` in `g` → operator switches unit to `mg` → field still displays `60` (now meaning 60 mg, not 60 g). Operator-invisible 1000× mass drop.
+
+**Hypothesis.** Unit dropdown is a label-only control on the numeric field, not a mass-conversion control. F&B context typically uses one unit per workflow (grams for sauce; ounces for retail packaging), so the bug is rarely triggered. Nutraceuticals context routinely shifts between g / mg / mcg / IU depending on dosage tier, exposing the bug.
+
+**Severity:** MODERATE. Operator-invisible mass change. Compounds Finding #25's math issues — operator changing units to work around Finding #26's input limitations triggers unintended 1000× mass change without visible warning, breaking Servings/Container math.
+
+**Recommended Round assignment:** Round 11+ Nutraceuticals workspace pass (batch with #25 and #26).
+
+**Investigation status:** Round 11 scoping deliverable. Two viable fix patterns: (a) auto-convert numeric value when unit changes (60 g → 60000 mg); (b) reset numeric value on unit change with a "set new value in [unit]" prompt. Pattern (a) preserves the operator's intent (the mass) and matches the convention of most unit-switching UIs. Pattern (b) is safer if the engine ever needs to know "this was a re-entry, not a conversion." Round 11 decides.
+
+---
+
 ## Section B — Verified Clean
 
 Behaviors confirmed working as designed during visual review. **NOT bugs.** Documented so future reviewers don't re-surface as concerns.
@@ -253,20 +320,26 @@ After Path A productClass mode-aware filter landed (commit 584b571), Nutraceutic
 
 ## Summary
 
-**Findings requiring future work:** 9 (#14, #15, #16, #17, #18, #19, #22, #23, #24).
+**Findings requiring future work:** 12 (#14, #15, #16, #17, #18, #19, #22, #23, #24, #25, #26, #27).
 
-- 1 fixed in this polish session (#18)
+- 1 fixed in Round 10 polish session (#18)
 - 2 documented with no code change recommended (#14 — principled design; #17 — Round 12+ scope)
 - 1 PA-gated, queued for verification (#15 — sulfite catalog gap)
 - 1 operator-decision required, single small commit if approved (#16 — ascorbic acid promotion)
 - 1 operator-decision required, scope-flexible (#19 — brand voice audit, ship-all / defer-all / selective)
 - 1 architectural principle (#22 — co-sequence enforcement with catalog; informs Round 11+ scoping)
-- 2 Round 11 priority items (#23 regulatory table audit first; #24 custom ingredient workflow after catalog audit)
+- 2 Round 11 Track B priority items (#23 regulatory table audit first; #24 custom ingredient workflow after catalog audit)
+- **3 Round 11 Track A LAUNCH-BLOCKERS** (#25 Nutraceuticals workspace correctness; #26 Serving Size input UX; #27 unit-change mass preservation) — post-deploy smoke test on production 2026-05-15
 
-**Verified clean:** 12 behaviors confirmed working as designed.
+**Verified clean:** 12 behaviors confirmed working as designed (Round 10 surfaces).
 
-**Round 10 ship blockers:** None of the findings block merge. All are polish-or-deferred-scope items.
+**Round 10 ship blockers:** None of the Round 10 findings (#14–#24) blocked merge — all were polish-or-deferred-scope items. Round 10 shipped to production cleanly (verified: pH 2.23 CALCULATED on prod, Finding #18 dropdown filter live).
 
-**Recommended pre-merge action:** operator review of #19 brand voice memo; decide ship-vs-defer. If ship, one polish commit covers the high-impact banner + dialog copy upgrades. If defer-all or selective, Round 10 merges with current copy and Round 11 picks up the voice unification.
+**Round 11 launch-blockers (NEW, post-deploy):** Findings #25 / #26 / #27 surfaced via production smoke test on the Nutraceuticals workspace. P1 vertical (August deadline). Block August launch until addressed.
 
-**Round 11 priority sequence** (revised in cumulative summary per visual review session): #23 regulatory table audit FIRST → #15 + #21 catalog tagging pass → #16 ascorbic acid promotion → #24 custom ingredient workflow → #20 sulfite carryover schema (parallel). Plus existing Round 11 originally-scoped Round 10 documentation infrastructure.
+**Round 11 priority sequence** (revised in cumulative summary per post-deploy smoke test):
+- **Track A (P1 launch-blocker, NEW first priority):** #25 Nutraceuticals workspace correctness pass → #26 Serving Size input UX → #27 unit-change mass preservation
+- **Track B (P2 launch, F&B catalog/enforcement coherence):** #23 regulatory table audit → #15 + #21 catalog tagging pass → #16 ascorbic acid promotion → #24 custom ingredient workflow → #20 sulfite carryover schema (parallel)
+- **Track C (Original Round 11 documentation infrastructure):** PA-review state machinery, PDS, Pre-production checklist, 5 harm-critical UNKNOWN items wired, HACCP upload, R9 leftovers
+
+Tracks A and B touch different code areas (`lib/supplement*.ts` + Nutraceuticals path vs `lib/regulatoryLimits.ts` + `lib/data/*`) so can proceed in parallel.
