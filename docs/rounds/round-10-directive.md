@@ -118,7 +118,7 @@ This is load-bearing under Round 11's PA-review state machinery. Round 11's fiel
 
 - **Rule A — Acid Count Check (gates H-H eligibility on acid composition).** Count ingredients with `pKa1` metadata > 0 in the formulation:
   - Exactly 1 → proceed to Rule B
-  - 0 → output `insufficient-data` (no acid detected)
+  - 0 → Tier A not-applicable; legacy log-space [H+] math runs; output confidence capped at ESTIMATED (any non-H-H pH output is a 1%-solution-proxy, not chemistry-sound, regardless of input confidence)
   - ≥ 2 → output ESTIMATED with wide bounds (multi-acid exceeds single-acid H-H reach)
 
 - **Rule B — Buffering-Ingredient Check (gates H-H eligibility on matrix composition).** Check if any ingredient is flagged `bufferingBehavior: 'known-buffering'`:
@@ -133,7 +133,7 @@ This is load-bearing under Round 11's PA-review state machinery. Round 11's fiel
 | MEASURED `pKa` + 1 acid + known-buffering ingredient | Rule B fallback | ESTIMATED pH |
 | MEASURED `pKa` + ≥ 2 acids | Rule A fallback | ESTIMATED pH |
 | ESTIMATED `pKa` (catalog estimate, not USP/FCC cited) | input confidence bounds output | ESTIMATED pH |
-| No `pKa` data on any acid | Rule A — 0 case | `insufficient-data` (existing pattern) |
+| No `pKa1`-tagged acid in formulation | Rule A — 0 case (not-applicable) | ESTIMATED (legacy math + cap) |
 
 Output pH confidence is bounded by `pKa1` confidence on the input AND by which rule branch was taken.
 
@@ -257,9 +257,10 @@ Test fixtures required:
 
   Negative cases (Rules A/B decline H-H; output ESTIMATED):
   - 1% citric + 1% acetic + 98% water → ESTIMATED, NOT CALCULATED (Rule A multi-acid fallback)
-  - Ketchup test formulation (vinegar + tomato paste + sugar + water + spices) → ESTIMATED, NOT CALCULATED (Rule B known-buffering fallback; tomato paste flagged)
+  - 10% distilled white vinegar + 90% water → ESTIMATED, NOT CALCULATED (Rule A not-applicable; vinegars are untagged in v1 pending acidMassFraction schema per Finding #11; legacy math + ESTIMATED cap governs). Locks the v1 untagged-vinegar behavior; this fixture flips ESTIMATED → CALCULATED when Round 11+ adds `acidMassFraction` and vinegars retag.
+  - Ketchup test formulation (vinegar + tomato paste + sugar + water + spices) → ESTIMATED, NOT CALCULATED (Rule A not-applicable in v1: no pKa1-tagged acid present because vinegars are untagged; legacy math + ESTIMATED cap governs). When vinegars retag in Round 11+, ketchup will route through Rule B known-buffering fallback (tomato paste flagged) and still produce ESTIMATED — different mechanism, same correct outcome.
 
-  **Acceptance criterion for Tier A:** all six fixtures land correctly — positive cases produce CALCULATED pH within bounds; negative cases produce ESTIMATED (NOT CALCULATED). Pre-fix engine reports pH 4.20 ± 0.20 on the 1% citric case (documented 2026-05-14 bench test); pre-fix has no detection logic so negative cases would emit CALCULATED with structurally wrong values (e.g., naive H-H on ketchup computes ~2.87 from acetic alone vs commercial 3.7-4.0). The negative cases verify Tier A correctly DECLINES to compute CALCULATED — this is what prevents trading one structural flaw for another. Section 2 is not complete until both positive AND negative cases pass.
+  **Acceptance criterion for Tier A:** all seven fixtures land correctly — positive cases produce CALCULATED pH within bounds; negative cases produce ESTIMATED (NOT CALCULATED). Pre-fix engine reports pH 4.20 ± 0.20 on the 1% citric case (documented 2026-05-14 bench test); pre-fix has no detection logic so negative cases would emit CALCULATED with structurally wrong values (e.g., naive H-H on full ketchup mass computes ~2.87 from acetic alone vs commercial 3.7-4.0, or 20x over-counts [H+] on a vinegar-only brine when full vinegar mass is treated as acid). The negative cases verify Tier A correctly DECLINES to compute CALCULATED — this is what prevents trading one structural flaw for another. Section 2 is not complete until all seven fixtures pass.
 
 If implementation surfaces test scenarios beyond this list, add them; do not skip them. The test budget is real work, not afterthought.
 
@@ -350,7 +351,7 @@ If any of the following surface during implementation, defer rather than expand 
 
 10. **Rules A/B detection-logic edge cases.** Section 2's two-rule detection logic gates H-H eligibility on acid count (Rule A) and known-buffering ingredient presence (Rule B). If implementation surfaces edge cases not handled by the spec — ingredient borderline between buffering and non-buffering, multi-tiered buffering behavior, formulations where Rule A counts an ingredient as "an acid" but its `pKa` is far from food-relevant pH range, ambiguous ingredients where Rule B fires but the matrix isn't actually buffering for this acid — surface as finding before expanding scope. The two-rule logic with binary `bufferingBehavior` is the locked v1 detection logic; multi-tier classification (`'mild-buffering'`, `'amphoteric'`) and acid-pKa-relevance gating are Tier B / Round 11+ scope.
 
-11. **Complex-matrix acid sources need explicit acid-mass fraction.** Tier A's `computeSingleAcidPH` derives acid moles via `mass × (1 − moisture/100) / acidMolarMass`. This works for pure crystalline acids, simple dilute acid solutions (lactic 88%, phosphoric 85%), crystalline monohydrates (citric mono), and simple dilute vinegars where moisture + aceticAcid ≈ 100. It breaks for **complex-matrix acid sources** where significant non-water solutes coexist with the acid: balsamic vinegar (29% sugars), vinegar powders (~50% maltodextrin carrier), smoke flavor (phenolics + carbonyls), juices with natural acids. v1 leaves these entries untagged with `pKa1` so they fall into Rule A `not-applicable` and the legacy log-space math runs unchanged. Round 11+ may add an `acidMassFraction?: number` field on `IngredientSpec` for explicit override, enabling chemistry-sound H-H for complex matrices. Catalog work would re-tag balsamic, vinegar powders, smoke flavor, and natural-acid juices once the schema lands. Surface as finding if implementation reveals more complex-matrix cases beyond the four enumerated.
+11. **Complex-matrix acid sources need explicit acid-mass fraction.** Tier A's `computeSingleAcidPH` derives acid moles via `mass × (1 − moisture/100) / acidMolarMass`. This works for pure crystalline acids, simple dilute acid solutions (lactic 88%, phosphoric 85%), and crystalline monohydrates (citric mono). It is **semantically wrong for vinegars** (even simple dilute distilled-white where moisture + aceticAcid ≈ 100): vinegar is a categorized ingredient with its own verified pH metadata, and tagging it as a pKa-acid in Rule A risks over-counting [H+] when vinegar-only formulations (pickle brines, vinaigrettes, marinade bases) run H-H against the full entry mass. v1 leaves **all vinegars** untagged with `pKa1`, including the three distilled-white-vinegar entries (40 Grain, 50 Grain, 100/120/200 Grain) and the unverified vinegars (apple cider, red wine, balsamic, rice wine, malt, white wine, sherry, vinegar powders). The (1 − moisture/100) approximation also breaks for **other complex-matrix acid sources** where significant non-water solutes coexist with the acid: smoke flavor (phenolics + carbonyls), juices with natural acids, fermented condiments. All such entries fall through Rule A as `not-applicable` and the legacy log-space math runs with the ESTIMATED confidence cap. Round 11+ may add an `acidMassFraction?: number` field on `IngredientSpec` for explicit override, enabling chemistry-sound H-H for both vinegars and other complex matrices. Catalog work would re-tag vinegars, balsamic, smoke flavor, and natural-acid juices once the schema lands. Surface as finding if implementation reveals more complex-matrix cases beyond the categories enumerated.
 
 ---
 

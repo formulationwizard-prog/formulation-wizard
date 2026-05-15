@@ -97,10 +97,20 @@ describe('Section 2 — Tier A single-acid Henderson-Hasselbalch', () => {
       expect(result.reason).toBe('multi-acid');
     });
 
-    it('ketchup formulation (vinegar + tomato paste + sugar + water + salt) → Rule B known-buffering fallback', () => {
+    it('ketchup formulation (vinegar + tomato paste + sugar + water + salt) → Rule A not-applicable in v1 (vinegars untagged pending acidMassFraction)', () => {
       // Commercial-realistic ketchup composition:
       //   30% tomato paste, 10% distilled white vinegar, 22% sugar,
       //   35% water, 3% salt. Tomato paste flagged known-buffering.
+      //
+      // v1 behavior: vinegars are untagged with pKa1 pending Round 11+
+      // acidMassFraction schema (Finding #11). Rule A counts 0 acids →
+      // not-applicable. Legacy math + ESTIMATED cap produces the
+      // expected ESTIMATED output via a different mechanism than the
+      // directive's original Rule B known-buffering framing.
+      //
+      // When vinegars retag in R11+, this case will route through
+      // Rule A=1-acid → Rule B known-buffering fallback (tomato paste
+      // flagged). Same final output (ESTIMATED), different code path.
       const ingredients: SpecInputIngredient[] = [
         { name: 'Tomato Paste (28-30 Brix)', qty: 30, unit: 'g' },
         { name: 'Distilled White Vinegar (100 Grain / 10%)', qty: 10, unit: 'g' },
@@ -109,9 +119,19 @@ describe('Section 2 — Tier A single-acid Henderson-Hasselbalch', () => {
         { name: 'Salt', qty: 3, unit: 'g' },
       ];
       const result = computeSingleAcidPH(ingredients, 100);
-      expect(result.kind).toBe('fallback');
-      if (result.kind !== 'fallback') return;
-      expect(result.reason).toBe('known-buffering');
+      expect(result.kind).toBe('not-applicable');
+    });
+
+    it('10% distilled white vinegar + 90% water → Rule A not-applicable (vinegars untagged in v1)', () => {
+      // Locks v1 untagged-vinegar behavior. When R11+ adds
+      // acidMassFraction schema and vinegars retag, this fixture
+      // flips: kind === 'applied' with confidence 'calculated'.
+      const ingredients: SpecInputIngredient[] = [
+        { name: 'Distilled White Vinegar (100 Grain / 10%)', qty: 10, unit: 'g' },
+        { name: 'Water', qty: 90, unit: 'g' },
+      ];
+      const result = computeSingleAcidPH(ingredients, 100);
+      expect(result.kind).toBe('not-applicable');
     });
   });
 
@@ -180,7 +200,7 @@ describe('Section 2 — Tier A integration via estimateSpecs', () => {
     expect(specs.confidence.pH).toBe('estimated');
   });
 
-  it('ketchup → confidence.pH = estimated (Rule B cap)', () => {
+  it('ketchup → confidence.pH = estimated (Rule A not-applicable cap; vinegars untagged in v1)', () => {
     const ingredients: SpecInputIngredient[] = [
       { name: 'Tomato Paste (28-30 Brix)', qty: 30, unit: 'g' },
       { name: 'Distilled White Vinegar (100 Grain / 10%)', qty: 10, unit: 'g' },
@@ -190,6 +210,20 @@ describe('Section 2 — Tier A integration via estimateSpecs', () => {
     ];
     const specs = estimateSpecs(ingredients);
     expect(specs.confidence.pH).toBe('estimated');
+    expect(specs.confidence.pH).not.toBe('calculated');
+  });
+
+  it('10% distilled white vinegar + 90% water → confidence.pH = estimated (not-applicable cap)', () => {
+    // v1 locked behavior: vinegars untagged, Rule A not-applicable, legacy
+    // log-space math runs, ESTIMATED cap applies. When R11+ adds
+    // acidMassFraction, this expected value flips to 'calculated'.
+    const ingredients: SpecInputIngredient[] = [
+      { name: 'Distilled White Vinegar (100 Grain / 10%)', qty: 10, unit: 'g' },
+      { name: 'Water', qty: 90, unit: 'g' },
+    ];
+    const specs = estimateSpecs(ingredients);
+    expect(specs.confidence.pH).toBe('estimated');
+    expect(specs.confidence.pH).not.toBe('calculated');
   });
 
   it('pre-fix regression guard — 1% citric should NOT report pH 4.20 (the documented bench-test failure)', () => {

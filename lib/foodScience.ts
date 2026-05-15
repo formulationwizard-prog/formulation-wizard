@@ -214,17 +214,22 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   // VERIFIED — commodity-standard concentrations per FDA CPG Sec. 525.825.
   'Distilled White Vinegar (40 Grain / 4%)':   { pH: 2.7, aceticAcid: 4.0,  brix: 0.1, moisture: 96, aw: 0.99, source: 'commodity-standard', citation: 'FDA CPG Sec. 525.825 (Vinegar, Definitions) — 4% minimum acidity', confidence: 'verified', last_verified: '2026-04-30' },
   'Distilled White Vinegar (50 Grain / 5%)':   { pH: 2.5, aceticAcid: 5.0,  brix: 0.1, moisture: 95, aw: 0.98, source: 'commodity-standard', citation: 'FDA CPG Sec. 525.825 (Vinegar, Definitions); industry standard 5% acidity = 50 grain', confidence: 'verified', last_verified: '2026-04-30', notes: 'Standard retail concentration.' },
-  // Round 10 Section 2 (2026-05-14): pKa1 + acidMolarMass tagged on distilled
-  // white vinegar entries (simple dilute acetic-in-water matrices where
-  // (1 - moisture/100) ≈ aceticAcid/100 ≈ true acetic mass fraction). Complex-
-  // matrix vinegars (balsamic, vinegar powders, smoke flavor) are intentionally
-  // left untagged — their non-water solute content breaks the (1 - moisture/100)
-  // acid-mass approximation. See Finding #11 in directive for the deferred
-  // acidMassFraction schema addition that would handle complex matrices in
-  // Tier B / Round 11+.
-  'Distilled White Vinegar (100 Grain / 10%)': { pH: 2.2, aceticAcid: 10.0, brix: 0.1, moisture: 90, aw: 0.95, pKa1: 4.76, acidMolarMass: 60.05, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30' },
-  'Distilled White Vinegar (120 Grain / 12%)': { pH: 2.1, aceticAcid: 12.0, brix: 0.1, moisture: 88, aw: 0.94, pKa1: 4.76, acidMolarMass: 60.05, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30' },
-  'Distilled White Vinegar (200 Grain / 20%)': { pH: 2.0, aceticAcid: 20.0, brix: 0.1, moisture: 80, aw: 0.90, pKa1: 4.76, acidMolarMass: 60.05, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation; pKa1 from CRC Handbook 97th ed.', confidence: 'verified', last_verified: '2026-04-30' },
+  // Round 10 Section 2 follow-up review (2026-05-14): distilled white vinegar
+  // entries intentionally NOT tagged with pKa1/acidMolarMass in v1, despite
+  // moisture + aceticAcid summing close to 100. The (1 - moisture/100) acid-
+  // mass approximation passes mathematically here but is the wrong API for
+  // vinegars semantically — vinegar is a categorized ingredient with its own
+  // verified pH metadata (~2.0-2.2 as-poured), and treating it as a pKa-tagged
+  // acid in Rule A risks over-counting [H+] when vinegar-only formulations
+  // (pickle brines, vinaigrettes, marinade bases) run H-H against the full
+  // entry mass instead of distinguishing dilute solution from neat acid. Until
+  // Round 11+ adds the acidMassFraction schema (Finding #11), v1 lets vinegars
+  // fall through to the legacy log-space [H+] math via Rule A not-applicable,
+  // with the ESTIMATED confidence cap applied by Tier A's not-applicable branch.
+  // Honest framing: vinegar formulations get ESTIMATED, not CALCULATED.
+  'Distilled White Vinegar (100 Grain / 10%)': { pH: 2.2, aceticAcid: 10.0, brix: 0.1, moisture: 90, aw: 0.95, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
+  'Distilled White Vinegar (120 Grain / 12%)': { pH: 2.1, aceticAcid: 12.0, brix: 0.1, moisture: 88, aw: 0.94, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
+  'Distilled White Vinegar (200 Grain / 20%)': { pH: 2.0, aceticAcid: 20.0, brix: 0.1, moisture: 80, aw: 0.90, source: 'cited-reference', citation: 'Industry-standard concentration; pH derived from acetic acid dissociation', confidence: 'verified', last_verified: '2026-04-30' },
   // UNVERIFIED — flavored vinegars; pH/aw are AI estimates.
   'Apple Cider Vinegar (5%)':                  { pH: 3.1, aceticAcid: 5.0,  brix: 1.0, moisture: 94, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
   'Red Wine Vinegar':                          { pH: 3.0, aceticAcid: 6.0,  brix: 1.5, moisture: 93, aw: 0.99, source: 'ai-estimate', confidence: 'unverified' },
@@ -1421,13 +1426,16 @@ export function estimateSpecs(ingredients: SpecInputIngredient[]): FormulationSp
   //   • Tier A fallback (multi-acid / buffering) → cap legacy floor at
   //     ESTIMATED — the legacy log-space [H+] math is not chemistry-sound
   //     for these cases and honest framing requires the downgrade
-  //   • Tier A not-applicable (no pKa-tagged acid) → legacy floor governs
-  //     unchanged
+  //   • Tier A not-applicable (no pKa-tagged acid) → cap legacy floor at
+  //     ESTIMATED as well. Any non-H-H pH path produces a 1%-solution-proxy
+  //     output that isn't chemistry-sound regardless of input confidence;
+  //     blanket ESTIMATED cap on non-H-H output keeps the honest-estimate
+  //     framing consistent (per types/index.ts:5-32 canonical paragraph).
+  //     Vinegar-only formulations and other untagged-acid cases land here.
   const legacyPhFloor = floorConfidence(phContribs, totalMass);
   const pHConfidence: Confidence =
     tierA.kind === 'applied' ? tierA.confidence :
-    tierA.kind === 'fallback' ? worstConfidence(legacyPhFloor, 'estimated') :
-    legacyPhFloor;
+    worstConfidence(legacyPhFloor, 'estimated');
   const confidence = {
     pH:         pHConfidence,
     brix:       floorConfidence(brixContribs, totalMass),
