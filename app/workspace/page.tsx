@@ -58,6 +58,8 @@ import { PROCESS_AUTHORITIES, PA_TYPE_LABELS, getPAStates, type ProcessAuthority
 import { DEFAULT_TEMPLATE } from '@/lib/processTemplates';
 import { MODES, MODE_ORDER, type ModeId } from '@/lib/modes';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
+import { evaluateBucketA } from '@/lib/bucketAGate';
+import { isHardStop } from '@/lib/hardStop';
 import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
 import { computeFilingReadiness } from '@/lib/filingReadiness';
@@ -615,6 +617,15 @@ export default function FormulationWizard() {
     productClass || undefined,
   );
   const complianceViolations = complianceFindings.filter(f => f.violated);
+  // Round 10 Section 3d (2026-05-15): Bucket A enforcement gate. Partitions
+  // violations into hard-stop (MEASURED/CALCULATED + violated → refuse-to-
+  // export) vs PA-reviewable (ESTIMATED/INFERRED + violated → PA judgment).
+  // v1 surfaces the gate's classification in the UI banner below; Round 11
+  // composes the gate with the PA-review state machinery for actual export
+  // blocking. See lib/bucketAGate.ts for the gate semantics and stewardship.
+  const bucketAGate = evaluateBucketA(complianceFindings);
+  const bucketAHardStop = isHardStop(bucketAGate);
+  const bucketAPaReviewableCount = bucketAGate.paReviewableFindings.length;
 
   // Round 10 Path A-2 (2026-05-15): productClass change-event handler with
   // confirm-dialog discipline. Per directive: when the formulation has active
@@ -4426,6 +4437,55 @@ export default function FormulationWizard() {
                 onOpenProcessAuthorities={() => setActiveTab('authorities')}
               />
 
+              {/* Round 10 Section 3d: Bucket A enforcement-gate banner. Visualizes
+                  the gate's classification (hard-stop vs PA-reviewable vs cleared)
+                  above the per-finding compliance panel. Hard-stop framing names
+                  refuse-to-export semantics; PA-reviewable framing names the
+                  honest-estimate fallback (over cap by ESTIMATED inputs — PA
+                  judgment required). Actual export-blocking is Round 11+ scope. */}
+              {complianceFindings.length > 0 && (bucketAHardStop || bucketAPaReviewableCount > 0) && (
+                <div className={`rounded-xl border-2 p-4 mb-3 ${bucketAHardStop ? 'bg-red-50 border-red-500' : 'bg-amber-50 border-amber-400'}`}>
+                  <div className="flex items-start gap-2">
+                    <span className="shrink-0 mt-0.5">
+                      {bucketAHardStop
+                        ? <Ban className="h-5 w-5 text-rose-700" aria-hidden="true" />
+                        : <span className="text-amber-700 text-lg leading-none">⚠</span>}
+                    </span>
+                    <div className="flex-1 text-xs">
+                      <div className={`font-bold mb-1 ${bucketAHardStop ? 'text-red-800' : 'text-amber-800'}`}>
+                        {bucketAHardStop
+                          ? `Bucket A: Refuse-to-Export — ${isHardStop(bucketAGate) ? bucketAGate.evidence.length : 0} hard-stop finding${isHardStop(bucketAGate) && bucketAGate.evidence.length !== 1 ? 's' : ''} with MEASURED/CALCULATED inputs`
+                          : `Bucket B: Process Authority Review — ${bucketAPaReviewableCount} finding${bucketAPaReviewableCount !== 1 ? 's' : ''} over cap by ESTIMATED/INFERRED inputs`}
+                      </div>
+                      {bucketAHardStop && isHardStop(bucketAGate) ? (
+                        <>
+                          <div className="text-red-700 mb-2">{bucketAGate.reason}</div>
+                          <ul className="space-y-1 text-red-700 leading-relaxed">
+                            {bucketAGate.evidence.slice(0, 5).map((e, i) => (
+                              <li key={i}>
+                                <span className="font-semibold">{e.subject}</span> — {e.detail}
+                                {e.citation && <span className="text-red-500 ml-1">[{e.citation}]</span>}
+                              </li>
+                            ))}
+                            {bucketAGate.evidence.length > 5 && (
+                              <li className="italic text-red-600">…and {bucketAGate.evidence.length - 5} more</li>
+                            )}
+                          </ul>
+                          {bucketAGate.paReviewableFindings.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-red-200 text-amber-700">
+                              Plus {bucketAGate.paReviewableFindings.length} PA-reviewable finding{bucketAGate.paReviewableFindings.length !== 1 ? 's' : ''} (ESTIMATED/INFERRED inputs over cap).
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-amber-700 leading-relaxed">
+                          Findings appear to exceed regulatory caps but their inputs (denominator basis, metadata) carry ESTIMATED/INFERRED confidence. Process Authority should verify against physical test or supplier COA before treating as a violation.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               {/* Regulatory Compliance */}
               {complianceFindings.length > 0 && (
                 <div className={`rounded-xl border-2 p-6 ${complianceViolations.length > 0 ? 'bg-red-50 border-red-400' : 'bg-emerald-50 border-emerald-300'}`}>

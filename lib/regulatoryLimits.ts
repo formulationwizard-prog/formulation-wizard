@@ -14,8 +14,8 @@
 // filing a production formula; regulations are updated periodically.
 // ============================================================
 import { UNIT_TO_GRAMS } from './utils';
-import { getSpec } from './foodScience';
-import type { ProductClass } from '../types';
+import { getSpec, mapSpecToConfidence, worstConfidence } from './foodScience';
+import type { Confidence, ProductClass } from '../types';
 
 export interface RegulatoryLimit {
   /** Substring patterns (case-insensitive) that identify this ingredient. */
@@ -432,6 +432,29 @@ export interface ComplianceFinding {
    * to flag them; `prohibitedUse` is the additional discriminator.
    */
   prohibitedUse?: boolean;
+
+  /**
+   * Round 10 Section 3d (2026-05-15): confidence of the INPUTS to this
+   * finding, separate from cap-side confidence (the cap is always MEASURED
+   * since it derives from a regulatory citation). Drives the Bucket A
+   * enforcement gate's decision per Decision #9:
+   *
+   *   • MEASURED or CALCULATED + violated → hard-stop (refuse-to-export)
+   *   • ESTIMATED or INFERRED + violated → PA-reviewable (no hard-stop)
+   *   • UNKNOWN → insufficient-data, gate doesn't act on this finding
+   *
+   * Computed as the worst-of:
+   *   - Ingredient mass confidence (typically MEASURED — user-entered)
+   *   - Denominator-basis confidence (varies by basis):
+   *       'total' → MEASURED (total mass derived from user inputs)
+   *       'meat' → worst across isMeat-tagged ingredient spec confidences
+   *       'fat-and-oil' → worst across fat-content-tagged spec confidences
+   *       'baked-good' → MEASURED in v1 (substrate detection deferred)
+   *   - For combined-budget aggregate findings: worst across member
+   *     findings' inputConfidence
+   *   - For declaration-trigger findings: inherits from parent finding
+   */
+  inputConfidence: Confidence;
 }
 
 /**
@@ -601,6 +624,26 @@ export function checkCompliance(
     0,
   );
 
+  // ─── Section 3d: pre-compute denominator-basis confidence ────────────────
+  // For findings whose denominator depends on per-ingredient catalog metadata
+  // (isMeat, fatContentPct), the input confidence is bounded by the worst
+  // catalog confidence among contributing ingredients. v1 catalog tags meat/
+  // fat ingredients as 'ai-estimate' (ESTIMATED via mapSpecToConfidence) so
+  // most meat-basis and fat-and-oil findings will route to PA-reviewable
+  // rather than hard-stop. 'total' basis is MEASURED (mass comes from
+  // user-entered ingredient quantities). See ComplianceFinding.inputConfidence
+  // docstring for the Bucket A gate semantics.
+  const meatBasisConfidence: Confidence = (() => {
+    const meatContribs = resolved.filter(r => r.spec.isMeat);
+    if (meatContribs.length === 0) return 'unknown';
+    return worstConfidence(...meatContribs.map(r => mapSpecToConfidence(r.spec)));
+  })();
+  const fatOilBasisConfidence: Confidence = (() => {
+    const fatContribs = resolved.filter(r => (r.spec.fatContentPct ?? 0) > 0);
+    if (fatContribs.length === 0) return 'unknown';
+    return worstConfidence(...fatContribs.map(r => mapSpecToConfidence(r.spec)));
+  })();
+
   const findings: ComplianceFinding[] = [];
   for (const r of resolved) {
     const { ing, grams } = r;
@@ -626,21 +669,36 @@ export function checkCompliance(
     // total-mass denominator since the cap-check denominator semantic doesn't
     // apply (the prohibition is categorical, not quantitative).
     let denominator: number;
+    // Section 3d: inputConfidence tracks the worst-case confidence of the
+    // inputs that feed this finding's computation. 'total' basis is MEASURED
+    // (mass comes from user-entered ingredient quantities). 'meat' and
+    // 'fat-and-oil' inherit from the denominator-basis pre-compute above.
+    let inputConfidence: Confidence = 'measured';
     if (applies) {
       switch (limit.denominatorBasis) {
-        case 'meat': denominator = meatMass; break;
-        case 'fat-and-oil': denominator = fatOilMass; break;
+        case 'meat':
+          denominator = meatMass;
+          inputConfidence = meatBasisConfidence;
+          break;
+        case 'fat-and-oil':
+          denominator = fatOilMass;
+          inputConfidence = fatOilBasisConfidence;
+          break;
         case 'baked-good':
           // Baked-good substrate detection deferred to Round 11+; for v1
           // baked-good basis falls back to total mass with a documented gap.
           denominator = totalMass;
+          inputConfidence = 'measured';
           break;
         case 'total':
         case undefined:
-        default: denominator = totalMass;
+        default:
+          denominator = totalMass;
+          inputConfidence = 'measured';
       }
     } else {
       denominator = totalMass;
+      inputConfidence = 'measured';
     }
     // Guard against divide-by-zero — e.g., meat-basis limit on a non-meat
     // formulation. Skip when the cap-check denominator is empty UNLESS the
@@ -691,6 +749,7 @@ export function checkCompliance(
       activeSpeciesPpm,
       activeViolated,
       prohibitedUse: isProhibited ? true : undefined,
+      inputConfidence,
     });
   }
 
@@ -715,6 +774,10 @@ export function checkCompliance(
       utilization: (f.currentPpm / trigger) * 100,
       violated: false, // labeling-required, not a cap violation
       declarationTriggered: true,
+      // Section 3d: declaration-trigger findings inherit inputConfidence
+      // from the parent finding — same inputs feed the threshold check
+      // as feed the cap check.
+      inputConfidence: f.inputConfidence,
     });
   }
 
@@ -763,6 +826,14 @@ export function checkCompliance(
       violated = aggregatePpm > sharedLimit.maxPpm;
     }
     const distinctShortNames = [...new Set(members.map(m => m.limit.shortName))];
+    // Section 3d: combined-budget aggregate inputConfidence is the worst
+    // across member findings (each member's inputConfidence already reflects
+    // its denominator-basis routing). One ESTIMATED member drops the whole
+    // aggregate to ESTIMATED — appropriate since the aggregate's correctness
+    // depends on every member's mass + basis being valid.
+    const aggregateInputConfidence: Confidence = worstConfidence(
+      ...members.map(m => m.inputConfidence),
+    );
     combinedFindings.push({
       ingredientName: `Combined: ${distinctShortNames.join(' + ')}`,
       ingredientGrams: aggregateGrams,
@@ -775,6 +846,7 @@ export function checkCompliance(
         group,
         memberIngredientNames: members.map(m => m.ingredientName),
       },
+      inputConfidence: aggregateInputConfidence,
     });
   }
 
