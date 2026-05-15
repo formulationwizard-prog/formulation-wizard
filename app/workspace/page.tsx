@@ -44,7 +44,8 @@ import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { buildIngredientStatement } from '@/lib/ingredientStatement';
 import { getPackagingSustainability } from '@/lib/packagingSustainability';
 import { CERT_LABELS, getSupplierInfo } from '@/lib/data/suppliers';
-import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualification, SupplierDocType } from '@/types';
+import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualification, SupplierDocType, ProductClass } from '@/types';
+import { PRODUCT_CLASS_LABEL } from '@/types';
 import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
 import { generatePartNumber } from '@/lib/partNumber';
 import { getIngredientPartNumber, getPackagingPartNumber, getCustomPackagingPartNumber } from '@/lib/skuCodes';
@@ -55,8 +56,10 @@ import { getCopy } from '@/lib/copy';
 import { useTier } from '@/lib/hooks/useTier';
 import { PROCESS_AUTHORITIES, PA_TYPE_LABELS, getPAStates, type ProcessAuthorityType } from '@/lib/data/processAuthorities';
 import { DEFAULT_TEMPLATE } from '@/lib/processTemplates';
-import { MODES, MODE_ORDER, type ModeId } from '@/lib/modes';
+import { MODES, MODE_ORDER, productClassesForMode, type ModeId } from '@/lib/modes';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
+import { evaluateBucketA } from '@/lib/bucketAGate';
+import { isHardStop } from '@/lib/hardStop';
 import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
 import { computeFilingReadiness } from '@/lib/filingReadiness';
@@ -201,6 +204,14 @@ export default function FormulationWizard() {
 
   const [formulationName, setFormulationName] = useState('');
   const [productType, setProductType] = useState<string>('');
+  // Round 10 Path A-2 (2026-05-15): productClass drives per-context regulatory
+  // routing in checkCompliance. Empty string represents the "unset" state —
+  // required-at-creation enforcement blocks saveFormulation() until set; UI
+  // selector surfaces a "Required to save" hint when empty. Type is widened
+  // to `ProductClass | ''` so the unset state coexists with the enum at
+  // runtime; consumers narrow via `productClass || undefined` when passing
+  // to checkCompliance.
+  const [productClass, setProductClassState] = useState<ProductClass | ''>('');
   // Whether the currently-stored productType references a legacy entry no longer
   // surfaced in the dropdown (Round 2 narrowing). Used to display a fallback option
   // + migration CTA. Note: declared AFTER productType useState because it depends on
@@ -596,10 +607,62 @@ export default function FormulationWizard() {
   // Supplements have their own dedicated UL / NDI / compatibility / retail-fit
   // safety stack, so we skip this checker entirely in that mode to prevent
   // false positives (e.g., "Vitamin C exceeds USDA cure accelerator ppm").
+  // Round 10 Path A-2 (2026-05-15): productClass routed from formulation state.
+  // Empty-string unset state coerces to undefined (preserves pre-Path-A semantics
+  // for formulations created before Path A or freshly cleared). Once productClass
+  // is set, checkCompliance applies per-context routing, prohibitions, contextual
+  // overrides, and denominator basis per Section 3b.2's data tags.
   const complianceFindings: ComplianceFinding[] = mode === 'supplements' ? [] : checkCompliance(
-    ingredients.map(ing => ({ name: ing.name, qty: ing.qty, unit: ing.unit }))
+    ingredients.map(ing => ({ name: ing.name, qty: ing.qty, unit: ing.unit })),
+    productClass || undefined,
   );
   const complianceViolations = complianceFindings.filter(f => f.violated);
+  // Round 10 Section 3d (2026-05-15): Bucket A enforcement gate. Partitions
+  // violations into hard-stop (MEASURED/CALCULATED + violated → refuse-to-
+  // export) vs PA-reviewable (ESTIMATED/INFERRED + violated → PA judgment).
+  // v1 surfaces the gate's classification in the UI banner below; Round 11
+  // composes the gate with the PA-review state machinery for actual export
+  // blocking. See lib/bucketAGate.ts for the gate semantics and stewardship.
+  const bucketAGate = evaluateBucketA(complianceFindings);
+  const bucketAHardStop = isHardStop(bucketAGate);
+  const bucketAPaReviewableCount = bucketAGate.paReviewableFindings.length;
+
+  // Round 10 Path A-2 (2026-05-15): productClass change-event handler with
+  // confirm-dialog discipline. Per directive: when the formulation has active
+  // findings AND productClass is changing from one set value to another, the
+  // user must confirm because some findings will be invalidated and new
+  // findings may appear under the new context. When no active findings exist,
+  // or when transitioning from unset → set (initial selection), the change
+  // applies silently. Cancel reverts to the prior value (we return without
+  // calling setProductClassState).
+  const handleProductClassChange = (newValue: ProductClass | '') => {
+    if (newValue === productClass) return;
+    // Initial selection (unset → set) applies silently — no findings to
+    // invalidate because productClass-scoped enforcement hadn't fired yet.
+    if (productClass === '') {
+      setProductClassState(newValue);
+      return;
+    }
+    // Active-findings case: confirm before changing. Lists up to 5 findings
+    // by ingredient + rule for the user to recognize what will re-evaluate.
+    if (complianceFindings.length > 0) {
+      const sample = complianceFindings.slice(0, 5).map(f =>
+        `• ${f.ingredientName} — ${f.limit.shortName}${f.violated ? ' (violated)' : ''}`
+      ).join('\n');
+      const more = complianceFindings.length > 5
+        ? `\n…and ${complianceFindings.length - 5} more`
+        : '';
+      const fromLabel = PRODUCT_CLASS_LABEL[productClass];
+      const toLabel = newValue ? PRODUCT_CLASS_LABEL[newValue] : '(unset)';
+      const message =
+        `Change productClass from "${fromLabel}" to "${toLabel}"?\n\n` +
+        `This will re-evaluate the following compliance findings under the new context:\n\n` +
+        sample + more +
+        `\n\nSome findings may be invalidated and new findings may appear under the new productClass. Cancel to keep "${fromLabel}".`;
+      if (!window.confirm(message)) return;
+    }
+    setProductClassState(newValue);
+  };
 
   // ─── Per-ingredient findings aggregator ─────────────────────────────────────
   // Folds the highest-severity finding from every rule set (regulatory, safety,
@@ -912,6 +975,16 @@ export default function FormulationWizard() {
   const saveFormulation = () => {
     if (!formulationName.trim()) { alert('Please enter a name'); return; }
     if (ingredients.length === 0) { alert('Add at least one ingredient'); return; }
+    // Round 10 Path A-2 (2026-05-15): required-at-creation enforcement. A
+    // formulation cannot exist without a productClass — saveFormulation()
+    // refuses to persist unset state. This is the load-bearing UX gate:
+    // even if the user never interacts with the productClass selector, the
+    // first save attempt forces an explicit selection. Mirrors the directive's
+    // "no silent-wrong-gate" discipline at the persistence layer.
+    if (!productClass) {
+      alert('Please select a Product Class before saving. Required for chemical-safety compliance routing.');
+      return;
+    }
 
     // Check if an existing formula with this name exists → version it
     const existing = savedFormulations.find(f => f.name === formulationName.trim());
@@ -940,6 +1013,11 @@ export default function FormulationWizard() {
         packagingName: selectedPackaging?.name || null,
         closureName: selectedClosure?.name || null,
         productType: productType || null,
+        // Round 10 Path A-2: productClass captured in each version snapshot for
+        // audit-trail integrity. Existing formulations migrated forward retain
+        // their per-version productClass once set; pre-Path-A versions show
+        // productClass undefined.
+        productClass,
       };
 
       const updated: SavedFormulation = {
@@ -949,6 +1027,7 @@ export default function FormulationWizard() {
         packagingName: selectedPackaging?.name || null,
         closureName: selectedClosure?.name || null,
         productType: productType || null,
+        productClass,
         lastModified: now,
         currentVersion: newVersion,
         versions: [...(existing.versions || []), snapshot],
@@ -974,6 +1053,7 @@ export default function FormulationWizard() {
       packagingName: selectedPackaging?.name || null,
       closureName: selectedClosure?.name || null,
       productType: productType || null,
+      productClass,
     };
     // Auto-generate a part number if the user hasn't supplied one.
     const assignedPartNumber = partNumber.trim() || generatePartNumber(mode, savedFormulations);
@@ -983,6 +1063,7 @@ export default function FormulationWizard() {
       name: formulationName.trim(),
       mode,
       productType: productType || null,
+      productClass,
       ingredients: [...ingredients],
       servingSize, servingUnit, packageSize, packageUnit,
       packagingName: selectedPackaging?.name || null,
@@ -1007,6 +1088,11 @@ export default function FormulationWizard() {
     setIngredients(f.ingredients); setServingSize(f.servingSize); setServingUnit(f.servingUnit);
     setPackageSize(f.packageSize); setPackageUnit(f.packageUnit); setFormulationName(f.name);
     setProductType(f.productType || '');
+    // Round 10 Path A-2: restore productClass from saved record. Pre-Path-A
+    // saves have no productClass field — set to '' (unset) so the user is
+    // prompted to select before next save. Bypass the change-event confirm
+    // dialog since load is not a user-initiated context shift.
+    setProductClassState(f.productClass || '');
     setSelectedPackaging(f.packagingName ? PACKAGING_DB.find(p => p.name === f.packagingName) || null : null);
     setSelectedClosure(f.closureName ? PACKAGING_DB.find(p => p.name === f.closureName) || null : null);
     setFormulaStatus(f.status || 'draft');
@@ -1122,7 +1208,7 @@ export default function FormulationWizard() {
 
         // Quick actions
         const actions: { label: string; icon: ReactNode; run: () => void }[] = [
-          { label: 'New formula (clear current)', icon: '✨', run: () => { setIngredients([]); setFormulationName(''); setFormulaStatus('draft'); setActiveTab('build'); } },
+          { label: 'New formula (clear current)', icon: '✨', run: () => { setIngredients([]); setFormulationName(''); setProductClassState(''); setFormulaStatus('draft'); setActiveTab('build'); } },
           { label: 'Open bulk paste', icon: '📋', run: () => { setShowPaste(true); setActiveTab('build'); } },
           { label: 'Save current formula', icon: '💾', run: () => { saveFormulation(); } },
           { label: 'Compare saved formulas', icon: '🔀', run: () => { setActiveTab('saved'); } },
@@ -1412,6 +1498,7 @@ export default function FormulationWizard() {
                     setSelectedPackaging(null);
                     setSelectedClosure(null);
                     setProductType('');
+                    setProductClassState('');
                     setFormulationName('');
                     setNutrition(emptyNutrition());
                     setIngredientStatement('');
@@ -1835,7 +1922,7 @@ export default function FormulationWizard() {
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <button
-                    onClick={() => { setIngredients([]); setFormulationName(''); setFormulaStatus('draft'); setActiveTab('build'); }}
+                    onClick={() => { setIngredients([]); setFormulationName(''); setProductClassState(''); setFormulaStatus('draft'); setActiveTab('build'); }}
                     className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-semibold"
                   >
                     ✨ New Formula
@@ -2084,7 +2171,7 @@ export default function FormulationWizard() {
               <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3">⚡ Quick Actions</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <button
-                  onClick={() => { setIngredients([]); setFormulationName(''); setFormulaStatus('draft'); setActiveTab('build'); }}
+                  onClick={() => { setIngredients([]); setFormulationName(''); setProductClassState(''); setFormulaStatus('draft'); setActiveTab('build'); }}
                   className="p-4 rounded-lg border border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition text-left"
                 >
                   <div className="text-2xl mb-1">✨</div>
@@ -2806,6 +2893,49 @@ export default function FormulationWizard() {
                 {currentProductType && (
                   <p className="text-xs text-gray-500 mb-3 italic">{currentProductType.description}</p>
                 )}
+                {/* Round 10 Path A-2 (2026-05-15): Product Class selector. Required
+                    at formulation creation per directive's "no default-uncategorized
+                    state" discipline. Drives per-context regulatory routing in
+                    checkCompliance (denominator basis, prohibitions, contextual
+                    overrides). Change triggers confirm-dialog when active
+                    compliance findings exist (handleProductClassChange handler).
+                    The save-block in saveFormulation() refuses to persist unset
+                    state — making this the load-bearing UX gate that enforces
+                    explicit productClass on every saved formulation. */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Product Class <span className="text-red-500">*</span>{' '}
+                    <span className="text-gray-400">
+                      {mode === 'supplements'
+                        ? '(Dietary Supplement classification — DSHEA / UL safety framework applies; required to save)'
+                        : '(drives chemical-safety compliance routing — required to save)'}
+                    </span>
+                  </label>
+                  <select
+                    value={productClass}
+                    onChange={(e) => handleProductClassChange(e.target.value as ProductClass | '')}
+                    className={`w-full border rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-500 ${
+                      productClass === '' ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                    }`}
+                  >
+                    <option value="">— Select a product class (required) —</option>
+                    {/* Finding #18 (2026-05-15): mode-aware filter via
+                        productClassesForMode. Supplements mode shows only the
+                        Dietary Supplement option (compliance routing is via the
+                        DSHEA/UL stack, not Path A's F&B chemical-safety paths);
+                        F&B-style modes show all 7 non-supplement options. */}
+                    {productClassesForMode(mode).map(pc => (
+                      <option key={pc} value={pc}>{PRODUCT_CLASS_LABEL[pc]}</option>
+                    ))}
+                  </select>
+                  {productClass === '' && (
+                    <p className="text-xs text-red-600 mt-1">
+                      Product Class is required {mode === 'supplements'
+                        ? 'for the Dietary Supplement DSHEA / UL safety framework. Save will be blocked until selected.'
+                        : 'for chemical-safety compliance routing. Save will be blocked until selected.'}
+                    </p>
+                  )}
+                </div>
                 {/* Legacy CTA — prompts the user to migrate from a hidden product type
                     to one of the v1 buckets. Migration preserves their tracked_specs
                     customization (see onChange handler above). */}
@@ -4318,6 +4448,55 @@ export default function FormulationWizard() {
                 onOpenProcessAuthorities={() => setActiveTab('authorities')}
               />
 
+              {/* Round 10 Section 3d: Bucket A enforcement-gate banner. Visualizes
+                  the gate's classification (hard-stop vs PA-reviewable vs cleared)
+                  above the per-finding compliance panel. Hard-stop framing names
+                  refuse-to-export semantics; PA-reviewable framing names the
+                  honest-estimate fallback (over cap by ESTIMATED inputs — PA
+                  judgment required). Actual export-blocking is Round 11+ scope. */}
+              {complianceFindings.length > 0 && (bucketAHardStop || bucketAPaReviewableCount > 0) && (
+                <div className={`rounded-xl border-2 p-4 mb-3 ${bucketAHardStop ? 'bg-red-50 border-red-500' : 'bg-amber-50 border-amber-400'}`}>
+                  <div className="flex items-start gap-2">
+                    <span className="shrink-0 mt-0.5">
+                      {bucketAHardStop
+                        ? <Ban className="h-5 w-5 text-rose-700" aria-hidden="true" />
+                        : <span className="text-amber-700 text-lg leading-none">⚠</span>}
+                    </span>
+                    <div className="flex-1 text-xs">
+                      <div className={`font-bold mb-1 ${bucketAHardStop ? 'text-red-800' : 'text-amber-800'}`}>
+                        {bucketAHardStop
+                          ? `Bucket A: Refuse-to-Export — ${isHardStop(bucketAGate) ? bucketAGate.evidence.length : 0} hard-stop finding${isHardStop(bucketAGate) && bucketAGate.evidence.length !== 1 ? 's' : ''} with MEASURED/CALCULATED inputs`
+                          : `Bucket B: Process Authority Review — ${bucketAPaReviewableCount} finding${bucketAPaReviewableCount !== 1 ? 's' : ''} over cap by ESTIMATED/INFERRED inputs`}
+                      </div>
+                      {bucketAHardStop && isHardStop(bucketAGate) ? (
+                        <>
+                          <div className="text-red-700 mb-2">{bucketAGate.reason}</div>
+                          <ul className="space-y-1 text-red-700 leading-relaxed">
+                            {bucketAGate.evidence.slice(0, 5).map((e, i) => (
+                              <li key={i}>
+                                <span className="font-semibold">{e.subject}</span> — {e.detail}
+                                {e.citation && <span className="text-red-500 ml-1">[{e.citation}]</span>}
+                              </li>
+                            ))}
+                            {bucketAGate.evidence.length > 5 && (
+                              <li className="italic text-red-600">…and {bucketAGate.evidence.length - 5} more</li>
+                            )}
+                          </ul>
+                          {bucketAGate.paReviewableFindings.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-red-200 text-amber-700">
+                              Plus {bucketAGate.paReviewableFindings.length} PA-reviewable finding{bucketAGate.paReviewableFindings.length !== 1 ? 's' : ''} (ESTIMATED/INFERRED inputs over cap).
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-amber-700 leading-relaxed">
+                          Findings appear to exceed regulatory caps but their inputs (denominator basis, metadata) carry ESTIMATED/INFERRED confidence. Process Authority should verify against physical test or supplier COA before treating as a violation.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               {/* Regulatory Compliance */}
               {complianceFindings.length > 0 && (
                 <div className={`rounded-xl border-2 p-6 ${complianceViolations.length > 0 ? 'bg-red-50 border-red-400' : 'bg-emerald-50 border-emerald-300'}`}>

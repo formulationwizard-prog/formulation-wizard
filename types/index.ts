@@ -8,6 +8,16 @@
 // with honest uncertainty bounds; the Process Authority is the legal authority
 // that converts estimates into verified specs.
 //
+// Chemistry-in-formulation is inherently hard to fully predict ahead of physical
+// test. Real formulations are multi-variable systems — multi-acid buffering,
+// ionic strength, protein amphoterism, particulate effects, batch variability,
+// processing shifts — where calculated values are estimates by category, not
+// approximations approaching truth. The engine's role is best-effort estimate
+// with honest uncertainty bounds plus efficient hand-off to the Process
+// Authority who verifies via physical test. MEASURED values (supplier COA,
+// lab measurement, USP/FCC/USDA citation) are a different epistemic category
+// that physical test produces; the engine does not.
+//
 // Levels (highest to lowest reliability):
 //   • measured   — supplier COA, lab measurement, USP/FCC/USDA citation
 //   • calculated — derived via sound math/chemistry from MEASURED inputs
@@ -104,6 +114,75 @@ export interface Ingredient {
   supplier: string;
 }
 
+// ============================================================
+// Product Class (Round 10 Path A — 2026-05-15)
+// ------------------------------------------------------------
+// Explicit per-formulation regulatory-context selector that drives
+// per-context limit applications, prohibitions, denominator basis,
+// and substring-precision scoping in checkCompliance. Required at
+// formulation creation per Path A's "no default-uncategorized state"
+// discipline (UI enforces; the type field stays optional to support
+// migration of existing formulations).
+//
+// v1 enumeration locked 2026-05-15:
+//   • acidified-food — pH ≤ 4.6 acidified-process food (21 CFR 114)
+//   • supplement     — dietary supplement (21 CFR 111)
+//   • beverage       — drinkable formulation (juices, RTDs, sports drinks)
+//   • cured-meat     — non-bacon cured meat (sausage, ham, etc. under 9 CFR 424.21)
+//   • bacon          — bacon-specific (nitrite subtype routing + nitrate
+//                      prohibition since 1974 — categorically distinct
+//                      from non-bacon cured meats)
+//   • baked-good     — bread / cake / pastry (propionate cap scope)
+//   • fresh-produce  — fresh fruit / vegetable products (sulfite prohibition)
+//   • general        — catch-all for formulations not in a regulatorily-
+//                      distinct category. Substances without
+//                      appliesToCategories restriction still enforce;
+//                      productClass-scoped limits don't fire.
+//
+// Cache-key discipline: any future memoization of compliance findings
+// MUST include productClass in the cache key. Changing productClass
+// triggers re-evaluation (per Path A change-event behavior).
+// ============================================================
+
+export type ProductClass =
+  | 'acidified-food'
+  | 'supplement'
+  | 'beverage'
+  | 'cured-meat'
+  | 'bacon'
+  | 'baked-good'
+  | 'fresh-produce'
+  | 'general';
+
+/**
+ * Runtime tuple of all valid `ProductClass` values, in display order.
+ * Use this for UI selector population and for runtime validation.
+ * Adding a new value here also extends the `ProductClass` type via the
+ * `as const` + indexed-access pattern in consuming code if needed.
+ */
+export const PRODUCT_CLASSES: ReadonlyArray<ProductClass> = [
+  'acidified-food',
+  'supplement',
+  'beverage',
+  'cured-meat',
+  'bacon',
+  'baked-good',
+  'fresh-produce',
+  'general',
+] as const;
+
+/** Human-readable label for a ProductClass (UI display). */
+export const PRODUCT_CLASS_LABEL: Record<ProductClass, string> = {
+  'acidified-food': 'Acidified Food',
+  'supplement': 'Dietary Supplement',
+  'beverage': 'Beverage',
+  'cured-meat': 'Cured Meat (non-bacon)',
+  'bacon': 'Bacon',
+  'baked-good': 'Baked Good',
+  'fresh-produce': 'Fresh Produce',
+  'general': 'General (no special category)',
+};
+
 /**
  * A point-in-time immutable snapshot of a formulation. Stored inside
  * `SavedFormulation.versions[]` to support audit-grade versioning.
@@ -127,6 +206,12 @@ export interface FormulationVersion {
   packagingName?: string | null;
   closureName?: string | null;
   productType?: string | null;
+  /**
+   * Regulatory product class at this version (Round 10 Path A). Optional
+   * in the type for migration of pre-Path-A versions; UI layer enforces
+   * required-at-creation for new formulations.
+   */
+  productClass?: ProductClass;
 }
 
 /**
@@ -169,6 +254,14 @@ export interface SavedFormulation {
    * traceability. Stable across versions — the version suffix conveys revisions.
    */
   partNumber?: string;
+  /**
+   * Regulatory product class (Round 10 Path A — 2026-05-15). Drives per-context
+   * limit applications, prohibitions, denominator basis, and substring-precision
+   * scoping in checkCompliance. Required-at-creation enforced at the UI layer;
+   * field stays optional in the type for migration of pre-Path-A formulations.
+   * See PRODUCT_CLASSES tuple for the v1 enumeration.
+   */
+  productClass?: ProductClass;
 }
 
 /**
