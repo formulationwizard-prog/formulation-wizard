@@ -8,6 +8,16 @@
 // with honest uncertainty bounds; the Process Authority is the legal authority
 // that converts estimates into verified specs.
 //
+// Chemistry-in-formulation is inherently hard to fully predict ahead of physical
+// test. Real formulations are multi-variable systems — multi-acid buffering,
+// ionic strength, protein amphoterism, particulate effects, batch variability,
+// processing shifts — where calculated values are estimates by category, not
+// approximations approaching truth. The engine's role is best-effort estimate
+// with honest uncertainty bounds plus efficient hand-off to the Process
+// Authority who verifies via physical test. MEASURED values (supplier COA,
+// lab measurement, USP/FCC/USDA citation) are a different epistemic category
+// that physical test produces; the engine does not.
+//
 // Levels (highest to lowest reliability):
 //   • measured   — supplier COA, lab measurement, USP/FCC/USDA citation
 //   • calculated — derived via sound math/chemistry from MEASURED inputs
