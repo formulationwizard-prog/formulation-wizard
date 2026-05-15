@@ -25,10 +25,39 @@
 import type { Confidence, IndustrialIngredient, RangedValue } from '../types';
 import { UNIT_TO_GRAMS } from './utils';
 
-// ----- Locked regulatory disclaimer -----------------------------------------
-// Appended to every regulatory classification output (success OR refusal).
-// Do not modify the wording without consulting a Process Authority and
-// updating ARCHITECTURE.md.
+// ============================================================
+// REGULATORY_DISCLAIMER — LOCKED TEXT (Bucket A change-control)
+// ------------------------------------------------------------
+// Round 10 Section 4 / Finding N3 (2026-05-15). This constant carries
+// the verbatim disclaimer text appended to every regulatory
+// classification output (success OR refusal). It is a Bucket A
+// "disclaimer verbatim text" item — changes to the wording are
+// regulatory-safety changes that require:
+//
+//   1. Process Authority consultation on the new wording
+//   2. Explicit operator approval in the PR description, naming:
+//      - The PA who reviewed the new wording
+//      - The operator approving the change
+//      - The rationale (what policy shift the new wording reflects)
+//   3. Updated ARCHITECTURE.md if the change reflects a policy shift
+//
+// Change-control mechanism: a snapshot test in
+// lib/__tests__/section-4-regulatory-disclaimer.test.ts asserts the
+// constant matches a frozen string. Any change to this constant fails
+// CI until the snapshot is updated in the same commit. The snapshot
+// docblock points back to this process. Git captures commit author
+// automatically; the PR description carries the explicit operator-
+// approval-with-rationale that the change-control discipline demands.
+//
+// === DO NOT MODIFY THIS WORDING WITHOUT THE ABOVE PROCESS ===
+//
+// Appended to every regulatory classification output (success OR
+// refusal) by classifyFormulation and related surfaces. The wording
+// names FDA-recognized Process Authority as the verification path —
+// this is the legal safety net's anchor and the operationalization of
+// the May 7 honest-estimate-engine reframe (engine = best-effort
+// estimate; PA = verification authority).
+// ============================================================
 export const REGULATORY_DISCLAIMER =
   'This information is for general educational purposes and does not constitute a legal or definitive safety process. Always consult an FDA-recognized Process Authority to verify your specific formula.';
 
