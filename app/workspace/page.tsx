@@ -596,8 +596,14 @@ export default function FormulationWizard() {
   // Supplements have their own dedicated UL / NDI / compatibility / retail-fit
   // safety stack, so we skip this checker entirely in that mode to prevent
   // false positives (e.g., "Vitamin C exceeds USDA cure accelerator ppm").
+  // Round 10 Path A-1 (2026-05-15): checkCompliance now accepts a productClass
+  // parameter for per-context limit routing, prohibitions, contextual overrides,
+  // and denominator basis. Path A-2 will wire the user-set productClass from
+  // formulation state; for now this passes undefined to preserve pre-Path-A
+  // semantics (limits apply universally, total-mass denominator).
   const complianceFindings: ComplianceFinding[] = mode === 'supplements' ? [] : checkCompliance(
-    ingredients.map(ing => ({ name: ing.name, qty: ing.qty, unit: ing.unit }))
+    ingredients.map(ing => ({ name: ing.name, qty: ing.qty, unit: ing.unit })),
+    undefined,
   );
   const complianceViolations = complianceFindings.filter(f => f.violated);
 

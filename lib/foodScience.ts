@@ -88,6 +88,26 @@ export interface IngredientSpec {
    * ('mild-buffering', 'amphoteric') is deferred to Tier B / Round 11+.
    */
   bufferingBehavior?: 'known-buffering';
+  /**
+   * Round 10 Path A (2026-05-15): flags this ingredient as meat for the
+   * 'meat' denominator-basis computation in checkCompliance. When set,
+   * the ingredient's mass contributes to the meat-mass denominator that
+   * cured-meat-scoped limits (Prague Powders, Morton Tender Quick,
+   * Phosphates (meat), Erythorbate/Ascorbate, binders) compute their
+   * percent/ppm against. Section 3b.2 lands the data tags; Path A
+   * provides the schema. Default behavior: undefined → not-meat.
+   */
+  isMeat?: boolean;
+  /**
+   * Round 10 Path A (2026-05-15): fat content as percent of ingredient mass
+   * (0–100). Used by the 'fat-and-oil' denominator-basis computation for
+   * BHA/BHT (21 CFR 172.110/115) where the cap is "0.02% of total fat +
+   * oil content." Ingredients with fatContentPct contribute (mass × pct/100)
+   * to the fat-and-oil denominator. Section 3b.2 lands the data tags on
+   * fat-bearing entries (oils → 100, butter → 82, etc.); Path A provides
+   * the schema. Default behavior: undefined → no fat contribution.
+   */
+  fatContentPct?: number;
   /** Where this entry's numeric values came from. Required. */
   source: SpecSource;
   /** Citation for the values. Required when source is 'commodity-standard' or 'cited-reference'. */

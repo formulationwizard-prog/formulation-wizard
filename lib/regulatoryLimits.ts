@@ -14,6 +14,8 @@
 // filing a production formula; regulations are updated periodically.
 // ============================================================
 import { UNIT_TO_GRAMS } from './utils';
+import { getSpec } from './foodScience';
+import type { ProductClass } from '../types';
 
 export interface RegulatoryLimit {
   /** Substring patterns (case-insensitive) that identify this ingredient. */
@@ -342,6 +344,19 @@ export interface ComplianceFinding {
    * trigger threshold, not the cap.
    */
   declarationTriggered?: boolean;
+
+  /**
+   * Round 10 Path A (2026-05-15): prohibited-use marker. When true, this
+   * substance is prohibited in the formulation's productClass (per the
+   * limit's `prohibitedInCategories`) — ANY non-zero use is a violation,
+   * not a near-cap. Distinct from cap-based `violated` because the failure
+   * mode is categorical ("this substance is illegal here") rather than
+   * quantitative ("this substance exceeds X ppm"). UI renders these with
+   * different language than cap violations. `violated` is also true on
+   * prohibited-use findings so existing cap-violation consumers continue
+   * to flag them; `prohibitedUse` is the additional discriminator.
+   */
+  prohibitedUse?: boolean;
 }
 
 /**
@@ -356,6 +371,79 @@ export function findLimit(name: string): RegulatoryLimit | null {
     }
   }
   return null;
+}
+
+// ============================================================
+// Path A routing helpers (Round 10 — 2026-05-15)
+// ------------------------------------------------------------
+// Pure functions that encode the productClass-routing semantics
+// used by checkCompliance. Exported so UI code can ask routing
+// questions ("does this limit apply here?", "what's the effective
+// cap?") without re-running compliance evaluation.
+// ============================================================
+
+/**
+ * Does this limit apply for the given productClass?
+ *
+ * Semantics:
+ *   • No `appliesToCategories` on the limit → applies universally (true)
+ *   • `appliesToCategories` set + productClass undefined → does NOT apply
+ *     (false). productClass-scoped limits require an explicit productClass.
+ *   • productClass in the list → applies (true)
+ *   • productClass not in the list → does NOT apply (false)
+ */
+export function limitAppliesForProductClass(
+  limit: RegulatoryLimit,
+  productClass?: ProductClass,
+): boolean {
+  if (!limit.appliesToCategories || limit.appliesToCategories.length === 0) {
+    return true;
+  }
+  if (!productClass) return false;
+  return limit.appliesToCategories.includes(productClass);
+}
+
+/**
+ * Compute the effective cap (maxPercent / maxPpm) for this limit in the
+ * given productClass, applying `contextualLimits` overrides when matched.
+ *
+ * If the limit has a contextualLimits entry whose `context` matches the
+ * productClass, the override values supersede the base cap. Otherwise the
+ * base cap (limit.maxPercent / limit.maxPpm) is returned unchanged.
+ */
+export function effectiveLimitForProductClass(
+  limit: RegulatoryLimit,
+  productClass?: ProductClass,
+): { maxPercent?: number; maxPpm?: number } {
+  let maxPercent = limit.maxPercent;
+  let maxPpm = limit.maxPpm;
+  if (limit.contextualLimits && productClass) {
+    const override = limit.contextualLimits.find(cl => cl.context === productClass);
+    if (override) {
+      if (override.maxPercent !== undefined) maxPercent = override.maxPercent;
+      if (override.maxPpm !== undefined) maxPpm = override.maxPpm;
+    }
+  }
+  return { maxPercent, maxPpm };
+}
+
+/**
+ * Is this substance prohibited in the given productClass?
+ *
+ * Returns true when the limit's `prohibitedInCategories` list includes the
+ * productClass. ANY non-zero use of a prohibited substance is a violation
+ * — this is a categorical check separate from cap-based violation.
+ *
+ * Returns false when productClass is undefined (a formulation without an
+ * explicit productClass cannot trigger a categorical prohibition; the
+ * required-at-creation UX prevents this state for new formulations).
+ */
+export function isProhibitedInProductClass(
+  limit: RegulatoryLimit,
+  productClass?: ProductClass,
+): boolean {
+  if (!productClass) return false;
+  return limit.prohibitedInCategories?.includes(productClass) ?? false;
 }
 
 /**
@@ -377,9 +465,35 @@ export function findLimit(name: string): RegulatoryLimit | null {
  *     cap. Surfaces alongside the per-member findings so customer-zero
  *     sees both "each member is individually compliant" and "the combined
  *     total exceeds the budget."
+ *
+ * Round 10 Path A (2026-05-15): productClass threading. The optional
+ * second parameter drives per-context limit routing, prohibitions,
+ * contextual overrides, and denominator basis:
+ *
+ *   • appliesToCategories — limit only fires when productClass matches
+ *   • prohibitedInCategories — ANY use in matching productClass is a
+ *     violation (categorical, not quantitative)
+ *   • contextualLimits — productClass-keyed override of maxPercent/maxPpm
+ *     (e.g., sodium nitrite 156/120/200/250 ppm by bacon subtype)
+ *   • denominatorBasis 'meat' — percent/ppm computed against the
+ *     formulation's meat-ingredient mass (from per-ingredient isMeat flag)
+ *   • denominatorBasis 'fat-and-oil' — computed against fat+oil mass
+ *     (from per-ingredient fatContentPct, weighted by mass)
+ *
+ * When productClass is undefined, all productClass-scoped behavior falls
+ * back to pre-Path-A semantics (limit always applies; total-mass
+ * denominator). This preserves backwards compatibility for callers that
+ * haven't been updated to pass productClass.
+ *
+ * Cache-key discipline: any future memoization of compliance findings
+ * MUST include productClass in the cache key. Changing productClass
+ * triggers re-evaluation (per Path A change-event behavior). No cache
+ * currently exists — checkCompliance is a pure function called
+ * synchronously on every render from app/workspace/page.tsx.
  */
 export function checkCompliance(
-  ingredients: Array<{ name: string; qty: number; unit: string }>
+  ingredients: Array<{ name: string; qty: number; unit: string; category?: string }>,
+  productClass?: ProductClass,
 ): ComplianceFinding[] {
   const totalMass = ingredients.reduce(
     (s, i) => s + i.qty * (UNIT_TO_GRAMS[i.unit] || 1),
@@ -387,23 +501,93 @@ export function checkCompliance(
   );
   if (totalMass <= 0) return [];
 
+  // ─── Path A: pre-resolve per-ingredient categorization metadata ──────────
+  // Resolve IngredientSpec once per ingredient and cache mass + spec so
+  // denominator-basis computations and per-finding routing share the same
+  // resolution. Avoids re-running getSpec inside the main loop or in
+  // separate denominator-basis passes.
+  const resolved = ingredients.map(ing => {
+    const spec = getSpec(ing.name, ing.category);
+    const grams = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+    return { ing, spec, grams };
+  });
+
+  // ─── Path A: pre-compute denominator masses by basis ─────────────────────
+  // 'meat' basis: sum of mass for ingredients tagged isMeat. Used by
+  // Section 3b.2 meat-basis fixes (Prague Powders, Morton Tender Quick,
+  // Phosphates (meat), Erythorbate/Ascorbate, binders).
+  const meatMass = resolved.reduce((s, r) => s + (r.spec.isMeat ? r.grams : 0), 0);
+  // 'fat-and-oil' basis: sum of (mass × fatContentPct/100) across
+  // ingredients carrying fat-content metadata. Used by BHA/BHT (21 CFR
+  // 172.110/115). Section 3b.2 lands fatContentPct tags on fat-bearing
+  // catalog entries (oils → 100, butter → 82, fatty meats → 30, etc.).
+  const fatOilMass = resolved.reduce(
+    (s, r) => s + (r.grams * (r.spec.fatContentPct ?? 0) / 100),
+    0,
+  );
+
   const findings: ComplianceFinding[] = [];
-  for (const ing of ingredients) {
+  for (const r of resolved) {
+    const { ing, grams } = r;
     const limit = findLimit(ing.name);
     if (!limit) continue;
-    const grams = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-    const currentPercent = (grams / totalMass) * 100;
-    const currentPpm = (grams / totalMass) * 1_000_000;
 
-    // Primary limit check
+    // ─── Path A: appliesToCategories gate ───────────────────────────────────
+    if (!limitAppliesForProductClass(limit, productClass)) continue;
+
+    // ─── Path A: denominatorBasis routing ───────────────────────────────────
+    // Switch the per-entry percent/ppm denominator based on the limit's
+    // basis. Default is total formulation mass (pre-Path-A behavior).
+    let denominator: number;
+    switch (limit.denominatorBasis) {
+      case 'meat':
+        denominator = meatMass;
+        break;
+      case 'fat-and-oil':
+        denominator = fatOilMass;
+        break;
+      case 'baked-good':
+        // Baked-good substrate detection deferred to Section 3b.2; for v1
+        // baked-good basis falls back to total mass with a documented gap.
+        denominator = totalMass;
+        break;
+      case 'total':
+      case undefined:
+      default:
+        denominator = totalMass;
+        break;
+    }
+    // Guard against divide-by-zero — e.g., meat-basis limit on a non-meat
+    // formulation. Skip the per-entry check in this case (limit doesn't
+    // meaningfully apply when the denominator is empty).
+    if (denominator <= 0) continue;
+    const currentPercent = (grams / denominator) * 100;
+    const currentPpm = (grams / denominator) * 1_000_000;
+
+    // ─── Path A: contextualLimits override ──────────────────────────────────
+    const { maxPercent: effectiveMaxPercent, maxPpm: effectiveMaxPpm } =
+      effectiveLimitForProductClass(limit, productClass);
+
+    // Primary limit check against effective cap
     let utilization = 0;
     let violated = false;
-    if (limit.maxPercent !== undefined) {
-      utilization = (currentPercent / limit.maxPercent) * 100;
-      violated = currentPercent > limit.maxPercent;
-    } else if (limit.maxPpm !== undefined) {
-      utilization = (currentPpm / limit.maxPpm) * 100;
-      violated = currentPpm > limit.maxPpm;
+    if (effectiveMaxPercent !== undefined) {
+      utilization = (currentPercent / effectiveMaxPercent) * 100;
+      violated = currentPercent > effectiveMaxPercent;
+    } else if (effectiveMaxPpm !== undefined) {
+      utilization = (currentPpm / effectiveMaxPpm) * 100;
+      violated = currentPpm > effectiveMaxPpm;
+    }
+
+    // ─── Path A: prohibitedInCategories check ───────────────────────────────
+    // If the substance is prohibited in this productClass AND non-zero use
+    // is present, mark the finding as a categorical violation regardless
+    // of the cap. utilization → Infinity signals "any use is over" since
+    // utilization is meaningless against a zero-tolerance rule.
+    const isProhibited = grams > 0 && isProhibitedInProductClass(limit, productClass);
+    if (isProhibited) {
+      violated = true;
+      utilization = Number.POSITIVE_INFINITY;
     }
 
     // Active-species secondary check (e.g., Prague Powder contains 6.25% nitrite)
@@ -424,6 +608,7 @@ export function checkCompliance(
       violated: violated || !!activeViolated,
       activeSpeciesPpm,
       activeViolated,
+      prohibitedUse: isProhibited ? true : undefined,
     });
   }
 
