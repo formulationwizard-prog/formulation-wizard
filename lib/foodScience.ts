@@ -199,7 +199,7 @@ export interface FormulationSpecs {
 // numeric values are AI-generated scaffolding without provenance.
 export const CATEGORY_SPECS: Record<string, IngredientSpec> = {
   'Sweeteners':             { brix: 80, moisture: 15, aw: 0.70, pH: 5.5, source: 'category-default', confidence: 'unverified' },
-  'Fats & Oils':            { brix: 0,  moisture: 0.1, aw: 0.10, pH: 7.0, viscosityContrib: 'medium', source: 'category-default', confidence: 'unverified' },
+  'Fats & Oils':            { brix: 0,  moisture: 0.1, aw: 0.10, pH: 7.0, viscosityContrib: 'medium', fatContentPct: 95, source: 'category-default', confidence: 'unverified' },
   'Condiment Ingredients':  { brix: 12, moisture: 55, aw: 0.88, pH: 4.0, source: 'category-default', confidence: 'unverified' },
   'Fresh Produce':          { brix: 8,  moisture: 88, aw: 0.98, pH: 5.5, source: 'category-default', confidence: 'unverified' },
   'Produce':                { brix: 12, moisture: 85, aw: 0.96, pH: 4.0, source: 'category-default', confidence: 'unverified' },
@@ -470,9 +470,12 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Soy Lecithin':                              { brix: 0, moisture: 1,  aw: 0.30, pH: 6.5, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
   'Sunflower Lecithin':                        { brix: 0, moisture: 1,  aw: 0.30, pH: 6.5, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
   // ─── Oils ─────────────────────────────────────────────────────────────────
-  'Soybean Oil (RBD)':                         { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
-  'Canola Oil (Industrial Grade)':             { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
-  'Extra Virgin Olive Oil':                    { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', source: 'ai-estimate', confidence: 'unverified' },
+  // Section 3b.2 (2026-05-15): fatContentPct tagged on oil entries so the
+  // BHA/BHT fat-and-oil denominator basis (21 CFR 172.110/115) computes against
+  // real fat mass. Pure oils are ~100% fat by mass.
+  'Soybean Oil (RBD)':                         { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', fatContentPct: 100, source: 'ai-estimate', confidence: 'unverified' },
+  'Canola Oil (Industrial Grade)':             { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', fatContentPct: 100, source: 'ai-estimate', confidence: 'unverified' },
+  'Extra Virgin Olive Oil':                    { brix: 0, moisture: 0.05, aw: 0.05, pH: 7.0, viscosityContrib: 'medium', fatContentPct: 100, source: 'ai-estimate', confidence: 'unverified' },
   // ─── Water ────────────────────────────────────────────────────────────────
   // VERIFIED — water is the reference point of the aw scale (1.000 by definition).
   'Water':                                     { brix: 0, moisture: 100, aw: 1.000, pH: 7.0, source: 'commodity-standard', citation: 'USP Purified Water monograph; USP <1231> Water for Pharmaceutical Purposes; 21 CFR 165.110 (Bottled Water)', confidence: 'verified', last_verified: '2026-04-30', notes: 'Water activity 1.000 by chemical definition (reference point of aw scale).' },
@@ -496,9 +499,12 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Baking Powder (Double-Acting, Aluminum-Free)': { brix: 0, moisture: 2, aw: 0.30, pH: 6.8, source: 'ai-estimate', confidence: 'unverified' },
   'Cream of Tartar (Potassium Bitartrate)':    { brix: 0,  moisture: 0.1, aw: 0.20, pH: 3.6, source: 'ai-estimate', confidence: 'unverified' },
   // ─── Dairy that isn't nearly water (butter) ───────────────────────────────
-  'Unsalted Butter (AA Grade, 82% MF)':        { brix: 0, moisture: 16, aw: 0.95, pH: 6.2, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
-  'European-Style Butter (84%+ MF, Cultured)': { brix: 0, moisture: 14, aw: 0.94, pH: 5.1, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
-  'Heavy Cream (36%+ MF)':                     { brix: 3, moisture: 57, aw: 0.98, pH: 6.5, bufferingBehavior: 'known-buffering', source: 'ai-estimate', confidence: 'unverified' },
+  // Section 3b.2: butter "MF" (Milk Fat) percentage drives fatContentPct.
+  // AA Grade butter is 82% MF by federal grading standard; European-style is
+  // 84%+ MF. Cream at 36%+ MF carries that fraction as fatContentPct.
+  'Unsalted Butter (AA Grade, 82% MF)':        { brix: 0, moisture: 16, aw: 0.95, pH: 6.2, bufferingBehavior: 'known-buffering', fatContentPct: 82, source: 'ai-estimate', confidence: 'unverified' },
+  'European-Style Butter (84%+ MF, Cultured)': { brix: 0, moisture: 14, aw: 0.94, pH: 5.1, bufferingBehavior: 'known-buffering', fatContentPct: 84, source: 'ai-estimate', confidence: 'unverified' },
+  'Heavy Cream (36%+ MF)':                     { brix: 3, moisture: 57, aw: 0.98, pH: 6.5, bufferingBehavior: 'known-buffering', fatContentPct: 36, source: 'ai-estimate', confidence: 'unverified' },
   // ─── Vanilla / extracts / aromatics ───────────────────────────────────────
   'Vanilla Extract (Pure, Single-Fold)':       { brix: 5, moisture: 55, aw: 0.80, pH: 4.3, source: 'ai-estimate', confidence: 'unverified' },
   'Vanilla Bean Paste (Seeded)':               { brix: 68, moisture: 29, aw: 0.75, pH: 4.5, source: 'ai-estimate', confidence: 'unverified' },
@@ -515,6 +521,16 @@ export const INGREDIENT_SPECS: Record<string, IngredientSpec> = {
   'Tahini (Unhulled/Whole Sesame Paste)':      { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
   'Peanut Butter (Industrial/Processed)':      { brix: 0, moisture: 2, aw: 0.35, pH: 6.3, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
   'Almond Butter (Industrial)':                { brix: 0, moisture: 2, aw: 0.35, pH: 6.5, viscosityContrib: 'very high', source: 'ai-estimate', confidence: 'unverified' },
+  // ─── Section 3b.2 (2026-05-15) — Generic meat entry for cured-meat testing
+  // The F&B catalog focuses on acidified foods and condiments; whole-cut meats
+  // (beef trim, pork shoulder, chicken thigh, etc.) typically live in the
+  // sausage / cured-meat vertical mode's catalog. For Section 3b.2 to test
+  // meat-basis denominator routing end-to-end against the live catalog, this
+  // generic-lean-meat entry provides an isMeat-tagged ingredient that tests
+  // can compose into cured-meat formulations. See Finding #12 — Round 11+
+  // catalog expansion adds proper meat-category coverage with specific cuts
+  // and protein-fat profiles.
+  'Generic Lean Meat (Test Fixture)':          { brix: 0, moisture: 70, aw: 0.98, pH: 5.8, viscosityContrib: 'medium', bufferingBehavior: 'known-buffering', isMeat: true, fatContentPct: 5, source: 'ai-estimate', confidence: 'unverified', notes: 'Section 3b.2 test fixture. Generic lean meat profile — 70% moisture, ~5% fat, ~22% protein, pH 5.8 typical for raw mammalian muscle. Used by checkCompliance meat-basis denominator tests. Round 11+ catalog expansion will replace with cut-specific entries.' },
   // ─── ROUND 7 (2026-05-08) — Catalog gap-fill chemistry ────────────────────
   // Chemistry rows for the Round 7 catalog additions in lib/data/ingredients.ts.
   // Sources: USDA FoodData Central for tomato products (#170457 + canning

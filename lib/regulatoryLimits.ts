@@ -145,34 +145,47 @@ export const REGULATORY_LIMITS: RegulatoryLimit[] = [
   {
     namePatterns: ['sodium propionate'],
     maxPercent: 0.32,
+    // Section 3b.2: 21 CFR 184.1784 scopes the 0.32% cap to bread and baked
+    // goods. Limit only fires for productClass='baked-good' — non-baked-good
+    // formulations using propionate (rare) fall outside this cap's scope.
+    appliesToCategories: ['baked-good'],
     authority: 'FDA',
     citation: '21 CFR 184.1784',
     shortName: 'Sodium Propionate',
-    summary: 'Max 0.32% (3,200 ppm) of finished bread / baked good. Rope / mold inhibitor.',
+    summary: 'Max 0.32% (3,200 ppm) of finished bread / baked good. Rope / mold inhibitor. Section 3b.2: scoped to baked-good productClass.',
   },
   {
     namePatterns: ['calcium propionate'],
     maxPercent: 0.32,
+    appliesToCategories: ['baked-good'],
     authority: 'FDA',
     citation: '21 CFR 184.1221',
     shortName: 'Calcium Propionate',
-    summary: 'Max 0.32% (3,200 ppm) of finished bread / baked good.',
+    summary: 'Max 0.32% (3,200 ppm) of finished bread / baked good. Section 3b.2: scoped to baked-good productClass.',
   },
   {
     namePatterns: ['bha ', 'butylated hydroxyanisole'],
     maxPercent: 0.02,
+    // Section 3b.2: 21 CFR 172.110 specifies 0.02% of TOTAL FAT + OIL content,
+    // not total formulation mass. Pre-fix engine used total-mass denominator,
+    // under-counting in formulations with fat-bearing ingredients. denominatorBasis:
+    // 'fat-and-oil' sums (mass × fatContentPct/100) across ingredients for the
+    // correct denominator. appliesToCategories left unrestricted: BHA/BHT caps
+    // apply across any formulation containing fat/oil regardless of productClass.
+    denominatorBasis: 'fat-and-oil',
     authority: 'FDA',
     citation: '21 CFR 172.110',
     shortName: 'BHA',
-    summary: 'Max 0.02% (200 ppm) of total fat + oil content. Antioxidant.',
+    summary: 'Max 0.02% (200 ppm) of total fat + oil content. Antioxidant. Section 3b.2: denominator basis is fat+oil mass, not total formulation mass.',
   },
   {
     namePatterns: ['bht ', 'butylated hydroxytoluene'],
     maxPercent: 0.02,
+    denominatorBasis: 'fat-and-oil',
     authority: 'FDA',
     citation: '21 CFR 172.115',
     shortName: 'BHT',
-    summary: 'Max 0.02% (200 ppm) of total fat + oil content. Antioxidant.',
+    summary: 'Max 0.02% (200 ppm) of total fat + oil content. Antioxidant. Section 3b.2: denominator basis is fat+oil mass, not total formulation mass.',
   },
   {
     // Round 10 Section 3b.1: trailing-space pattern on the bare 'sulfite '
@@ -186,10 +199,16 @@ export const REGULATORY_LIMITS: RegulatoryLimit[] = [
     // Fires a separate finding when concentration ≥ 10 ppm — labeling required
     // even though use is legal up to the 100 ppm cap.
     declarationTriggerPpm: 10,
+    // Section 3b.2: 21 CFR 182.3862 prohibits sulfite use on fresh produce
+    // (per FDA 1986 ruling following bisulfite-induced bronchospasm deaths).
+    // ANY non-zero use in productClass='fresh-produce' is a categorical
+    // violation — not a near-cap. The cap value above (100 ppm) remains
+    // for non-fresh-produce uses; the prohibition gate fires independently.
+    prohibitedInCategories: ['fresh-produce'],
     authority: 'FDA',
-    citation: '21 CFR 182.3862; declaration threshold 21 CFR 101.100',
+    citation: '21 CFR 182.3862; declaration threshold 21 CFR 101.100; fresh-produce prohibition per FDA 1986 ruling',
     shortName: 'Sulfites',
-    summary: 'Max 100 ppm in finished product as total SO₂. Must declare on label if ≥ 10 ppm (21 CFR 101.100). Prohibited on fresh produce. ALLERGEN concern.',
+    summary: 'Max 100 ppm in finished product as total SO₂. Must declare on label if ≥ 10 ppm (21 CFR 101.100). PROHIBITED on fresh produce since 1986. ALLERGEN concern.',
   },
 
   // ═════════════════ USDA-FSIS — CURED MEATS ════════════════════════════════
@@ -197,18 +216,40 @@ export const REGULATORY_LIMITS: RegulatoryLimit[] = [
     namePatterns: ['sodium nitrite'],
     // Listed as the active species — direct use
     maxPpm: 156,
+    // Section 3b.2: scope nitrite to cured-meat productClasses (cured-meat
+    // + bacon). Non-meat formulations using nitrite (rare) fall outside
+    // FSIS scope. Bacon-specific cap (120 ppm pumped, strictest) overrides
+    // via contextualLimits — conservative v1 default. Finding #12 surfaces
+    // the bacon-subtype processMethod refinement (120/200/250 ppm by cure
+    // method) deferred to Round 11+.
+    appliesToCategories: ['cured-meat', 'bacon'],
+    contextualLimits: [
+      // Bacon catch-all uses 120 ppm (pumped bacon, strictest of the four
+      // bacon-subtype caps). Conservative default — pumped bacon products
+      // comply; immersion-cured (200 ppm) or dry-cured (250 ppm) bacon
+      // products will be over-flagged until Round 11+ adds processMethod
+      // routing. Better to over-flag and require operator verification
+      // than silently under-enforce the pumped-bacon cap.
+      { context: 'bacon', maxPpm: 120 },
+    ],
     authority: 'USDA-FSIS',
     citation: '9 CFR 424.21',
     shortName: 'Sodium Nitrite',
-    summary: 'Max 156 ppm ingoing in most cured/comminuted meats. 120 ppm for pumped bacon. 200 ppm (immersion-cured) or 250 ppm (dry-cured) bacon.',
+    summary: 'Max 156 ppm ingoing in most cured/comminuted meats. Bacon: 120 ppm pumped / 200 ppm immersion-cured / 250 ppm dry-cured. Section 3b.2: bacon productClass uses 120 ppm conservative default; full subtype routing deferred to Round 11+ processMethod field.',
   },
   {
     namePatterns: ['sodium nitrate', 'potassium nitrate'],
     maxPpm: 1718,
+    // Section 3b.2: nitrate scoped to cured-meat (non-bacon) productClass
+    // only — bacon prohibition since 1974 means ANY use in bacon is a
+    // categorical violation (prohibitedInCategories below). Limit only
+    // enforces against the 1,718 ppm cap for non-bacon dry-cured products.
+    appliesToCategories: ['cured-meat'],
+    prohibitedInCategories: ['bacon'],
     authority: 'USDA-FSIS',
-    citation: '9 CFR 424.21',
+    citation: '9 CFR 424.21; bacon prohibition per FSIS 1974',
     shortName: 'Sodium / Potassium Nitrate',
-    summary: 'Dry-cured products only. Max 1,718 ppm ingoing. Prohibited in bacon since 1974.',
+    summary: 'Dry-cured products only. Max 1,718 ppm ingoing. PROHIBITED in bacon since 1974 — Section 3b.2: bacon productClass triggers categorical violation regardless of amount.',
   },
   {
     namePatterns: ['prague powder #1', 'insta cure #1', 'cure #1', 'pink salt #1', 'prague #1'],
@@ -216,10 +257,15 @@ export const REGULATORY_LIMITS: RegulatoryLimit[] = [
     activeFraction: 0.0625,
     activeName: 'sodium nitrite',
     activeMaxPpm: 156,
+    // Section 3b.2: "Max 2.5 g/kg MEAT" — denominator is meat mass, not total
+    // formulation mass. Scoped to cured-meat productClasses (cured-meat + bacon
+    // both apply; bacon inherits cured-meat regulatory scope).
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 424.21',
     shortName: 'Prague Powder #1',
-    summary: 'Cure blend (93.75% salt + 6.25% NaNO₂). Max 2.5 g/kg meat (0.25%) = 156 ppm nitrite. Used for cooked/smoked products.',
+    summary: 'Cure blend (93.75% salt + 6.25% NaNO₂). Max 2.5 g/kg meat (0.25% of meat mass) = 156 ppm nitrite. Used for cooked/smoked products. Section 3b.2: denominator is meat mass.',
   },
   {
     namePatterns: ['prague powder #2', 'insta cure #2', 'cure #2', 'pink salt #2', 'prague #2'],
@@ -227,10 +273,12 @@ export const REGULATORY_LIMITS: RegulatoryLimit[] = [
     activeFraction: 0.0625,
     activeName: 'sodium nitrite + nitrate',
     activeMaxPpm: 156,
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 424.21',
     shortName: 'Prague Powder #2',
-    summary: 'Dry-cured blend (89.75% salt + 6.25% NaNO₂ + 4% NaNO₃). Max 2.5 g/kg meat (0.25%). For salami, pepperoni, prosciutto.',
+    summary: 'Dry-cured blend (89.75% salt + 6.25% NaNO₂ + 4% NaNO₃). Max 2.5 g/kg meat (0.25%). For salami, pepperoni, prosciutto. Section 3b.2: denominator is meat mass.',
   },
   {
     namePatterns: ['morton tender quick'],
@@ -238,34 +286,54 @@ export const REGULATORY_LIMITS: RegulatoryLimit[] = [
     activeFraction: 0.005,
     activeName: 'sodium nitrite',
     activeMaxPpm: 156,
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 424.21',
     shortName: 'Morton Tender Quick',
-    summary: 'Consumer-grade cure (salt + sugar + 0.5% nitrite + 0.5% nitrate). Max ~1% of meat (1 Tbsp/lb).',
+    summary: 'Consumer-grade cure (salt + sugar + 0.5% nitrite + 0.5% nitrate). Max ~1% of meat (1 Tbsp/lb). Section 3b.2: denominator is meat mass.',
   },
   {
     namePatterns: ['sodium erythorbate', 'sodium ascorbate'],
     maxPpm: 547,
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 424.21',
     shortName: 'Erythorbate / Ascorbate',
-    summary: 'Cure accelerator / color fixative. Max 547 ppm of finished cured meat product.',
+    summary: 'Cure accelerator / color fixative. Max 547 ppm of finished cured meat product. Section 3b.2: denominator is meat mass; scoped to cured-meat + bacon.',
   },
   {
+    // Section 3b.2 — Vitamin C false-positive precision fix: 'ascorbic acid'
+    // / 'vitamin c' substring match was firing the FSIS cured-meat cap on
+    // beverages and fortified foods (active misfire in shipped code). 21 CFR
+    // 182.3013 GRAS governs non-meat vitamin C use at higher allowable levels.
+    // Scoping this entry to cured-meat + bacon productClasses prevents the
+    // beverage false-positive while preserving correct enforcement in cured-
+    // meat products where the 547 ppm cap genuinely applies.
     namePatterns: ['ascorbic acid', 'vitamin c'],
     maxPpm: 547,
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 424.21',
     shortName: 'Ascorbic Acid (in cures)',
-    summary: 'Cure accelerator. Max 547 ppm in cured meat products.',
+    summary: 'Cure accelerator. Max 547 ppm in cured meat products. Section 3b.2: scoped to cured-meat + bacon productClasses — non-meat vitamin C use governed by 21 CFR 182.3013 GRAS, no false-positive on beverages.',
   },
   {
+    // Section 3b.2 — Sodium phosphate substring precision: scoping the meat-
+    // phosphates entry to cured-meat productClass means 'sodium phosphate'
+    // buffer-salt use in beverages no longer falsely triggers the FSIS 0.5%
+    // meat-product cap. denominatorBasis: 'meat' ensures the percent
+    // computation uses meat mass when the entry does fire.
     namePatterns: ['sodium tripolyphosphate', 'stpp', 'sodium phosphate', 'tetra sodium pyrophosphate', 'pyrophosphate'],
     maxPercent: 0.5,
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 424.21',
     shortName: 'Phosphates (meat)',
-    summary: 'Max 0.5% (5,000 ppm) of finished meat product. Water retention / protein solubilization.',
+    summary: 'Max 0.5% (5,000 ppm) of finished meat product. Water retention / protein solubilization. Section 3b.2: scoped to cured-meat + bacon, meat-mass denominator; buffer-salt use in beverages no longer false-positives.',
   },
   {
     namePatterns: ['non-fat dry milk', 'nfdm', 'sodium caseinate'],
@@ -275,19 +343,26 @@ export const REGULATORY_LIMITS: RegulatoryLimit[] = [
     // members compliant at 2% each still violate at 4% combined. checkCompliance
     // emits a separate combined-budget finding alongside the per-member findings.
     combinedBudgetGroup: 'meat-binder',
+    // Section 3b.2: 9 CFR 319.140 "of finished meat product" — denominator is
+    // meat mass, not total. Scoped to cured-meat + bacon productClasses;
+    // non-meat binder use (dairy products, gluten-free breads) falls outside.
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 319.140',
     shortName: 'Binders (dairy)',
-    summary: 'Max 3.5% combined binder/extender in most meat products per FSIS standard of identity. Shares combined-budget group "meat-binder" with Binders (soy).',
+    summary: 'Max 3.5% combined binder/extender of finished meat product per FSIS standard of identity. Shares combined-budget group "meat-binder" with Binders (soy). Section 3b.2: meat-mass denominator; scoped to cured-meat + bacon.',
   },
   {
     namePatterns: ['soy protein concentrate', 'soy protein isolate'],
     maxPercent: 3.5,
     combinedBudgetGroup: 'meat-binder',
+    denominatorBasis: 'meat',
+    appliesToCategories: ['cured-meat', 'bacon'],
     authority: 'USDA-FSIS',
     citation: '9 CFR 319.140',
     shortName: 'Binders (soy)',
-    summary: 'Max 3.5% combined binder/extender. Counted against total binder budget — shares combined-budget group "meat-binder" with Binders (dairy).',
+    summary: 'Max 3.5% combined binder/extender. Counted against total binder budget — shares combined-budget group "meat-binder" with Binders (dairy). Section 3b.2: meat-mass denominator; scoped to cured-meat + bacon.',
   },
 ];
 
@@ -532,68 +607,75 @@ export function checkCompliance(
     const limit = findLimit(ing.name);
     if (!limit) continue;
 
-    // ─── Path A: appliesToCategories gate ───────────────────────────────────
-    if (!limitAppliesForProductClass(limit, productClass)) continue;
+    // ─── Path A: routing decisions ──────────────────────────────────────────
+    // Two independent gates govern whether this ingredient produces a finding:
+    //   • applies — does the cap fire in this productClass? (appliesToCategories
+    //     match, OR no appliesToCategories restriction at all)
+    //   • prohibited — is this substance categorically forbidden here? Fires
+    //     INDEPENDENTLY of appliesToCategories. A substance can be prohibited
+    //     in a productClass where its cap doesn't apply (e.g., nitrate is
+    //     scoped to cured-meat for its 1718 ppm cap but prohibited in bacon
+    //     where the cap doesn't apply at all).
+    // Emit a finding if EITHER fires. Skip only when neither does.
+    const applies = limitAppliesForProductClass(limit, productClass);
+    const isProhibited = grams > 0 && isProhibitedInProductClass(limit, productClass);
+    if (!applies && !isProhibited) continue;
 
     // ─── Path A: denominatorBasis routing ───────────────────────────────────
-    // Switch the per-entry percent/ppm denominator based on the limit's
-    // basis. Default is total formulation mass (pre-Path-A behavior).
+    // Basis only matters when the cap fires. Prohibition-only findings use
+    // total-mass denominator since the cap-check denominator semantic doesn't
+    // apply (the prohibition is categorical, not quantitative).
     let denominator: number;
-    switch (limit.denominatorBasis) {
-      case 'meat':
-        denominator = meatMass;
-        break;
-      case 'fat-and-oil':
-        denominator = fatOilMass;
-        break;
-      case 'baked-good':
-        // Baked-good substrate detection deferred to Section 3b.2; for v1
-        // baked-good basis falls back to total mass with a documented gap.
-        denominator = totalMass;
-        break;
-      case 'total':
-      case undefined:
-      default:
-        denominator = totalMass;
-        break;
+    if (applies) {
+      switch (limit.denominatorBasis) {
+        case 'meat': denominator = meatMass; break;
+        case 'fat-and-oil': denominator = fatOilMass; break;
+        case 'baked-good':
+          // Baked-good substrate detection deferred to Round 11+; for v1
+          // baked-good basis falls back to total mass with a documented gap.
+          denominator = totalMass;
+          break;
+        case 'total':
+        case undefined:
+        default: denominator = totalMass;
+      }
+    } else {
+      denominator = totalMass;
     }
     // Guard against divide-by-zero — e.g., meat-basis limit on a non-meat
-    // formulation. Skip the per-entry check in this case (limit doesn't
-    // meaningfully apply when the denominator is empty).
-    if (denominator <= 0) continue;
-    const currentPercent = (grams / denominator) * 100;
-    const currentPpm = (grams / denominator) * 1_000_000;
+    // formulation. Skip when the cap-check denominator is empty UNLESS the
+    // prohibition is firing (prohibition fires regardless of denominator).
+    if (denominator <= 0 && !isProhibited) continue;
+    const currentPercent = denominator > 0 ? (grams / denominator) * 100 : 0;
+    const currentPpm = denominator > 0 ? (grams / denominator) * 1_000_000 : 0;
 
-    // ─── Path A: contextualLimits override ──────────────────────────────────
-    const { maxPercent: effectiveMaxPercent, maxPpm: effectiveMaxPpm } =
-      effectiveLimitForProductClass(limit, productClass);
-
-    // Primary limit check against effective cap
+    // Primary cap check (only when applies; otherwise utilization stays 0)
     let utilization = 0;
     let violated = false;
-    if (effectiveMaxPercent !== undefined) {
-      utilization = (currentPercent / effectiveMaxPercent) * 100;
-      violated = currentPercent > effectiveMaxPercent;
-    } else if (effectiveMaxPpm !== undefined) {
-      utilization = (currentPpm / effectiveMaxPpm) * 100;
-      violated = currentPpm > effectiveMaxPpm;
+    if (applies) {
+      const { maxPercent: effectiveMaxPercent, maxPpm: effectiveMaxPpm } =
+        effectiveLimitForProductClass(limit, productClass);
+      if (effectiveMaxPercent !== undefined) {
+        utilization = (currentPercent / effectiveMaxPercent) * 100;
+        violated = currentPercent > effectiveMaxPercent;
+      } else if (effectiveMaxPpm !== undefined) {
+        utilization = (currentPpm / effectiveMaxPpm) * 100;
+        violated = currentPpm > effectiveMaxPpm;
+      }
     }
 
-    // ─── Path A: prohibitedInCategories check ───────────────────────────────
-    // If the substance is prohibited in this productClass AND non-zero use
-    // is present, mark the finding as a categorical violation regardless
-    // of the cap. utilization → Infinity signals "any use is over" since
-    // utilization is meaningless against a zero-tolerance rule.
-    const isProhibited = grams > 0 && isProhibitedInProductClass(limit, productClass);
+    // Prohibition override: forces violated=true regardless of cap status.
+    // utilization → Infinity signals "any use is over" since utilization is
+    // meaningless against a zero-tolerance rule.
     if (isProhibited) {
       violated = true;
       utilization = Number.POSITIVE_INFINITY;
     }
 
-    // Active-species secondary check (e.g., Prague Powder contains 6.25% nitrite)
+    // Active-species secondary check (only when cap applies)
     let activeSpeciesPpm: number | undefined;
     let activeViolated: boolean | undefined;
-    if (limit.activeFraction && limit.activeMaxPpm) {
+    if (applies && limit.activeFraction && limit.activeMaxPpm) {
       activeSpeciesPpm = currentPpm * limit.activeFraction;
       activeViolated = activeSpeciesPpm > limit.activeMaxPpm;
     }
@@ -651,12 +733,26 @@ export function checkCompliance(
   for (const [group, members] of groupMap) {
     if (members.length < 2) continue; // single-member groups are covered by the per-entry check
     const aggregateGrams = members.reduce((s, m) => s + m.ingredientGrams, 0);
-    const aggregatePercent = (aggregateGrams / totalMass) * 100;
-    const aggregatePpm = (aggregateGrams / totalMass) * 1_000_000;
     // Members of a combined-budget group share the same cap (operator
     // discipline: all entries tagged into the same group must carry the
     // same maxPercent / maxPpm). The first member's limit is representative.
     const sharedLimit = members[0].limit;
+    // Path A: combined-budget aggregation uses the SAME denominator-basis
+    // as the individual member checks. Without this, a meat-binder combined
+    // check would compute against total formulation mass while the
+    // per-member checks compute against meat mass — inconsistent and wrong.
+    let aggregateDenominator: number;
+    switch (sharedLimit.denominatorBasis) {
+      case 'meat': aggregateDenominator = meatMass; break;
+      case 'fat-and-oil': aggregateDenominator = fatOilMass; break;
+      case 'baked-good':
+      case 'total':
+      case undefined:
+      default: aggregateDenominator = totalMass;
+    }
+    if (aggregateDenominator <= 0) continue; // basis-empty formulation, skip
+    const aggregatePercent = (aggregateGrams / aggregateDenominator) * 100;
+    const aggregatePpm = (aggregateGrams / aggregateDenominator) * 1_000_000;
     let utilization = 0;
     let violated = false;
     if (sharedLimit.maxPercent !== undefined) {

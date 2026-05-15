@@ -193,8 +193,13 @@ describe('checkCompliance — backwards compatibility (productClass omitted)', (
     expect(declaration).toBeDefined();
   });
 
-  it('called with productClass=undefined preserves Section 3b.1 combined-budget behavior', () => {
-    // 2% + 2% binders, undefined productClass — pre-Path-A consumer pattern.
+  it('called with productClass=undefined: cured-meat-scoped limits DO NOT fire (Section 3b.2 appliesToCategories gate)', () => {
+    // Path A semantic: productClass-scoped limits require explicit
+    // productClass. After Section 3b.2 tags binders with appliesToCategories:
+    // ['cured-meat', 'bacon'], a call without productClass produces no
+    // binder findings — neither individual nor combined. This is the
+    // failure mode Path A was designed to prevent (false-positive binder
+    // enforcement on non-meat formulations like ice cream).
     const findings = checkCompliance(
       [
         { name: 'Non-Fat Dry Milk', qty: 2, unit: 'g' },
@@ -204,8 +209,11 @@ describe('checkCompliance — backwards compatibility (productClass omitted)', (
       undefined,
     );
     const combined = findings.find(f => f.combinedBudget !== undefined);
-    expect(combined).toBeDefined();
-    expect(combined?.violated).toBe(true); // 4% > 3.5%
+    const binderFinding = findings.find(
+      f => f.limit.shortName === 'Binders (dairy)' || f.limit.shortName === 'Binders (soy)'
+    );
+    expect(combined).toBeUndefined();
+    expect(binderFinding).toBeUndefined();
   });
 
   it('called with productClass for an entry without appliesToCategories: limit fires normally', () => {

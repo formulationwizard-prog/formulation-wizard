@@ -120,23 +120,35 @@ describe('Section 3b.1 — declaration-trigger gate (sulfites 10 ppm per 21 CFR 
 
 describe('Section 3b.1 — combined-budget aggregation (meat-binder per 9 CFR 319.140)', () => {
 
-  it('2% NFDM alone (single member, under 3.5% cap) → individual finding compliant, NO combined finding', () => {
-    const findings = checkCompliance([
-      { name: 'Non-Fat Dry Milk', qty: 2, unit: 'g' },
-      { name: 'Water', qty: 98, unit: 'g' },
-    ]);
+  // Section 3b.2 (2026-05-15): binder entries scoped to cured-meat/bacon
+  // productClass — these tests pass 'cured-meat' to checkCompliance so the
+  // appliesToCategories gate lets the limits fire. Without productClass,
+  // binder limits don't fire (correct Path A behavior).
+  it('2% NFDM alone (cured-meat productClass, single member, under 3.5% cap) → individual finding compliant, NO combined finding', () => {
+    const findings = checkCompliance(
+      [
+        { name: 'Non-Fat Dry Milk', qty: 2, unit: 'g' },
+        { name: 'Generic Lean Meat (Test Fixture)', qty: 98, unit: 'g' },
+      ],
+      'cured-meat',
+    );
     const nfdmFinding = findings.find(f => f.limit.shortName === 'Binders (dairy)');
     expect(nfdmFinding?.violated).toBe(false);
     const combined = findings.find(f => f.combinedBudget !== undefined);
     expect(combined).toBeUndefined();
   });
 
-  it('1% NFDM + 1% Soy Protein Isolate (combined 2%, under cap) → both individuals compliant, combined finding compliant', () => {
-    const findings = checkCompliance([
-      { name: 'Non-Fat Dry Milk', qty: 1, unit: 'g' },
-      { name: 'Soy Protein Isolate', qty: 1, unit: 'g' },
-      { name: 'Water', qty: 98, unit: 'g' },
-    ]);
+  it('1% NFDM + 1% Soy Protein Isolate (cured-meat productClass, combined 2/98 = ~2.04% meat-basis, under cap) → both individuals compliant, combined finding compliant', () => {
+    // Note: meat-basis denominator computes against meat-mass (98g), not
+    // total-mass (100g). 1g/98g = 1.02% per individual; combined 2g/98g = 2.04%.
+    const findings = checkCompliance(
+      [
+        { name: 'Non-Fat Dry Milk', qty: 1, unit: 'g' },
+        { name: 'Soy Protein Isolate', qty: 1, unit: 'g' },
+        { name: 'Generic Lean Meat (Test Fixture)', qty: 98, unit: 'g' },
+      ],
+      'cured-meat',
+    );
     const dairy = findings.find(
       f => f.limit.shortName === 'Binders (dairy)' && !f.combinedBudget
     );
@@ -147,21 +159,25 @@ describe('Section 3b.1 — combined-budget aggregation (meat-binder per 9 CFR 31
     expect(dairy?.violated).toBe(false);
     expect(soy?.violated).toBe(false);
     expect(combined).toBeDefined();
-    expect(combined?.violated).toBe(false); // 2% combined ≤ 3.5%
+    expect(combined?.violated).toBe(false); // ~2.04% combined ≤ 3.5%
     expect(combined?.combinedBudget?.group).toBe('meat-binder');
     expect(combined?.combinedBudget?.memberIngredientNames).toEqual(['Non-Fat Dry Milk', 'Soy Protein Isolate']);
   });
 
-  it('2% NFDM + 2% Soy Protein Isolate (combined 4%, over 3.5%) → both individuals COMPLIANT, combined finding VIOLATED', () => {
+  it('2% NFDM + 2% Soy Protein Isolate (cured-meat productClass, combined 4/96 = ~4.17% meat-basis, over 3.5%) → both individuals COMPLIANT, combined finding VIOLATED', () => {
     // The load-bearing case for Section 3b.1 — individual entries under
-    // their per-entry cap (2% < 3.5%) but combined total (4% > 3.5%)
-    // exceeds the shared budget. Pre-fix engine would clear this as
-    // compliant; post-fix surfaces the combined-budget violation.
-    const findings = checkCompliance([
-      { name: 'Non-Fat Dry Milk', qty: 2, unit: 'g' },
-      { name: 'Soy Protein Isolate', qty: 2, unit: 'g' },
-      { name: 'Water', qty: 96, unit: 'g' },
-    ]);
+    // their per-entry cap (2g/96g = 2.08% < 3.5%) but combined total
+    // (4g/96g = 4.17% > 3.5%) exceeds the shared budget. Pre-fix engine
+    // would clear this as compliant; post-fix surfaces the combined-budget
+    // violation. Section 3b.2: percent computed against meat-mass denominator.
+    const findings = checkCompliance(
+      [
+        { name: 'Non-Fat Dry Milk', qty: 2, unit: 'g' },
+        { name: 'Soy Protein Isolate', qty: 2, unit: 'g' },
+        { name: 'Generic Lean Meat (Test Fixture)', qty: 96, unit: 'g' },
+      ],
+      'cured-meat',
+    );
     const dairy = findings.find(
       f => f.limit.shortName === 'Binders (dairy)' && !f.combinedBudget
     );
@@ -169,31 +185,50 @@ describe('Section 3b.1 — combined-budget aggregation (meat-binder per 9 CFR 31
       f => f.limit.shortName === 'Binders (soy)' && !f.combinedBudget
     );
     const combined = findings.find(f => f.combinedBudget !== undefined);
-    // Individuals under per-entry cap
+    // Individuals under per-entry cap (each ~2.08% of meat mass < 3.5%)
     expect(dairy?.violated).toBe(false);
     expect(soy?.violated).toBe(false);
-    // Combined VIOLATES the shared budget
+    // Combined VIOLATES the shared budget (~4.17% of meat mass > 3.5%)
     expect(combined?.violated).toBe(true);
-    expect(combined?.currentPercent).toBeCloseTo(4, 2);
-    expect(combined?.utilization).toBeCloseTo(114.29, 1); // 4 / 3.5 × 100
+    expect(combined?.currentPercent).toBeCloseTo(4.167, 1); // 4/96 × 100
     expect(combined?.ingredientName).toContain('Binders');
   });
 
   it('combined-budget finding uses distinct shortNames (no duplicates if multiple members share a limit entry)', () => {
     // NFDM and Sodium Caseinate both resolve to Binders (dairy). Should
     // de-duplicate in the synthesized ingredientName.
-    const findings = checkCompliance([
-      { name: 'Non-Fat Dry Milk', qty: 1.5, unit: 'g' },
-      { name: 'Sodium Caseinate', qty: 1.5, unit: 'g' },
-      { name: 'Soy Protein Isolate', qty: 1.5, unit: 'g' },
-      { name: 'Water', qty: 95.5, unit: 'g' },
-    ]);
+    const findings = checkCompliance(
+      [
+        { name: 'Non-Fat Dry Milk', qty: 1.5, unit: 'g' },
+        { name: 'Sodium Caseinate', qty: 1.5, unit: 'g' },
+        { name: 'Soy Protein Isolate', qty: 1.5, unit: 'g' },
+        { name: 'Generic Lean Meat (Test Fixture)', qty: 95.5, unit: 'g' },
+      ],
+      'cured-meat',
+    );
     const combined = findings.find(f => f.combinedBudget !== undefined);
     expect(combined).toBeDefined();
-    // 4.5% combined > 3.5% cap
+    // 4.5g / 95.5g = 4.71% meat-basis > 3.5% cap
     expect(combined?.violated).toBe(true);
     expect(combined?.ingredientName).toBe('Combined: Binders (dairy) + Binders (soy)');
     // Three member ingredients all listed
     expect(combined?.combinedBudget?.memberIngredientNames.length).toBe(3);
+  });
+
+  it('binder limits do NOT fire without productClass (Section 3b.2 appliesToCategories gate)', () => {
+    // Backwards-compat behavior change documented: pre-Section-3b.2 the
+    // binder limits would fire universally (false-positive on dairy-based
+    // formulations like ice cream that legitimately use casein at >3.5%
+    // and aren't FSIS-regulated). Post-3b.2 the limits require explicit
+    // cured-meat productClass to apply.
+    const findings = checkCompliance([
+      { name: 'Non-Fat Dry Milk', qty: 2, unit: 'g' },
+      { name: 'Soy Protein Isolate', qty: 2, unit: 'g' },
+      { name: 'Water', qty: 96, unit: 'g' },
+    ]);
+    const binderFinding = findings.find(
+      f => f.limit.shortName === 'Binders (dairy)' || f.limit.shortName === 'Binders (soy)'
+    );
+    expect(binderFinding).toBeUndefined();
   });
 });
