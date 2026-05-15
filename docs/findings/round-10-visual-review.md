@@ -106,6 +106,71 @@ Findings surfaced during visual review. Each documented with observation, hypoth
 
 ---
 
+### Finding #22 — Regulatory enforcement and catalog should be co-sequenced (architectural principle)
+
+**Observation.** Round 10's 18-entry regulatory enforcement table includes caps for ingredients with no corresponding catalog entries (BHA, BHT, sulfite preservatives, possibly others). Substring-matching for cap enforcement targets ingredients that don't exist in the database — Section 3b.1's `'sulfite '` precision pattern, Section 3b.2's BHA/BHT fat-and-oil basis routing, and the Bucket A gate over these entries all execute correctly, but a formulator can't actually trigger them by selecting an ingredient from the catalog.
+
+**Hypothesis.** Regulatory entries inherited from earlier multi-category concept period when meats / charcuterie / baked goods / animal feeds each had dedicated tooling planned. Section 3b.2 refined existing entries (denominator basis, substring precision, per-context tagging) but didn't audit catalog backing per entry. Code-audit view sees enforcement; formulator view sees unregulated ingredients.
+
+**Severity:** MODERATE. Creates the appearance of regulatory protection that isn't operational. Customer-zero formulator sees no cap fire on a beverage they expect to fail and might assume the absence means compliance — when actually the absence means there's no selectable sulfite ingredient to trigger the cap.
+
+**Recommended Round assignment:** Architectural principle for Round 11+ scoping. Specific application is Finding #23.
+
+**Action.** Future rounds must not add regulatory enforcement entries without corresponding catalog backing. Sequence: catalog entry first → then regulatory enforcement. The discipline is "enforcement infrastructure ships with its activation surface, not ahead of it." Round 11's regulatory table audit (Finding #23) is the first operationalization of this principle.
+
+**Investigation status:** Architectural finding. No memo needed; principle is the deliverable. Round 11 directive should cite this as the rationale for Finding #23's ordering.
+
+---
+
+### Finding #23 — Regulatory table audit for launch-vertical scope
+
+**Observation.** Current 18-entry regulatory table mixes three categories of entry:
+
+- **Operational entries** — backed by catalog ingredients AND relevant to the AF + Nutraceuticals launch verticals. Verified firing during Test 2 (sodium benzoate, potassium sorbate).
+- **Forward-prepared entries** — caps and routing wired, but either no catalog backing (BHA, BHT, sulfites — see Finding #15) or no launch vertical (calcium propionate baked-good scope, sodium nitrite bacon contextualLimits, Prague Powder meat-basis denominators).
+- **Potentially orphan entries** — no plausible activation path for AF + Nutraceuticals launch and no clear future-vertical timeline.
+
+**Severity:** MODERATE. Audit complexity (which entry is which category?) plus forward-prepared infrastructure without clear activation timeline. Round 10 shipped chemical-limit correctness for what's there; Round 11 must determine what should stay vs. what should be annotated vs. what should be removed.
+
+**Recommended Round assignment:** Round 11 — **FIRST priority** before any new enforcement work, per Finding #22's architectural principle.
+
+**Scope.** Comprehensive review of each regulatory entry against three criteria:
+
+1. **Catalog backing status:** operational (catalog entry exists and is selectable) / forward-prepared (regulatory wiring present, catalog entry missing) / orphan (no foreseeable activation path).
+2. **Launch-vertical relevance:** AF / Nutraceuticals / multi-category-benign (applies universally) / future-vertical-only (cured-meat, bacon, baked-good not in launch scope).
+3. **Action per entry:** keep as-is / keep with inline comment ("activates Round X when [vertical] catalog lands") / remove with regression test update.
+
+Plus inline documentation comments at each regulatory entry in lib/regulatoryLimits.ts so the rationale persists across rounds and future reviewers don't re-surface as "why is this entry here?"
+
+**Investigation status:** Round 11 scoping deliverable. Not implemented in Round 10 polish per SOW off-limits. Future CC session executes the audit when Round 11 directive opens.
+
+---
+
+### Finding #24 — Custom ingredient handling workflow
+
+**Observation.** Operator can currently add ingredients outside the catalog by typing freeform name into the formulation. The custom ingredient enters the formulation at UNKNOWN confidence and propagates worst-case through downstream gates (architecturally correct — Bucket A treats UNKNOWN inputs as insufficient-data; confidence taxonomy floors at the weakest input). But operator-facing UX doesn't surface the analysis limitation at point of entry or at formulation level.
+
+**Hypothesis.** Round 10's foundation work didn't include explicit custom-ingredient UX because the confidence taxonomy implicitly handles it (UNKNOWN inputs flow through gates correctly without false-positive enforcement). Architectural bones in place; UX surface area missing. The honest-estimate framing operates at the data layer; the operator-to-operator surfacing of "this ingredient is outside our reference library" hasn't been written.
+
+**Severity:** MODERATE. Current behavior is architecturally correct (no silent enforcement of caps against unknown chemistry; no false-positive Bucket A on unverified inputs) but creates "silent acceptance" appearance. Operator might assume the tool has checked the ingredient when it hasn't.
+
+**Recommended Round assignment:** Round 11 — sequenced AFTER catalog audit (#23) and catalog tagging pass (#15 + #21). The custom-ingredient workflow is the operator-facing layer on top of the catalog/enforcement work; it makes sense only once the catalog has been audited and the activation surface clarified.
+
+**Scope.**
+
+- **Schema additions on `IngredientSpec`:** `customIngredient?: boolean`, `operatorAttestation?: { timestamp; fieldsAttested[] }`.
+- **UI — Add-as-custom dialog** with required acknowledgment text:
+  > "This ingredient is outside the Formulation Wizard reference library. We can track it in your formulation, but our science-based analysis is limited. Process Authority review will be required for compliance determinations involving this ingredient."
+- **Required fields in dialog:** ingredient name, function (preservative / sweetener / acidulant / etc.), operator GRAS attestation checkbox.
+- **Optional fields with confidence tagging:** supplier, COA upload, pH, aw, allergen disclosure, regulatory citations. Each operator-supplied field carries explicit user-attested confidence rather than catalog-derived confidence.
+- **Formulation-level banner** when custom ingredients present: "This formulation contains N custom ingredient(s) outside our reference library. Process Authority review required before commercial use."
+- **PA-export packet:** dedicated "Custom Ingredient Disclosure" section per custom ingredient with operator-supplied data, attestation timestamp, audit trail.
+- **Filing Readiness gate update:** custom ingredients can't advance Filing Readiness without explicit PA acceptance (sign-off field captured on the custom-ingredient record).
+
+**Investigation status:** Round 11 scoping deliverable. Schema + UI + PA-export packet integration are coordinated changes; recommend single-round scope to land coherently. Not implemented in Round 10 polish per SOW off-limits.
+
+---
+
 ## Section B — Verified Clean
 
 Behaviors confirmed working as designed during visual review. **NOT bugs.** Documented so future reviewers don't re-surface as concerns.
@@ -155,20 +220,53 @@ Renders correctly with mode-appropriate text:
 
 The alert + selector + red hint coordinate without UX confusion.
 
+### B.9 — Section 3b.2 per-context routing verified on calcium propionate
+
+Cap correctly scoped to baked-good productClass via `appliesToCategories: ['baked-good']` — calcium propionate did NOT fire in a General productClass formulation containing the ingredient (per-context routing working as designed). Same architectural behavior as Test 3's vitamin C non-firing in beverage productClass. Section 3b.2 scoping discipline holds across productClass-scoped entries.
+
+### B.10 — Bucket A red banner verified on sodium benzoate and potassium sorbate
+
+Both substances at 100% mass in General productClass produced the "Refuse-to-Export" red banner with:
+- MEASURED input confidence (universal-cap entries; total-mass denominator)
+- 21 CFR citation rendered inline (sodium benzoate → 21 CFR 184.1733; potassium sorbate → 21 CFR 182.3225)
+- Legal framing in the evidence list
+- Remediation guidance per `bucketAGate.ts:evaluateBucketA` reason text
+
+The Section 3d enforcement gate operationalizes correctly against well-tagged catalog entries.
+
+### B.11 — Bucket B amber path architecturally rare for well-tagged chemical preservatives
+
+Architectural observation: preservatives with MEASURED catalog confidence + universal cap + total-mass denominator route to red Bucket A when over-cap, not amber Bucket B. The amber path exists for:
+
+- Natural variability (ingredients where the chemistry is real but the catalog confidence is ESTIMATED — fat content of butter, meat content estimates)
+- Multi-ingredient blends (combined-budget aggregates whose member inputConfidence floors at ESTIMATED)
+- Residual carryover (Finding #20 — sulfite carryover from dried fruit or wine; chemistry present but operator hasn't supplied measured ppm)
+- Custom ingredients with operator-supplied INFERRED/UNKNOWN data (Finding #24)
+
+This is correct behavior: well-tagged commodity chemistry SHOULD hit MEASURED inputConfidence and route to hard-stop. Bucket B is the honest-estimate band for genuinely uncertain inputs, not a softer enforcement tier for the same data.
+
+### B.12 — Finding #18 visual verification PASS
+
+After Path A productClass mode-aware filter landed (commit 584b571), Nutraceuticals mode dropdown shows only "Dietary Supplement" — no irrelevant F&B-style options visible. Required-state styling + mode-aware hint text render correctly. Save flow blocks until selection per existing UX. Single click selects; save proceeds.
+
 ---
 
 ## Summary
 
-**Findings requiring future work:** 6 (#14, #15, #16, #17, #18, #19).
+**Findings requiring future work:** 9 (#14, #15, #16, #17, #18, #19, #22, #23, #24).
 
 - 1 fixed in this polish session (#18)
 - 2 documented with no code change recommended (#14 — principled design; #17 — Round 12+ scope)
 - 1 PA-gated, queued for verification (#15 — sulfite catalog gap)
 - 1 operator-decision required, single small commit if approved (#16 — ascorbic acid promotion)
 - 1 operator-decision required, scope-flexible (#19 — brand voice audit, ship-all / defer-all / selective)
+- 1 architectural principle (#22 — co-sequence enforcement with catalog; informs Round 11+ scoping)
+- 2 Round 11 priority items (#23 regulatory table audit first; #24 custom ingredient workflow after catalog audit)
 
-**Verified clean:** 8 behaviors confirmed working as designed.
+**Verified clean:** 12 behaviors confirmed working as designed.
 
 **Round 10 ship blockers:** None of the findings block merge. All are polish-or-deferred-scope items.
 
 **Recommended pre-merge action:** operator review of #19 brand voice memo; decide ship-vs-defer. If ship, one polish commit covers the high-impact banner + dialog copy upgrades. If defer-all or selective, Round 10 merges with current copy and Round 11 picks up the voice unification.
+
+**Round 11 priority sequence** (revised in cumulative summary per visual review session): #23 regulatory table audit FIRST → #15 + #21 catalog tagging pass → #16 ascorbic acid promotion → #24 custom ingredient workflow → #20 sulfite carryover schema (parallel). Plus existing Round 11 originally-scoped Round 10 documentation infrastructure.

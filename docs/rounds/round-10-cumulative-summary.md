@@ -269,16 +269,6 @@ Captured in `docs/findings/round-10-visual-review.md`. Summary:
 - Finding #16 (ascorbic acid promotion) — single small commit if approved
 - Finding #19 (brand voice audit) — ship-all / defer-all / selective adoption
 
-### Round 11 (originally-scoped Round 10 documentation infrastructure)
-
-- PA-review state machinery (field-level authority)
-- Packaging Data Sheet
-- Pre-production checklist
-- Five Round 9 harm-critical UNKNOWN items wired
-- Verified HACCP upload surface
-- Round 9 leftovers (regulatory-classification panel naming, pathway-revert detection, Acid Food reduced-requirement set, Surface 1 discoverability variant)
-- Pre-flight on Audit Items 1, 3, 6
-
 ### Round 12+
 
 - Concern 2 Tier B (multi-acid buffer equilibrium)
@@ -288,6 +278,41 @@ Captured in `docs/findings/round-10-visual-review.md`. Summary:
 - Spec system multi-product-class expansion (tablet/capsule/softgel hardness/friability/disintegration/peroxide value/CFU)
 - Nutraceuticals workspace work (separate verification round)
 - Spoke copy revisions (deferred until Round 11 ships)
+
+---
+
+## Round 11 priority sequence (revised per visual review session)
+
+Round 11's directive should open with this sequenced priority chain,
+executed in order. Rationale: Finding #22 architectural principle
+(co-sequence enforcement with catalog) drives the ordering — no new
+enforcement before catalog backing is verified.
+
+1. **Finding #23: Regulatory table audit (FIRST priority).** Comprehensive
+   review of 18 regulatory entries. Classify each as operational /
+   forward-prepared / orphan. Action per entry: keep / annotate / remove.
+
+2. **Findings #15 + #21: Catalog tagging pass.** Add sulfite preservatives
+   (sodium metabisulfite, potassium metabisulfite, SO2, sodium bisulfite —
+   per PA-verification queue) and synthetic antioxidants (BHA, BHT, TBHQ,
+   propyl gallate). Activates regulatory enforcement surviving the #23 audit.
+
+3. **Finding #16: Ascorbic acid Tier A promotion.** Confidence promotion
+   from unverified to verified per CC's draft memo with 21 CFR 182.3013 +
+   FCC + CRC citations. Batches with other Tier A acid promotions if any
+   surface during #23 audit.
+
+4. **Finding #24: Custom ingredient handling workflow.** Schema + UI +
+   PA export updates. Completes the ingredient-transparency architecture
+   as the operator-facing layer over the catalog/enforcement work in
+   #15/#21/#23.
+
+5. **Finding #20: Sulfite carryover schema (parallel work).** IngredientSpec
+   additions for so2ContentPpm + sulfiteCarrierClass. Composes with #15
+   catalog tagging. Can land in parallel with #23.
+
+Plus existing Round 11 scope (PA-review state machinery, PDS, Pre-production
+checklist, 5 harm-critical UNKNOWN items wired, HACCP upload, R9 leftovers).
 
 ---
 
