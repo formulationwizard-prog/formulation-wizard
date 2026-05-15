@@ -1,14 +1,3 @@
-# Round 10 PR Description Draft
-
-**Branch:** `feat/round-10-chemical-limit-correctness` → `main`
-**Commits:** 18
-**Tests:** 96/96 pass
-**Type check:** clean
-
-> **Drafted, not opened.** This PR description is a draft for operator + Opus review on return. Open the PR using this body once final sign-off lands.
-
----
-
 ## Summary
 
 Round 10 lands the **chemical-limit correctness foundation** that Round 11's PA-review state machinery and documentation artifacts will build on. Three intertwined concerns resolved together:
@@ -106,6 +95,8 @@ Both surfaced through testing against the live 18-entry table, not synthetic lim
 - Round 9 leftovers (regulatory-classification panel naming, pathway-revert detection, Acid Food reduced-requirement set, Surface 1 discoverability variant)
 - Pre-flight on Audit Items 1, 3, 6
 
+Round 11 directive should open with the revised priority sequence captured in [round-10-cumulative-summary.md](round-10-cumulative-summary.md#round-11-priority-sequence-revised-per-visual-review-session): #23 regulatory table audit (FIRST) → #15+#21 catalog tagging pass → #16 ascorbic acid Tier A promotion → #24 custom ingredient workflow → #20 sulfite carryover schema (parallel). Sequencing rationale: Finding #22's architectural principle (no enforcement before catalog backing is verified) drives the ordering.
+
 **Round 12+:**
 - Concern 2 Tier B (multi-acid buffer equilibrium) — pending validation data
 - Concern 2 Tier C (multi-acid with ionic-strength corrections) — not on roadmap
@@ -121,13 +112,18 @@ Both surfaced through testing against the live 18-entry table, not synthetic lim
 
 **Round 10 directive findings (#1–#13)** — captured in [round-10-directive.md "Findings to Surface"](round-10-directive.md). Each documents the architectural question and Round assignment per defer-permission discipline.
 
-**Round 10 visual review findings (#14–#19)** — captured in [docs/findings/round-10-visual-review.md](../findings/round-10-visual-review.md):
+**Round 10 visual review findings (#14–#24)** — captured in [docs/findings/round-10-visual-review.md](../findings/round-10-visual-review.md):
 - #14 pH ±0.20 CI width — LOW, no code change (intended Tier A display CI; [investigation memo](../findings/finding-14-investigation.md))
 - #15 sulfite catalog gap — COSMETIC, PA-gated
 - #16 ascorbic acid Tier A tagging — LOW, operator decision ([tagging draft](../findings/finding-16-ascorbic-acid-tagging.md))
 - #17 formulation-feasibility detection — Round 12+ scope
 - #18 productClass mode-aware filter — **FIXED in polish session** (commit 584b571)
 - #19 brand voice audit — MODERATE, operator decision ([audit memo](../findings/finding-19-brand-voice-audit.md))
+- #20 sulfite carryover schema (`so2ContentPpm` + `sulfiteCarrierClass` on IngredientSpec) — Round 11+ parallel work alongside #15 catalog tagging
+- #21 synthetic antioxidant catalog tagging (BHA / BHT / TBHQ / propyl gallate) — Round 11+ alongside #15
+- #22 co-sequencing principle (enforcement + catalog must land together) — architectural principle informing Round 11+ scoping; no enforcement entries without catalog backing
+- #23 regulatory table audit for launch-vertical scope — Round 11 **FIRST** priority; classify each of 18 entries as operational / forward-prepared / orphan with action per entry
+- #24 custom ingredient handling workflow (schema + UI + PA-export) — Round 11, sequenced after #23 + catalog tagging pass
 
 ---
 
@@ -146,7 +142,7 @@ Both surfaced through testing against the live 18-entry table, not synthetic lim
 
 ## Pre-merge polish
 
-Visual review surfaced Findings #14–#19. This session landed:
+Visual review surfaced Findings #14–#24. Polish session landed:
 - **Finding #18 fix** (commit 584b571) — ProductClass selector mode-aware filtering
 - **Finding #14 investigation** (commit d4f727c) — memo concluding no code change needed
 - **Finding #16 draft** (commit 27e741a) — ascorbic acid tagging proposal (operator decision)
@@ -154,6 +150,9 @@ Visual review surfaced Findings #14–#19. This session landed:
 - **Finding #19 audit** (commit 732025c) — brand voice memo (operator decision)
 - **Findings doc** (commit a70c561) — comprehensive inventory + Section B verified-clean
 - **Cumulative summary** (commit 7c59cb4) — section-by-section landing reference
+- **PR description draft** (commit 305fefd) — this body, drafted for operator + Opus review
+- **Architectural findings + Round 11 priority sequence** (commit c5ad4d6) — Findings #22 / #23 / #24 to Section A; B.9–B.12 verified-clean entries to Section B; Round 11 priority sequence promoted to its own H2 section in the cumulative summary
+- **PR description stats refresh + preamble strip** (this commit) — preamble removed; findings inventory extended to #14–#24; polish-commit list current
 
 ---
 
