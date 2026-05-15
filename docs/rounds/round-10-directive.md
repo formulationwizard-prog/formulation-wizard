@@ -112,10 +112,43 @@ This is load-bearing under Round 11's PA-review state machinery. Round 11's fiel
 
 - `pKa1?: number` — first dissociation constant
 - `acidMolarMass?: number` — for the eight standalone acids
+- `bufferingBehavior?: 'known-buffering'` — flags ingredients whose matrix composition exceeds single-acid H-H reach. Optional, additive. Absence means "not flagged as buffering." Future extensions may add `'mild-buffering'` or `'amphoteric'`; v1 needs only the binary signal.
 
-**Confidence propagation per the locked taxonomy decision.** Output pH confidence is bounded by `pKa1` confidence on the input. New finding shape captures this explicitly.
+**Detection logic (Rules A and B).** Naive application of single-acid H-H to multi-acid or buffered systems would produce CALCULATED-marked output with structurally wrong values — the same failure mode as the current flaw, in a different direction. Tier A must KNOW when to apply H-H and when to honestly fall back to ESTIMATED. Two-rule sequence gates eligibility:
 
-**Out of scope:** Tier B (multi-acid buffer equilibrium) and Tier C (multi-acid with ionic-strength corrections). Tier B is Round 11+ candidate pending validation data; Tier C is research-grade and not on the current roadmap.
+- **Rule A — Acid Count Check (gates H-H eligibility on acid composition).** Count ingredients with `pKa1` metadata > 0 in the formulation:
+  - Exactly 1 → proceed to Rule B
+  - 0 → output `insufficient-data` (no acid detected)
+  - ≥ 2 → output ESTIMATED with wide bounds (multi-acid exceeds single-acid H-H reach)
+
+- **Rule B — Buffering-Ingredient Check (gates H-H eligibility on matrix composition).** Check if any ingredient is flagged `bufferingBehavior: 'known-buffering'`:
+  - If yes → output ESTIMATED (buffering exceeds H-H reach)
+  - If no → apply H-H math; output CALCULATED with MEASURED `pKa` propagation per the locked taxonomy
+
+**Confidence taxonomy table (Concern 2 outputs):**
+
+| Inputs | Rule outcome | Output |
+|---|---|---|
+| MEASURED `pKa` + 1 acid + no known-buffering ingredient | H-H applies | CALCULATED pH (target) |
+| MEASURED `pKa` + 1 acid + known-buffering ingredient | Rule B fallback | ESTIMATED pH |
+| MEASURED `pKa` + ≥ 2 acids | Rule A fallback | ESTIMATED pH |
+| ESTIMATED `pKa` (catalog estimate, not USP/FCC cited) | input confidence bounds output | ESTIMATED pH |
+| No `pKa` data on any acid | Rule A — 0 case | `insufficient-data` (existing pattern) |
+
+Output pH confidence is bounded by `pKa1` confidence on the input AND by which rule branch was taken.
+
+**Catalog work for v1 — known-buffering ingredient categories.** During Section 2 implementation, tag the following ingredient categories with `bufferingBehavior: 'known-buffering'`:
+
+- Tomato products (paste, sauce, concentrate, puree)
+- Dairy products (milk, cream, yogurt, cheese, casein, whey)
+- Meat products (any meat ingredient with significant protein content)
+- Eggs and egg derivatives
+- Gelatin
+- Protein isolates (whey, soy, pea, hemp, casein concentrate)
+
+Operator + PA can extend the list if additional categories surface during implementation. Surface as finding (see Finding #10) rather than expanding the binary signal to multi-tier unilaterally.
+
+**Out of scope:** Tier B (multi-acid buffer equilibrium) and Tier C (multi-acid with ionic-strength corrections). Tier B is Round 11+ candidate pending validation data; Tier C is research-grade and not on the current roadmap. Multi-tier buffering classification (`'mild-buffering'`, `'amphoteric'`) is also Tier B+ scope; v1 stops at the binary `'known-buffering'` signal.
 
 ### 3. Concern 1 — Full chemical-safety correctness
 
@@ -214,13 +247,19 @@ Test fixtures required:
 - **Acid-food edge case for Henderson-Hasselbalch** — ≤0.5% acidulant formulations exercising the current under-reporting case; verify CALCULATED pH lower than current ESTIMATED pH on the same inputs
 - **Confidence-propagation tests** — MEASURED pKa → CALCULATED pH; ESTIMATED pKa → ESTIMATED pH; missing pKa → insufficient-data
 - **Hard-stop gate boundary tests** — input-confidence at MEASURED, CALCULATED, ESTIMATED, INFERRED, missing; verify gate fires only on MEASURED/CALCULATED + over-cap, PA-review on ESTIMATED/INFERRED + over-cap
-- **Canonical single-acid regression fixtures** (verified by bench test 2026-05-14):
-  - 1% citric acid (anhydrous) + 99% water → expected pH 2.20 ± 0.05, CALCULATED with MEASURED `pKa1` = 3.13
-  - 0.5% citric acid + 99.5% water → expected pH 2.36 ± 0.05
-  - 0.1% citric acid + 99.9% water → expected pH 2.71 ± 0.10 (approximation widens at very dilute)
-  - 1% acetic acid (glacial) + 99% water → expected pH 2.77 ± 0.05, CALCULATED with MEASURED `pKa` = 4.76
+- **Canonical regression fixtures for Tier A** (verified by bench test 2026-05-14):
 
-  **Acceptance criterion for Tier A:** engine reports pH within the bounds above on all four fixtures with CALCULATED confidence. Pre-fix engine reports pH 4.20 ± 0.20 on the 1% citric case (documented 2026-05-14 bench test). Section 2 (Concern 2 Henderson-Hasselbalch implementation) is not complete until all four fixtures pass.
+  Positive cases (Rules A/B clear; apply H-H, output CALCULATED):
+  - 1% citric acid (anhydrous) + 99% water → pH 2.20 ± 0.05, CALCULATED with MEASURED `pKa1` = 3.13
+  - 0.5% citric acid + 99.5% water → pH 2.36 ± 0.05, CALCULATED
+  - 0.1% citric acid + 99.9% water → pH 2.71 ± 0.10, CALCULATED (approximation widens at very dilute)
+  - 1% acetic acid (glacial) + 99% water → pH 2.77 ± 0.05, CALCULATED with MEASURED `pKa` = 4.76
+
+  Negative cases (Rules A/B decline H-H; output ESTIMATED):
+  - 1% citric + 1% acetic + 98% water → ESTIMATED, NOT CALCULATED (Rule A multi-acid fallback)
+  - Ketchup test formulation (vinegar + tomato paste + sugar + water + spices) → ESTIMATED, NOT CALCULATED (Rule B known-buffering fallback; tomato paste flagged)
+
+  **Acceptance criterion for Tier A:** all six fixtures land correctly — positive cases produce CALCULATED pH within bounds; negative cases produce ESTIMATED (NOT CALCULATED). Pre-fix engine reports pH 4.20 ± 0.20 on the 1% citric case (documented 2026-05-14 bench test); pre-fix has no detection logic so negative cases would emit CALCULATED with structurally wrong values (e.g., naive H-H on ketchup computes ~2.87 from acetic alone vs commercial 3.7-4.0). The negative cases verify Tier A correctly DECLINES to compute CALCULATED — this is what prevents trading one structural flaw for another. Section 2 is not complete until both positive AND negative cases pass.
 
 If implementation surfaces test scenarios beyond this list, add them; do not skip them. The test budget is real work, not afterthought.
 
@@ -309,6 +348,8 @@ If any of the following surface during implementation, defer rather than expand 
 
 9. **aw math at high solute loads.** Bench test on ketchup (40% tomato paste, 22% sugar) showed engine aw 0.880 vs commercial 0.94–0.96 — solute-effect over-weighting. aw math is correct for low-solute cases (verified on 1% citric + water at 0.990). Different concern from pH math; surface as Round 11+ finding for separate investigation. Round 10 implementation does not address aw math.
 
+10. **Rules A/B detection-logic edge cases.** Section 2's two-rule detection logic gates H-H eligibility on acid count (Rule A) and known-buffering ingredient presence (Rule B). If implementation surfaces edge cases not handled by the spec — ingredient borderline between buffering and non-buffering, multi-tiered buffering behavior, formulations where Rule A counts an ingredient as "an acid" but its `pKa` is far from food-relevant pH range, ambiguous ingredients where Rule B fires but the matrix isn't actually buffering for this acid — surface as finding before expanding scope. The two-rule logic with binary `bufferingBehavior` is the locked v1 detection logic; multi-tier classification (`'mild-buffering'`, `'amphoteric'`) and acid-pKa-relevance gating are Tier B / Round 11+ scope.
+
 ---
 
 ## Honest framing on Round 10's deliverable
@@ -324,7 +365,7 @@ Communicate this internally and to customer-zero. Round 10 unlocks Round 11; Rou
 Read required documents first. Implementation order:
 
 1. **Section 1 (hard-stop infrastructure extension)** — establish the architectural primitive Round 11 will compose from
-2. **Section 2 (Concern 2 Henderson-Hasselbalch)** — math foundation. Confidence taxonomy threading exercises the pattern Section 3d will reuse
+2. **Section 2 (Concern 2 Henderson-Hasselbalch with Rules A/B detection logic)** — math foundation + detection logic + known-buffering catalog tagging. Confidence taxonomy threading exercises the pattern Section 3d will reuse. Section is complete only when both positive AND negative regression fixtures pass — negative cases verify Tier A correctly DECLINES to compute CALCULATED when conditions don't favor H-H
 3. **Section 3a + 3b.1 (schema additions + context-independent corrections)** — combined-budget, declaration-trigger, sulfite trailing-space. Land before Path A
 4. **Path A product-class plumbing** — `productClass` data-model field (required at creation, confirm-on-change-with-active-findings, single-class v1) + per-ingredient categorization metadata + `checkCompliance` threading + cache-key discipline. Foundation for Section 3b.2
 5. **Section 3b.2 (productClass-dependent corrections)** — denominator-basis fixes, Vitamin C / ascorbic acid precision, sodium phosphate scope, per-context limits, per-context prohibitions
