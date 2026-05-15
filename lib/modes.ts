@@ -7,7 +7,8 @@
 // packaging DB from lib/data/packaging is merged with the mode's
 // own packaging when rendering.
 // ============================================================
-import type { IndustrialIngredient, PackagingItem } from '../types';
+import type { IndustrialIngredient, PackagingItem, ProductClass } from '../types';
+import { PRODUCT_CLASSES } from '../types';
 import { INDUSTRIAL_DB } from './data/ingredients';
 import { PRODUCT_TYPES, FB_V1_BUCKETS, type ProductType } from './data/productTypes';
 import { PACKAGING_DB } from './data/packaging';
@@ -197,3 +198,27 @@ export const MODES: Record<ModeId, ModeConfig> = {
 
 // Active modes shown in the public workspace switcher. Other modes (catering, baking, sausage, feeds) remain fully defined in MODES — their reference data, process templates, ingredient libraries, HACCP categories, and regulatory limits are preserved. Re-enable any mode by adding its ModeId back to this array.
 export const MODE_ORDER: ModeId[] = ['fb', 'supplements'];
+
+// ============================================================
+// productClassesForMode — Finding #18 (2026-05-15)
+// ------------------------------------------------------------
+// Filters the ProductClass enumeration to the options relevant for
+// each mode. Mirrors the per-mode productTypes pattern above.
+//
+//   • Supplements mode → only `supplement`. Compliance enforcement is
+//     skipped for supplements (existing architecture: checkCompliance
+//     guarded behind `mode === 'supplements'`); DSHEA / UL safety
+//     framework governs via the supplement-side stack
+//     (lib/supplementSafetyLimits.ts). productClass = 'supplement'
+//     is preserved on the data model for cross-mode load-flow consistency.
+//
+//   • All other modes (fb, baking, catering, feeds, sausage) → all
+//     ProductClass options except `supplement`. These modes are
+//     F&B-style and route through checkCompliance with per-context
+//     compliance rules; the full enumeration applies (acidified-food,
+//     beverage, cured-meat, bacon, baked-good, fresh-produce, general).
+// ============================================================
+export function productClassesForMode(mode: ModeId): readonly ProductClass[] {
+  if (mode === 'supplements') return ['supplement'];
+  return PRODUCT_CLASSES.filter(pc => pc !== 'supplement');
+}

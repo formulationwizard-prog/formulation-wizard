@@ -45,7 +45,7 @@ import { buildIngredientStatement } from '@/lib/ingredientStatement';
 import { getPackagingSustainability } from '@/lib/packagingSustainability';
 import { CERT_LABELS, getSupplierInfo } from '@/lib/data/suppliers';
 import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualification, SupplierDocType, ProductClass } from '@/types';
-import { PRODUCT_CLASSES, PRODUCT_CLASS_LABEL } from '@/types';
+import { PRODUCT_CLASS_LABEL } from '@/types';
 import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
 import { generatePartNumber } from '@/lib/partNumber';
 import { getIngredientPartNumber, getPackagingPartNumber, getCustomPackagingPartNumber } from '@/lib/skuCodes';
@@ -56,7 +56,7 @@ import { getCopy } from '@/lib/copy';
 import { useTier } from '@/lib/hooks/useTier';
 import { PROCESS_AUTHORITIES, PA_TYPE_LABELS, getPAStates, type ProcessAuthorityType } from '@/lib/data/processAuthorities';
 import { DEFAULT_TEMPLATE } from '@/lib/processTemplates';
-import { MODES, MODE_ORDER, type ModeId } from '@/lib/modes';
+import { MODES, MODE_ORDER, productClassesForMode, type ModeId } from '@/lib/modes';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
 import { evaluateBucketA } from '@/lib/bucketAGate';
 import { isHardStop } from '@/lib/hardStop';
@@ -2905,7 +2905,11 @@ export default function FormulationWizard() {
                 <div className="mb-3">
                   <label className="block text-xs font-medium text-gray-500 mb-1">
                     Product Class <span className="text-red-500">*</span>{' '}
-                    <span className="text-gray-400">(drives chemical-safety compliance routing — required to save)</span>
+                    <span className="text-gray-400">
+                      {mode === 'supplements'
+                        ? '(Dietary Supplement classification — DSHEA / UL safety framework applies; required to save)'
+                        : '(drives chemical-safety compliance routing — required to save)'}
+                    </span>
                   </label>
                   <select
                     value={productClass}
@@ -2915,13 +2919,20 @@ export default function FormulationWizard() {
                     }`}
                   >
                     <option value="">— Select a product class (required) —</option>
-                    {PRODUCT_CLASSES.map(pc => (
+                    {/* Finding #18 (2026-05-15): mode-aware filter via
+                        productClassesForMode. Supplements mode shows only the
+                        Dietary Supplement option (compliance routing is via the
+                        DSHEA/UL stack, not Path A's F&B chemical-safety paths);
+                        F&B-style modes show all 7 non-supplement options. */}
+                    {productClassesForMode(mode).map(pc => (
                       <option key={pc} value={pc}>{PRODUCT_CLASS_LABEL[pc]}</option>
                     ))}
                   </select>
                   {productClass === '' && (
                     <p className="text-xs text-red-600 mt-1">
-                      Product Class is required for chemical-safety compliance routing. Save will be blocked until selected.
+                      Product Class is required {mode === 'supplements'
+                        ? 'for the Dietary Supplement DSHEA / UL safety framework. Save will be blocked until selected.'
+                        : 'for chemical-safety compliance routing. Save will be blocked until selected.'}
                     </p>
                   )}
                 </div>
