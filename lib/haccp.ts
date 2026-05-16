@@ -604,7 +604,131 @@ export const HACCP_CATEGORIES: HaccpCategory[] = [
     references: ['21 CFR 117', 'FDA Low-Moisture Foods Draft Guidance', 'GMA Salmonella Control in Low-Moisture Foods'],
     matchTags: ['ambient', 'shelf-stable', 'dry'],
     autoClassify: (specs) => !!(specs.aw && specs.aw <= 0.85),
-    applicableModes: ['fb', 'baking', 'feeds', 'supplements', 'sausage'],
+    // Round 11 Finding #25 sub-issue 25c: removed 'supplements' from
+    // applicableModes. Dietary supplements are governed by 21 CFR 111
+    // cGMP, not 21 CFR 117 (Preventive Controls for Food). The
+    // food-domain hazards on this category (Salmonella in low-moisture
+    // food, E. coli flour, Cronobacter, mycotoxins on grains/spices) do
+    // not apply to dry capsules / tablets / softgels. Supplement mode
+    // routes to the 'supplement-cgmp-21-cfr-111' category below.
+    applicableModes: ['fb', 'baking', 'feeds', 'sausage'],
+  },
+
+  // ────────────────────────────────────────────────────────────────
+  // Round 11 Finding #25 sub-issue 25c (2026-05-15) — supplement-mode
+  // HACCP framework. Dietary supplements are governed by 21 CFR 111
+  // cGMP, a distinct regulatory framework from 21 CFR 117 (Preventive
+  // Controls for Food) used by F&B verticals. Hazards and CCPs reflect
+  // supplement-specific concerns: dietary ingredient identity
+  // verification (§111.75), MMR/BPR discipline, finished-product
+  // specifications, complaint handling + SAER reporting.
+  //
+  // INTENTIONALLY ABSENT from this category per the Round 11 directive:
+  //   • Salmonella (food-domain pathogen; not a capsule-level hazard)
+  //   • E. coli flour (specific to wheat / baked-goods chain)
+  //   • Cronobacter sakazakii (specific to infant formula)
+  //   • Mycotoxins (food-domain primary hazard; supplement contamination
+  //     concerns are addressed via supplier qualification + identity
+  //     testing at the dietary-ingredient-lot level, not as a primary
+  //     finished-product CCP)
+  //
+  // The supplement workspace HACCP suggestor at
+  // suggestHaccpCategory() routes to this category via early-return
+  // when mode === 'supplements'.
+  // ────────────────────────────────────────────────────────────────
+  {
+    id: 'supplement-cgmp-21-cfr-111',
+    name: '21 CFR 111 cGMP (Dietary Supplement)',
+    framework: 'FDA 21 CFR 111',
+    description: 'Current Good Manufacturing Practices for dietary supplements. Mandates identity testing of dietary ingredients (§111.75), Master Manufacturing Records (§111.205), Batch Production Records (§111.255), finished-product specifications (§111.460), holding records, and complaint handling with serious adverse event reporting (§111.560 + 21 CFR 190.6). Distinct from 21 CFR 117 Preventive Controls for Food.',
+    typicalProducts: [
+      'Capsules', 'Tablets', 'Softgels', 'Gummies', 'Powder blends', 'Liquid supplements',
+      'Sublingual drops', 'Lozenges & chewables',
+    ],
+    hazards: {
+      biological: [
+        'Botanical mis-identification (wrong species — substitution / adulteration)',
+        'Probiotic strain identity drift or viable CFU loss',
+        'Microbial contamination of raw botanicals or minerals',
+      ],
+      chemical: [
+        'Heavy metals on botanicals and minerals (lead, mercury, arsenic, cadmium — Prop 65 + USP <232/233>)',
+        'Pesticide residues on botanical raw materials',
+        'Solvent residues from botanical extracts',
+        'Undeclared API adulteration (FDA-banned synthetic ingredients in sexual-enhancement / weight-loss / muscle-building product lines)',
+        'Allergen cross-contact (capsule shell sources, shared production lines)',
+      ],
+      physical: [
+        'Glass fragments from bottle / vial filling operations',
+        'Capsule shell breakage / fill irregularities',
+        'Particulate contamination from filling equipment',
+      ],
+    },
+    ccps: [
+      {
+        number: 1,
+        name: 'Identity Testing per Dietary Ingredient Lot (§111.75)',
+        criticalLimit: 'Each dietary ingredient lot received MUST be identity-tested via at least one appropriate method (FTIR / HPLC / HPTLC / DNA barcoding / organoleptic per ingredient class). Supplier COA alone is INSUFFICIENT per §111.75(a)(1).',
+        monitoring: 'Per-lot identity test record on file at customer\'s own lab or contracted lab. Record linked to specific supplier lot ID.',
+        correctiveAction: 'Reject lot. Quarantine pending identity confirmation or destruction. Supplier notification + audit.',
+        verification: 'Annual review of identity-test method appropriateness per ingredient class. Periodic split-sample testing for method validation.',
+        record: 'Identity Test Log (ingredient, supplier lot ID, test method, result, date, technician, customer lab vs contracted).',
+      },
+      {
+        number: 2,
+        name: 'Master Manufacturing Record Discipline (§111.205)',
+        criticalLimit: 'MMR must specify ALL components, in-process controls, and procedures per finished-product formulation. No batch produced without an approved MMR on file.',
+        monitoring: 'MMR review and approval signature prior to first batch of any formulation.',
+        correctiveAction: 'Halt production. Update MMR. Re-approve. Re-verify.',
+        verification: 'Annual MMR review for currency. Change-control process for all MMR amendments.',
+        record: 'MMR file with revision history + approval signatures.',
+      },
+      {
+        number: 3,
+        name: 'Batch Production Record (§111.255)',
+        criticalLimit: 'Every batch produced must have a complete BPR linking to the active MMR, recording all in-process controls, deviations, and final-product test results.',
+        monitoring: 'BPR completeness review at batch release.',
+        correctiveAction: 'Hold batch until BPR is complete. Investigate any deviations.',
+        verification: 'Periodic BPR audit by QC unit. Annual external audit.',
+        record: 'BPR per batch with all signatures + linked MMR revision.',
+      },
+      {
+        number: 4,
+        name: 'Finished-Product Specifications (§111.460)',
+        criticalLimit: 'Per-product specifications established for identity, purity, strength, composition, and contaminant limits. Every batch tested against specs before release.',
+        monitoring: 'Finished-product testing per spec sheet on representative sample from each batch.',
+        correctiveAction: 'Quarantine batch. Investigate root cause. Rework or destroy as appropriate.',
+        verification: 'Specification review annually or on formulation change.',
+        record: 'Spec sheet + per-batch finished-product test results.',
+      },
+      {
+        number: 5,
+        name: 'Complaint Handling + SAER Reporting (§111.560 + 21 CFR 190.6)',
+        criticalLimit: 'All complaints documented and investigated. Serious adverse event reports filed with FDA via MedWatch 3500A within 15 business days of receipt per 21 CFR 190.6.',
+        monitoring: 'Per-complaint triage decision tree against §761 SAE definition. Time-stamped 15-business-day clock on intake.',
+        correctiveAction: 'File MedWatch 3500A. Investigate root cause. Implement preventive action.',
+        verification: 'Annual complaint trend review. SAER timeliness audit.',
+        record: 'Complaint Log + MedWatch 3500A submissions + investigation records.',
+      },
+    ],
+    prerequisitePrograms: [
+      'Supplier qualification with COA program (per §B11 keystone)',
+      'Identity testing infrastructure (in-house lab or contracted lab on retainer)',
+      'Allergen control (capsule shell sources, shared production lines)',
+      'Cross-contamination prevention between formulations',
+      'Capsule / tablet / softgel filling equipment validation',
+      'Environmental monitoring program (especially for moisture-sensitive ingredients)',
+      'Pest control (stored product pests on botanical raw materials)',
+    ],
+    references: [
+      '21 CFR 111 (Dietary Supplement cGMP)',
+      'FDA Dietary Supplement cGMP Guidance',
+      '21 CFR 190.6 (Serious Adverse Event Reporting)',
+      'USP <232> / <233> (Heavy Metals)',
+      'DSHEA (Dietary Supplement Health and Education Act of 1994)',
+    ],
+    matchTags: ['supplement', 'capsule', 'tablet', 'softgel', 'gummy', 'powder-blend', 'liquid-supplement', 'lozenge'],
+    applicableModes: ['supplements'],
   },
 ];
 
@@ -746,6 +870,18 @@ export function suggestHaccpCategory(
   } | undefined,
   mode?: string
 ): HaccpCategory | null {
+  // Round 11 Finding #25 sub-issue 25c (2026-05-15) — supplement-mode
+  // early return. Dietary supplements route to 21 CFR 111 cGMP
+  // unconditionally; the F&B-shaped priority logic below (productClass-
+  // ification routing, tag scoring, autoClassify) is built around
+  // 21 CFR 113/114 acidified-foods + 21 CFR 117 shelf-stable categories
+  // and is not the correct framework for dietary supplements.
+  // Returns the supplement-cgmp category even when no product-type tags
+  // are present (supplements always operate under 21 CFR 111).
+  if (mode === 'supplements') {
+    return HACCP_CATEGORIES.find(c => c.id === 'supplement-cgmp-21-cfr-111') ?? null;
+  }
+
   if (!productTypeTags && !specs) return null;
   const tags = new Set((productTypeTags || []).map(t => t.toLowerCase()));
 
