@@ -64,6 +64,7 @@
 // ============================================================
 
 import type { HardStop } from './hardStop';
+import { B4_DISCLAIMER_ITEM_ID } from './supplementDisclaimer';
 
 /**
  * Parameters consumed by the gate. Empty at scaffold state — fills
@@ -104,9 +105,18 @@ export type SupplementBucket1GateResult =
  * Empty at scaffold state.
  */
 const COMPOSED_ITEMS: readonly string[] = [
-  // No items composed yet. As wiring lands, each item adds its
-  // identifier here (e.g., 'b4-disclaimer-verbatim',
-  // 'b1-allergen-detection', etc.) and its evaluator below.
+  // §B4 disclaimer — constants + frozen-snapshot test landed at
+  // lib/supplementDisclaimer.ts + lib/__tests__/supplement-disclaimer
+  // .test.ts. Registry-level integration is in place; the gate-level
+  // refusal check (e.g., "rendered disclaimer text byte-matches the
+  // selected form when claims present") wires when rendered-disclaimer
+  // string becomes available at the export-gate boundary.
+  B4_DISCLAIMER_ITEM_ID,
+  // §B1 allergen master list — pending wiring
+  // §B2 disease-claim hard stop — pending wiring (detector exists)
+  // §B3 identity-test attestation — pending wiring (schema needed)
+  // §B5 net quantity unit conversion — pending wiring (helper needed)
+  // §B11 COA + identity-test linkage — pending wiring (Bucket 1 subset)
 ];
 
 /**

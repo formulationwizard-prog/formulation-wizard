@@ -81,12 +81,11 @@ The Round 11 directive's best-guess candidate slate maps **5/5** to the canonica
 - **Blocking condition (target):** Disclaimer text byte-divergence from 21 CFR 101.93(c) verbatim; type size < 1/16 inch; not bold; not adjacent to claim AND not asterisk-linked to footnote on same panel; single-statement form used when multiple claims present; disclaimer missing on any panel where a claim appears.
 - **Pass condition (target):** Disclaimer text exactly matches CFR singular (one claim) or plural (multiple claims) form; rendered ≥1/16 inch bold; adjacent or asterisk-linked; on every panel with a claim.
 - **Regulatory citation:** 21 CFR 101.93(c)(1) (singular), 21 CFR 101.93(c)(2) (plural).
-- **Current implementation status:** **Partially wired.** Singular form exists as inline string literal in `buildDisclaimers()`. Gaps:
-  - Not a locked constant — string is buried inside a function body, no immutable export, vulnerable to silent typo on edit
-  - No frozen-snapshot test (F&B-side `section-4-regulatory-disclaimer.test.ts` is the architectural model — supplement equivalent does not exist)
-  - Plural form (`SUPPLEMENT_DISCLAIMER_PLURAL`) not implemented; current code emits singular form regardless of claim count
+- **Current implementation status:** **Partially wired.** Constants + frozen-snapshot test landed in Round 11 Phase 1 Step 4 at [`lib/supplementDisclaimer.ts`](../../lib/supplementDisclaimer.ts) + [`lib/__tests__/supplement-disclaimer.test.ts`](../../lib/__tests__/supplement-disclaimer.test.ts). Gate registration in place at [`lib/supplementBucket1Gate.ts`](../../lib/supplementBucket1Gate.ts) `COMPOSED_ITEMS`. Remaining gaps:
+  - Existing call site at [`lib/supplementClaims.ts:466 buildDisclaimers()`](../../lib/supplementClaims.ts#L466) still emits inline string (PLURAL form regardless of claim count — bug per §B4 which requires singular when exactly one claim present). Migration to consume `selectSupplementDisclaimer()` is a follow-up.
+  - Gate-level refusal check (rendered disclaimer text byte-matches selected form when claims present) pending — requires rendered-disclaimer-string available at the export-gate boundary
   - Display-rule validation (type size, bold, adjacency, per-panel coverage) does not exist — but PDS pipeline doesn't exist yet either; display validation lands with PDS Track C work
-- **Round 11 wiring scope:** Extract singular + plural forms as locked constants `SUPPLEMENT_DISCLAIMER_SINGULAR` / `SUPPLEMENT_DISCLAIMER_PLURAL` at top of `lib/supplementClaims.ts` (or new `lib/supplementDisclaimer.ts`); add frozen-snapshot test mirroring `section-4-regulatory-disclaimer.test.ts`; add claim-count selector logic; compose into PDS export gate (when PDS pipeline ships in Track C).
+- **Round 11 wiring scope:** ✓ Locked constants `SUPPLEMENT_DISCLAIMER_SINGULAR` / `SUPPLEMENT_DISCLAIMER_PLURAL` at `lib/supplementDisclaimer.ts`. ✓ Frozen-snapshot test mirroring `section-4-regulatory-disclaimer.test.ts`. ✓ Claim-count selector `selectSupplementDisclaimer()`. ✓ Gate composition-registry entry. Pending: migrate `buildDisclaimers()` to consume the selector; wire gate-level refusal check at PDS export boundary.
 
 ---
 
