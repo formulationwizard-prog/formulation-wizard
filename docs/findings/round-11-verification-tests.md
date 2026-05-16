@@ -82,75 +82,89 @@ These verify that the helper preserves the display unit and does NOT convert it.
 
 ---
 
-## Section 2 — Sub-issue 25b: Regulatory panel render mode-gate (markdown verification; manual)
+## Section 2 — Sub-issue 25b: Regulatory panel render mode-gate (markdown verification; manual — operator UI exercise)
 
-These are UI/integration cases not fitting unit-test structure. Exercised against the running app after the 25b fix lands.
+These are UI/integration cases not fitting unit-test structure. Exercised against the running app after the 25b fix lands. **CC cannot drive a browser; operator drives these per Phase 2 hybrid verification plan.**
 
 | ID | Setup | Expected behavior | Pass/Fail |
 |----|-------|-------------------|-----------|
-| T2-01 | Pure Nutraceuticals workspace (mode='supplements', any formulation) | Filing Readiness widget renders zero F&B panels (no 21 CFR 113/114 acidified-foods, no Acid Food classification, no LACF logic, no low-acid components threshold) | (pending) |
-| T2-02 | F&B workspace → switch to Nutraceuticals | Regulatory panels clear from view immediately | (pending) |
-| T2-03 | Nutraceuticals workspace, ingredients populated | DSHEA determination renders correctly (replacement for F&B Acid/Acidified determination) | (pending) |
-| T2-04 | Nutraceuticals workspace | Low-acid component percentage NOT computed nor rendered | (pending) |
+| T2-01 | Pure Nutraceuticals workspace (mode='supplements', any formulation) | Filing Readiness widget renders zero F&B panels (no 21 CFR 113/114 acidified-foods, no Acid Food classification, no LACF logic, no low-acid components threshold) | (operator) |
+| T2-02 | F&B workspace → switch to Nutraceuticals | Regulatory panels clear from view immediately | (operator) |
+| T2-03 | Nutraceuticals workspace, ingredients populated | DSHEA determination renders correctly (replacement for F&B Acid/Acidified determination) | (operator) |
+| T2-04 | Nutraceuticals workspace | Low-acid component percentage NOT computed nor rendered | (operator) |
 
 ---
 
-## Section 3 — Sub-issue 25c: HACCP framework selection mode-gate (markdown verification; manual)
+## Section 3 — Sub-issue 25c: HACCP framework selection mode-gate (markdown verification; manual — operator UI exercise)
+
+**CC cannot drive a browser; operator drives these per Phase 2 hybrid verification plan.** Note: The supplement-mode early-return in `suggestHaccpCategory` and the new `supplement-cgmp-21-cfr-111` HACCP_CATEGORIES entry are present in code (commit `a9cd60e`); these tests verify the rendering surface picks them up correctly.
 
 | ID | Setup | Expected behavior | Pass/Fail |
 |----|-------|-------------------|-----------|
-| T3-01 | Nutraceuticals workspace, dry capsule formulation | HACCP suggestion does NOT render F&B framework (no "Shelf-Stable Dry (Low-Moisture)" suggestion) | (pending) |
-| T3-02 | Nutraceuticals workspace | 21 CFR 111 cGMP framework loaded (identity testing, MMR, BPR, holding records, complaints handling) | (pending) |
-| T3-03 | Nutraceuticals workspace | Food-domain hazards absent (no Salmonella, no E. coli flour, no Cronobacter, no mycotoxins listed) | (pending) |
-| T3-04 | F&B workspace | F&B HACCP framework still loads correctly (regression check) | (pending) |
+| T3-01 | Nutraceuticals workspace, dry capsule formulation | HACCP suggestion does NOT render F&B framework (no "Shelf-Stable Dry (Low-Moisture)" suggestion) | (operator) |
+| T3-02 | Nutraceuticals workspace | 21 CFR 111 cGMP framework loaded (5 CCPs: Identity Testing per Dietary Ingredient Lot, MMR, BPR, Finished-Product Specs, Complaint + SAER) | (operator) |
+| T3-03 | Nutraceuticals workspace | Food-domain hazards absent (no Salmonella, no E. coli flour, no Cronobacter, no mycotoxins listed) | (operator) |
+| T3-04 | F&B workspace | F&B HACCP framework still loads correctly (regression check) | (operator) |
 
 ---
 
-## Section 4 — Sub-issue 25d: Cost calculation cascade (markdown verification; manual + spot-check unit test)
+## Section 4 — Sub-issue 25d: Cost calculation cascade (markdown verification; manual — operator UI exercise)
 
-The cost cascade is downstream of the math model fix. Once 25a lands, cost calculation should re-derive correctly without additional code changes.
+The cost cascade is downstream of the math model fix at 25a. Cost-per-serving derivation at [page.tsx:575](../../app/workspace/page.tsx#L575) is `totalCost / totalWeightKg * (servingSizeInGrams / 1000)` — independent of the `scale` variable that 25a fixed. Cascade verification is about confirming the displayed cost-per-serving renders correctly in supplement mode + no spurious "Serving > batch" warnings.
+
+**CC defers to operator: the cost formula is too simple to add value via vitest without re-asserting the formula tautologically. Operator UI exercise is the right verification surface.**
 
 | ID | Setup | Expected behavior | Pass/Fail |
 |----|-------|-------------------|-----------|
-| T4-01 | 3-ingredient priced supplement formulation (Vit C 500mg @ $0.02/g + Vit D3 25mcg @ $0.50/g + Zinc 15mg @ $0.01/g, 2 caps/serving) | Cost-per-serving = (500mg × $0.02/g/1000 + 25mcg × $0.50/g/1000000 + 15mg × $0.01/g/1000) ≈ correct value per manual calc | (pending) |
-| T4-02 | Same formulation | No "Serving > batch — check unit" warnings (the spurious unit-mismatch warning the audit memo flagged) | (pending) |
+| T4-01 | 3-ingredient priced supplement formulation (Vit C 500mg @ $0.02/g + Vit D3 25mcg @ $0.50/g + Zinc 15mg @ $0.01/g, 2 caps/serving) | Cost-per-serving displayed value matches manual calc | (operator) |
+| T4-02 | Same formulation | No "Serving > batch — check unit" warnings (the spurious unit-mismatch warning the audit memo flagged) | (operator) |
+| T4-03 | Mode switch F→N→F | Cost calculation does not corrupt across mode switches | (operator) |
 
 ---
 
-## Section 5 — Sub-issue 25e: Spec coverage cascade (markdown verification; manual)
+## Section 5 — Sub-issue 25e: Spec coverage cascade (CC vitest — calculation; operator UI — display)
+
+CC vitest at [lib/__tests__/section-5-spec-coverage-cascade.test.ts](../../lib/__tests__/section-5-spec-coverage-cascade.test.ts) verifies the calculation. Operator UI exercise verifies the display surface in supplement-mode workspace.
 
 | ID | Setup | Expected behavior | Pass/Fail |
 |----|-------|-------------------|-----------|
-| T5-01 | 3-ingredient formulation, all 3 with supplier specs | Spec coverage = 100% | (pending) |
-| T5-02 | 3-ingredient formulation, 2 with specs / 1 without | Spec coverage = 67% (≈ 2/3) | (pending) |
-| T5-03 | 3-ingredient formulation, none with specs | Spec coverage = 0% | (pending) |
-| T5-04 | Supplement formulation with all specs (post 25a fix) | Spec coverage report does NOT show spurious 0% (the pre-fix bug where coverage floored due to broken math model) | (pending) |
+| T5-01 | 3-ingredient formulation, all 3 with supplier specs | Spec coverage calculation = 100% (1.0) | ✅ CC vitest |
+| T5-02 | 3-ingredient formulation, 2 with specs / 1 without (equal mass) | Spec coverage calculation ≈ 67% (2/3) | ✅ CC vitest |
+| T5-03 | 3-ingredient formulation, none with specs | Spec coverage calculation = 0% | ✅ CC vitest |
+| T5-04 | Supplement formulation with all specs (post 25a fix), running app | Spec coverage display does NOT show spurious 0% (the pre-fix bug where coverage floored due to broken math model) | (operator) |
+| T5-supp-1 | Coverage is mass-weighted, not count-weighted (80g spec'd + 20g unspec'd → 80%) | Calculation produces correct weighted result | ✅ CC vitest |
+| T5-supp-2 | Zero-mass formulation (empty ingredient list) | Coverage = 0; no division-by-zero error | ✅ CC vitest |
 
 ---
 
-## Section 6 — Sub-issue 25f: UL gate cascade (markdown verification; manual + integration via running app)
+## Section 6 — Sub-issue 25f: UL gate cascade (CC vitest — gate behavior; operator UI — popover affordances)
 
-The UL gate logic at [lib/supplementSafetyLimits.ts](../../lib/supplementSafetyLimits.ts) is correct; the bug is in the `perServingMgByName` input map at [page.tsx:4575](../../app/workspace/page.tsx#L4575) (and replicated sites). Once 25a fixes the helper, the UL gate fires on correct values.
+CC vitest at [lib/__tests__/section-6-ul-gate-cascade.test.ts](../../lib/__tests__/section-6-ul-gate-cascade.test.ts) exercises the gate end-to-end via the same `perServingMgByName` construction as [page.tsx:4576-4584](../../app/workspace/page.tsx#L4576-L4584). Operator UI exercise covers popover/badge rendering of the findings.
 
 | ID | Setup | Expected behavior | Pass/Fail |
 |----|-------|-------------------|-----------|
-| T6-01 | Vitamin C 1900 mg, 1 capsule/serving | UL warning fires at amber/orange tier (caution at ≥80% of 2000 mg UL = 1600 mg; warning at >100% of UL) | (pending) |
-| T6-02 | Vitamin C 2500 mg, 1 capsule/serving | UL hard-stop fires (warning at >100% UL); refuse-to-export eligible (subject to Step 4 export-gate composition) | (pending) |
-| T6-03 | Magnesium 400 mg, 4 capsules/serving | UL warning fires (elemental Mg = 100 mg, well under 350 mg UL, but multi-capsule × dose × elementalFactor 0.25 = 400mg ingredient × 0.25 = 100mg elemental, then × 1 (scale) = 100mg per serving → under UL, no fire) | (pending) |
-| T6-04 | Vitamin D3 25 mcg, 2 capsules/serving | No UL fire (25 mcg well under 100 mcg UL) | (pending) |
-| T6-05 | Pre-fix smoke test repro (formulation that previously caused spurious 0% or wrong-tier UL fire) | UL gate fires correctly on corrected mass values, not on broken-math values | (pending) |
+| T6-01 | Vitamin C 1900 mg, 1 capsule/serving (passed via helper) | UL caution tier fires (95% of 2000 mg UL); SafetyTier='caution' | ✅ CC vitest |
+| T6-02 | Vitamin C 2500 mg, 1 capsule/serving (passed via helper) | UL warning tier fires (125% of UL); SafetyTier='warning'; summarizeFindings.hardStop=true | ✅ CC vitest |
+| T6-03 | Vitamin C 500 mg, 2 caps/serving (passed via helper) | No UL fire (25% of UL); SafetyTier='ok'; summarizeFindings.hardStop=false | ✅ CC vitest |
+| T6-04 | Multi-ingredient Immune Support Stack (Vit C 500mg + Vit D3 25mcg + Zinc 15mg, 2 caps) | Each ingredient evaluated against its own UL: Vit C 25%, Vit D3 25%, Zinc 7.5% (elementalFactor 0.20 applied); all 'ok' | ✅ CC vitest |
+| T6-05 | Smoke-test repro regression seal (Immune Support Stack, batch=0.515, serving=2) | perServingMgByName carries entered values via helper (not pre-fix F&B-percentage interpreted ~3.88x) | ✅ CC vitest |
+| T6-supp-1 | Audience modifier (Caffeine 250mg, pregnancy audience) | effectiveUL = 200mg (factor 0.5 applied); SafetyTier='warning' (125% of effective UL) | ✅ CC vitest |
+| T6-ui-1 | Running-app exercise: ingredient at over-UL dose | Safety card surfaces correct color/badge tier; popover describes the limit + hazard | (operator) |
+| T6-ui-2 | Running-app: dose changes update UL fire in real time | Reactive update on qty change | (operator) |
 
 ---
 
-## Section 7 — Finding #26: Serving Size input UX (markdown verification; manual)
+## Section 7 — Finding #26: Serving Size input UX (operator UI exercise — Phase 2 Step 2 work item)
+
+These tests run against the running app after Finding #26 input UX fix lands in Phase 2 Step 2. **CC cannot drive a browser; operator drives these per Phase 2 hybrid verification plan.**
 
 | ID | Setup | Expected behavior | Pass/Fail |
 |----|-------|-------------------|-----------|
-| T7-01 | Serving Size = 30, click arrow up | Increments to 31 (no wrap-around to 1) | (pending) |
-| T7-02 | Serving Size at configured max (e.g., 100), click arrow up | Stops at max; no wrap-around | (pending) |
-| T7-03 | Type "1.5" into Serving Size input | Value accepted (no rejection / no rounding to integer) | (pending) |
-| T7-04 | Type "2.5" into Serving Size input | Value accepted | (pending) |
-| T7-05 | Type "0.5" into Serving Size input | Value accepted per design decision (warn or accept — lock in at implementation) | (pending) |
+| T7-01 | Serving Size = 30, click arrow up | Increments to 31 (no wrap-around to 1) | (operator after fix) |
+| T7-02 | Serving Size at configured max (e.g., 100), click arrow up | Stops at max; no wrap-around | (operator after fix) |
+| T7-03 | Type "1.5" into Serving Size input | Value accepted (no rejection / no rounding to integer) | (operator after fix) |
+| T7-04 | Type "2.5" into Serving Size input | Value accepted | (operator after fix) |
+| T7-05 | Type "0.5" into Serving Size input | Value accepted per design decision (warn or accept — lock in at implementation) | (operator after fix) |
 
 ---
 
