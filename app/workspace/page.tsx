@@ -66,6 +66,7 @@ import { computeFilingReadiness } from '@/lib/filingReadiness';
 import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
 import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV } from '@/lib/supplementLabeling';
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
+import { computePerServingScale } from '@/lib/supplementMath';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
 import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, buildDisclaimers } from '@/lib/supplementClaims';
 import { checkCompatibility, summarizeCompatibility } from '@/lib/supplementCompatibility';
@@ -697,7 +698,7 @@ export default function FormulationWizard() {
 
     // Supplement-mode rule sets
     if (mode === 'supplements' && ingredients.length > 0) {
-      const scaleSupp = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+      const scaleSupp = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
       const pmByName = new Map<string, number>();
       for (const ing of ingredients) {
         const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -789,7 +790,7 @@ export default function FormulationWizard() {
   // Nutrition values in `nutrition` are summed totals for the entire batch
   // (each ingredient contributes its per-100g × (qty/100)).
   // To render per-serving on the FDA label, scale by servingSize / batchWeight.
-  const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+  const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
   /** Raw per-serving amount for a nutrient (no rounding — use fdaRound* for display). */
   const perServing = (val: number) => val * scale;
   /** Raw %DV (0-100+) for a nutrient with a valid DV. Returns 0 when DV is 0. */
@@ -2746,7 +2747,7 @@ export default function FormulationWizard() {
               their state is green; default-expand when there are findings.
               ═══════════════════════════════════════════════════════════════ */}
           {mode === 'supplements' && ingredients.length > 0 && (() => {
-            const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+            const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
             const pmByName = new Map<string, number>();
             for (const ing of ingredients) {
               const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -4572,7 +4573,7 @@ export default function FormulationWizard() {
               {mode === 'supplements' && ingredients.length > 0 && (() => {
                 // Compute per-serving mg for every ingredient so the checker can
                 // compare against UL thresholds. Serving-scale the batch mass.
-                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
                 const perServingMgByName = new Map<string, number>();
                 for (const ing of ingredients) {
                   const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -5446,7 +5447,7 @@ export default function FormulationWizard() {
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && ingredients.length > 0 && (() => {
                 // Build %DV table from Supplement Facts data for nutrient content claims
-                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
                 const perServingMgByName = new Map<string, number>();
                 for (const ing of ingredients) {
                   const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
