@@ -262,6 +262,131 @@ export interface SavedFormulation {
    * See PRODUCT_CLASSES tuple for the v1 enumeration.
    */
   productClass?: ProductClass;
+  /**
+   * PA review history (Round 11 Phase 2 — 2026-05-15). Append-only across the
+   * formulation's lifecycle — a formulation accumulates Reviews (initial,
+   * post-amendment, annual recertification). Reviews bind to specific
+   * FormulationVersion snapshots; multiple reviews can coexist against
+   * different versions. The "active" review (currentState in 'draft' |
+   * 'submitted') is typically the most recent entry; PDS export consults
+   * all reviews to determine if the current formulationVersion has an
+   * approved or version_locked review. See
+   * docs/architecture/pa-review-state-machinery-proposal.md for the full
+   * schema + state-machine spec, and lib/reviewState.ts for the validator
+   * and transition-log helpers.
+   */
+  reviews?: Review[];
+}
+
+// ============================================================
+// PA REVIEW STATE MACHINERY (Round 11 Phase 2 — 2026-05-15)
+// ------------------------------------------------------------
+// 4-state + rejection workflow for Process Authority review of a
+// formulation version. Distinct from SavedFormulation.status
+// (lifecycle: draft / in-pilot / launched / on-hold) and from
+// FormulationVersion (immutable point-in-time snapshot).
+//
+// See docs/architecture/pa-review-state-machinery-proposal.md for
+// the design rationale and state-machine spec.
+// See lib/reviewState.ts for validateTransition() and
+// appendTransition() — pure helpers that enforce the state machine
+// + append-only transition log.
+// ============================================================
+
+/**
+ * PA-review workflow state. Transitions validated by
+ * lib/reviewState.ts validateTransition().
+ *
+ *   • draft           — operator editing
+ *   • submitted       — handed to PA for review
+ *   • approved        — PA signed off; formulation review-locked
+ *   • rejected        — PA rejected; returns to draft for revision
+ *   • version_locked  — final immutable snapshot; PDS export proceeds.
+ *                        TERMINAL — no transitions out.
+ */
+export type ReviewState =
+  | 'draft'
+  | 'submitted'
+  | 'approved'
+  | 'rejected'
+  | 'version_locked';
+
+/**
+ * Append-only log entry capturing a single state transition. Every
+ * transition is logged — never overwritten — to preserve the full audit
+ * trail of a review's journey. The transition log is the SINGLE source
+ * of truth for actor identity at every state change (no separate
+ * Review-level reviewerId / reviewerName fields).
+ */
+export interface ReviewTransition {
+  /** ISO timestamp of the transition. */
+  timestamp: string;
+  /** Identifier of the actor who triggered the transition. User name for
+   *  operator/PA; 'system' for auto-transitions. */
+  actor: string;
+  /** Role of the actor. */
+  actorRole: 'operator' | 'pa' | 'system';
+  /** State transitioned FROM. */
+  fromState: ReviewState;
+  /** State transitioned TO. */
+  toState: ReviewState;
+  /** Optional free-text comment. REQUIRED on rejection (submitted →
+   *  rejected) and on invalidation (approved → draft) — see
+   *  validateTransition() rules. */
+  comment?: string;
+  /** Optional FormulationVersion the Review was bound to at the moment
+   *  this transition fired. Captured on transitions that change which
+   *  version is under review (typically `submitted` and `approved`).
+   *  Provides per-transition audit-trail granularity beyond the Review's
+   *  top-level `formulationVersion` field, which only reflects the most
+   *  recent submit/approve target. */
+  formulationVersion?: string;
+}
+
+/**
+ * PA review entity. Separate from SavedFormulation per Round 11 directive
+ * ("Separate review entity, not state-on-formulation. A formulation can
+ * have multiple reviews over its lifecycle.").
+ *
+ * Stored as `reviews?: Review[]` on SavedFormulation (co-located in the
+ * storage record but conceptually separate, matching the
+ * `versions?: FormulationVersion[]` pattern). Future Supabase migration
+ * splits into a dedicated `reviews` table referencing `formulations.id`.
+ */
+export interface Review {
+  /** Stable UUID for this review. Distinct from formulationId. */
+  id: string;
+  /** References SavedFormulation.id. */
+  formulationId: string;
+  /**
+   * References the FormulationVersion.version this Review is currently
+   * bound to. Tracks the most-recently-submitted-or-approved
+   * FormulationVersion; updated on each `submitted` and `approved`
+   * transition. Initial value is the FormulationVersion present when the
+   * Review was created in `draft` state.
+   *
+   * Why updated on submit/approve: a Review can pass through multiple
+   * draft→submitted→rejected→draft cycles before final approval, and the
+   * formulation may be edited between cycles (creating new
+   * FormulationVersions). The Review's `formulationVersion` field always
+   * names the version the PA is currently reviewing or has most recently
+   * approved — never a stale earlier version.
+   */
+  formulationVersion: string;
+  /** Current state. Denormalized for convenience —
+   *  `transitions[N-1].toState` is the authoritative source of truth. */
+  currentState: ReviewState;
+  /** Ordered transition log. Append-only. `transitions[0]` is the
+   *  creation entry. */
+  transitions: ReviewTransition[];
+  /** ISO timestamp when the review was created
+   *  (== transitions[0].timestamp). */
+  createdAt: string;
+  /** ISO timestamp of the most recent transition. */
+  lastTransitionAt: string;
+  /** Free-text reason for the review (e.g., "Initial release",
+   *  "Post-amendment per CR-2026-09", "Annual recertification"). */
+  reason?: string;
 }
 
 /**
