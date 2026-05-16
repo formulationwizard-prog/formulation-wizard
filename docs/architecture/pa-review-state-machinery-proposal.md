@@ -39,7 +39,8 @@ export type ReviewState =
 /**
  * Append-only log entry capturing a single state transition. Every
  * transition is logged — never overwritten — to preserve the full audit
- * trail of a review's journey.
+ * trail of a review's journey. The transition log is the SINGLE source
+ * of truth for actor identity at every state change.
  */
 export interface ReviewTransition {
   /** ISO timestamp of the transition. */
@@ -68,31 +69,51 @@ export interface ReviewTransition {
  * conceptually separate, matching the existing `versions?: FormulationVersion[]`
  * pattern). Future Supabase migration splits into a dedicated `reviews`
  * table referencing `formulations.id`.
+ *
+ * REVISION (Phase 2 directive 2026-05-15): Two tweaks vs the original
+ * Phase 1 proposal:
+ *   • Dropped `reviewerId` and `reviewerName` at Review-level. The
+ *     transition log is the single source of truth for actor identity —
+ *     each transition entry carries `actor` + `actorRole`. Round 11 v1's
+ *     single-reviewer model means the reviewer is whoever performed the
+ *     submitted→approved transition (queryable via transitions.find()).
+ *     Round 12+ multi-reviewer model can re-introduce a Review-level
+ *     reviewer field if/when scoping demands.
+ *   • Documented `formulationVersion` semantics explicitly: it tracks
+ *     the most-recently-submitted-or-approved FormulationVersion and
+ *     updates on each `submitted` and `approved` transition. This avoids
+ *     the ambiguity of "what version is this Review for" when a
+ *     formulation goes through multiple submit/reject/edit cycles.
  */
 export interface Review {
   /** Stable UUID for this review. Distinct from formulationId. */
   id: string;
   /** References SavedFormulation.id. */
   formulationId: string;
-  /** References the FormulationVersion.version this review is bound to.
-   *  Allows historical-version reviews to coexist with reviews of the
-   *  current state. */
+  /** References the FormulationVersion.version this Review is currently
+   *  bound to. Updated on each `submitted` and `approved` transition to
+   *  track the most recently submitted or approved snapshot. Initial
+   *  value is the FormulationVersion present when the Review was created
+   *  in `draft` state.
+   *
+   *  Why updated on submit/approve: a Review can pass through multiple
+   *  draft→submitted→rejected→draft cycles before final approval, and
+   *  the formulation may be edited between cycles (creating new
+   *  FormulationVersions). The Review's `formulationVersion` field
+   *  always names the version the PA is currently reviewing or has
+   *  most recently approved — never a stale earlier version. */
   formulationVersion: string;
   /** Current state. Denormalized for convenience — `transitions[N-1].toState`
    *  is the authoritative source of truth. */
   currentState: ReviewState;
   /** Ordered transition log. Append-only. `transitions[0]` is the creation
-   *  entry (system actor, fromState='draft' to itself or null). */
+   *  entry. The transition log is the SINGLE SOURCE OF TRUTH for actor
+   *  identity (no separate reviewerId/reviewerName fields on Review). */
   transitions: ReviewTransition[];
   /** ISO timestamp when the review was created (== transitions[0].timestamp). */
   createdAt: string;
   /** ISO timestamp of the most recent transition. */
   lastTransitionAt: string;
-  /** Assigned PA reviewer ID. Optional during draft/submitted; required for
-   *  approved/rejected/version_locked. */
-  reviewerId?: string;
-  /** Human-readable reviewer name (denormalized for display). */
-  reviewerName?: string;
   /** Free-text reason for the review (e.g., "Initial release",
    *  "Post-amendment per CR-2026-09", "Annual recertification"). */
   reason?: string;
@@ -199,7 +220,7 @@ Validation rules enforced:
 - Transition is in the allowed-transitions table (no `draft → approved`, no transitions out of `version_locked`, etc.)
 - Actor role matches the allowed role for that transition
 - Comment present when required by transition (submitted → rejected; approved → draft)
-- Reviewer fields (`reviewerId`, `reviewerName`) populated on transitions where they're required
+- Actor identity (`actor` + `actorRole`) provided on every transition (single source of truth — no separate Review-level reviewer field)
 
 On success: appends a new `ReviewTransition` to `transitions[]`, updates `currentState` and `lastTransitionAt`, returns the updated Review.
 
