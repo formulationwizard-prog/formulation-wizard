@@ -67,6 +67,7 @@ import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
 import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV } from '@/lib/supplementLabeling';
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
 import { computePerServingScale } from '@/lib/supplementMath';
+import { validateServingSizeInput } from '@/lib/servingSize';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
 import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, buildDisclaimers } from '@/lib/supplementClaims';
 import { checkCompatibility, summarizeCompatibility } from '@/lib/supplementCompatibility';
@@ -3552,7 +3553,15 @@ export default function FormulationWizard() {
                   <div>
                     <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
                     <div className="flex gap-1">
-                      <input type="number" value={servingSize} onChange={(e) => setServingSize(Math.max(0.1, parseFloat(e.target.value) || 30))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
+                      <input
+                        type="number"
+                        min={0.1}
+                        max={100}
+                        step="any"
+                        value={servingSize}
+                        onChange={(e) => setServingSize(validateServingSizeInput(e.target.value))}
+                        className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                      />
                       <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
                     </div>
                     {mode === 'supplements' && (() => {
