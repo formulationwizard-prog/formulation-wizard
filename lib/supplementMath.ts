@@ -51,20 +51,38 @@
 // the function, not at the call site. Call sites become simple
 // helper invocations; the mode-branching is centralized here.
 //
-// STEP 2 EXTRACTION STATE (this commit)
+// STATE — Step 3 sub-issue 25a (this commit)
 // ------------------------------------------------------------
-// At Step 2 commit, this helper preserves the current F&B math
-// REGARDLESS of the mode parameter — the parameter is in the
-// signature but the supplement-mode branch is not yet added.
-// Step 3 sub-issue 25a adds the supplement-mode branch. The
-// extraction here is the prerequisite refactor; behavior is
-// unchanged until 25a lands.
+// Supplement-mode branch landed. computePerServingScale returns
+// 1.0 (identity) when mode === 'supplements'; F&B math
+// (servingSizeInGrams / totalBatchGrams) when mode is anything
+// else. The fix lives entirely in this helper — the 5 call sites
+// in app/workspace/page.tsx that compose this helper were swapped
+// to the helper at Step 2 with the mode parameter threaded
+// through, so 25a here fixes all 5 sites simultaneously without
+// touching app/workspace/page.tsx.
 //
 // The companion vitest suite at
-// lib/__tests__/supplementMath.test.ts asserts the TARGET
-// behavior — supplement-mode tests fail at this commit (the
-// intentional TDD red state per the directive's "tests before
-// fix code" rule) and turn green when 25a lands.
+// lib/__tests__/supplementMath.test.ts asserts the target
+// behavior. The 15 supplement-mode cases that were intentionally
+// red at Step 2 turn green at this commit. F&B-mode regression
+// cases continue to pass. Finding #27 (unit-change mass
+// preservation) resolves as a clean co-benefit since the helper
+// passes ingredientUnit through unchanged and supplement-mode
+// scale = 1.0 means displayMass = ingredientAmount regardless of
+// unit choice.
+//
+// DO NOT WEAKEN THE MODE-GATE
+// ------------------------------------------------------------
+// Removing the supplement-mode branch — or making it conditional
+// on something other than `mode === 'supplements'` — restores the
+// F&B-scaling-artifact bug that shipped to production on
+// 2026-05-15. Per the audit memo at
+// docs/findings/nutraceuticals-workspace-audit-2026-05-15.md, the
+// bug produced ~3.88x scaling on the smoke-test Immune Support
+// Stack (Vit C 500mg displayed as 1942mg). The vitest suite locks
+// in the correct behavior — change the helper without updating
+// the suite and the suite fails.
 // ============================================================
 import type { ModeId } from './modes';
 
@@ -85,21 +103,20 @@ interface PerServingScaleParams {
 /**
  * Compute the per-serving scaling factor for the active mode.
  *
- * In supplement mode (Step 3 sub-issue 25a target behavior):
- *   returns 1.0 — ingredient amounts are already per-serving.
+ * In supplement mode:
+ *   returns 1.0 — ingredient amounts are entered as per-serving
+ *   doses (e.g., "Vitamin C 500 mg" = 500 mg per serving), so the
+ *   display value equals the entered value. Identity scale.
  *
- * In F&B mode:
- *   returns servingSizeInGrams / totalBatchGrams (zero-guarded).
- *
- * Step 2 commit state: the supplement-mode branch is NOT yet
- * present; this function returns the F&B formula regardless of
- * `mode`. The mode parameter is in the signature to lock the
- * call-site contract for the 25a fix.
+ * In any other mode (F&B and friends):
+ *   returns servingSizeInGrams / totalBatchGrams with a zero-guard.
+ *   Ingredient nutrition values are rolled up to batch totals; the
+ *   per-serving fraction recovers the per-serving contribution.
  */
 export function computePerServingScale(params: PerServingScaleParams): number {
-  // STEP 2 EXTRACT — current behavior preserved. Step 3 sub-issue
-  // 25a will add `if (params.mode === 'supplements') return 1.0;`
-  // before the F&B formula below.
+  if (params.mode === 'supplements') {
+    return 1.0;
+  }
   return params.totalBatchGrams > 0
     ? params.servingSizeInGrams / params.totalBatchGrams
     : 0;
