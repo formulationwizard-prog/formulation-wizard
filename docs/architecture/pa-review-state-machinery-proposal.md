@@ -57,6 +57,14 @@ export interface ReviewTransition {
   /** Optional free-text comment. REQUIRED on rejection (submitted → rejected)
    *  and on invalidation (approved → draft) — see transition-validity rules. */
   comment?: string;
+  /** Optional FormulationVersion the Review was bound to at the moment this
+   *  transition fired. Captured on transitions that change which version is
+   *  under review (typically `submitted` and `approved`). Provides per-
+   *  transition audit-trail granularity beyond the Review's top-level
+   *  `formulationVersion` field, which only reflects the most recent
+   *  submit/approve target. Omitted when version association is not
+   *  meaningful for the transition. */
+  formulationVersion?: string;
 }
 
 /**
