@@ -596,8 +596,15 @@ export default function FormulationWizard() {
   const effectiveTrackedSpecs = trackedSpecsOverride ?? getTrackedSpecDefaults(productType).tracked;
   const trackedSet = new Set<TrackedSpec>(effectiveTrackedSpecs);
   // Auto-derived metrics: A/M ratio shows when both inputs tracked; LAC% shows when pH tracked.
-  const showAceticMoistureRatio = trackedSet.has('aceticAcid') && trackedSet.has('moisture');
-  const showLowAcidComponentPct = trackedSet.has('pH');
+  // Round 11 Finding #25 sub-issue 25b: mode-gate F&B-only spec tiles.
+  // A/M ratio and Low-Acid Components are 21 CFR 113/114 / acidified-foods
+  // concepts; they have no regulatory meaning for dietary supplements
+  // (governed by DSHEA / 21 CFR 111). Gating at the controlling flag
+  // suppresses these tiles in BOTH the Spec Analysis Panel render
+  // (line ~5686, ~5705) and the Batch Sheet Target Specs render
+  // (line ~8493, ~8496) without touching either render site.
+  const showAceticMoistureRatio = mode !== 'supplements' && trackedSet.has('aceticAcid') && trackedSet.has('moisture');
+  const showLowAcidComponentPct = mode !== 'supplements' && trackedSet.has('pH');
   const processTemplate = (productType && mc.processTemplates[productType]) || DEFAULT_TEMPLATE;
 
   // Regulatory compliance findings — one per regulated ingredient present.
@@ -5729,8 +5736,13 @@ export default function FormulationWizard() {
                     {/* Shows where the formula sits on the 4 regulatory pathways, with
                         live progress bars toward the critical thresholds. Crossing
                         5% LAC (acid → acidified) and 4.6 pH (acidified ↔ LACF) are
-                        filing-requirement flips, so they must be viscerally obvious. */}
-                    {specs.productClassification !== '—' && (() => {
+                        filing-requirement flips, so they must be viscerally obvious.
+                        Round 11 Finding #25 sub-issue 25b: mode-gate. Supplements
+                        (DSHEA / 21 CFR 111) do not classify under 21 CFR 113/114
+                        acidified-foods pathways — even when a supplement formulation
+                        incidentally satisfies the F&B 'shelf-stable-dry' heuristic,
+                        the F&B classification panel must not surface. */}
+                    {mode !== 'supplements' && specs.productClassification !== '—' && (() => {
                       const cls = specs.productClassification;
                       const lac = specs.lowAcidComponentPct;
                       const pH = specs.pH;
