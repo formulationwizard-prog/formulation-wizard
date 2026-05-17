@@ -9156,6 +9156,15 @@ export default function FormulationWizard() {
                         const baseGrams = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
                         const scaledGrams = baseGrams * scaleFactor;
                         const weightPct = totalBatchGrams > 0 ? (baseGrams / totalBatchGrams) * 100 : 0;
+                        // Round 11 Phase 3 (2026-05-17): display per-ingredient
+                        // scaled mass in the operator's chosen batchSizeUnit
+                        // (kg/lb/g/L per the dropdown at line 9038). Pre-fix
+                        // behavior hard-coded kg/g auto-switch, ignoring the
+                        // operator unit choice — produced "1000 lb batch shows
+                        // 453.592 kg per ingredient" UX failure for lb-mode
+                        // operators.
+                        const batchUnitFactor = UNIT_TO_GRAMS[batchSizeUnit] || 1;
+                        const scaledInBatchUnit = scaledGrams / batchUnitFactor;
                         return (
                           <tr key={i} className="border-b border-gray-200">
                             <td className="py-2 pr-2 align-top">{i + 1}</td>
@@ -9168,7 +9177,7 @@ export default function FormulationWizard() {
                             <td className="py-2 pr-2 align-top">{ing.supplier || '—'}</td>
                             <td className="py-2 pr-2 text-right align-top font-mono">{weightPct.toFixed(2)}%</td>
                             <td className="py-2 pr-2 text-right align-top font-mono">
-                              {scaledGrams >= 1000 ? `${(scaledGrams / 1000).toFixed(3)} kg` : `${scaledGrams.toFixed(2)} g`}
+                              {scaledInBatchUnit.toFixed(3)} {batchSizeUnit}
                             </td>
                             <td className="py-2 pr-2 align-top border-l border-r border-gray-300 min-w-[80px]"></td>
                             <td className="py-2 pr-2 align-top border-r border-gray-300 min-w-[100px]"></td>
@@ -9181,7 +9190,11 @@ export default function FormulationWizard() {
                         <td className="py-2">TOTAL</td>
                         <td></td>
                         <td className="py-2 pr-2 text-right font-mono">100.00%</td>
-                        <td className="py-2 pr-2 text-right font-mono">{(targetBatchGrams / 1000).toFixed(3)} kg</td>
+                        <td className="py-2 pr-2 text-right font-mono">
+                          {/* Round 11 Phase 3: TOTAL row honors batchSizeUnit
+                              (matches operator choice instead of hard-coded kg). */}
+                          {(targetBatchGrams / (UNIT_TO_GRAMS[batchSizeUnit] || 1)).toFixed(3)} {batchSizeUnit}
+                        </td>
                         <td></td>
                         <td></td>
                         <td></td>
