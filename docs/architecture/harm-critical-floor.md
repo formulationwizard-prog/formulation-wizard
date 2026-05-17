@@ -114,16 +114,23 @@ Not one of the 5, but tightly entangled with §B3 (identity-test) and §B1 (alle
 
 Reference: [docs/regulatory/phase-1-companion-compliance-spec.md §B11](../regulatory/phase-1-companion-compliance-spec.md).
 
-### Cross-cutting gap: supplement-side export gate composition
+### Cross-cutting: supplement-side export gate composition
 
-The F&B-side architectural model — [`evaluateBucketA()` — lib/bucketAGate.ts:112](../../lib/bucketAGate.ts#L112) composing `ComplianceFinding[]` into a hard-stop result that drives refuse-to-export — has **no supplement-side equivalent**. The supplement side has:
+The F&B-side architectural model — [`evaluateBucketA()` — lib/bucketAGate.ts:112](../../lib/bucketAGate.ts#L112) composing `ComplianceFinding[]` into a hard-stop result that drives refuse-to-export — now has a supplement-side equivalent at [`evaluateSupplementBucket1Gate()` — lib/supplementBucket1Gate.ts](../../lib/supplementBucket1Gate.ts) (Round 11 Phase 1+2 Step 4). The gate composes per-§B-item evaluators and the PA-review state gate into a single `HardStop | cleared` result driving refuse-to-export.
 
-- [`summarizeFindings()` — lib/supplementSafetyLimits.ts:802](../../lib/supplementSafetyLimits.ts#L802) returns `hardStop: boolean` from UL/banned-ingredient counts, but this boolean is **not wired to any refuse-to-export action** today.
-- Per-feature outputs exist (allergen detector, disease-claim flags, disclaimer builder, UL safety findings) but they are **not composed** into a single Bucket 1 gate.
+Composition pattern: each item exposes a per-item gate evaluator (`evaluateXxxGate(input) → HardStop | cleared`) plus a stable item identifier. The Bucket 1 gate aggregates evidence from firing items into a unified `HardStop` with `source: 'supplement-bucket-1'`. Pre-computed inputs (caller runs detectors upstream and passes flag arrays into params) mirror the F&B `ComplianceFinding[]` boundary discipline — gate testable in isolation, detector testable in isolation.
 
-**Round 11 needs:** a new `lib/supplementBucket1Gate.ts` (or equivalent) that composes the 5 harm-critical floor items + UL/banned + B11 keystone enforcement into a single `evaluateSupplementBucket1Gate()` returning `HardStop | cleared` per the [`lib/hardStop.ts`](../../lib/hardStop.ts) primitive. This is the composition surface that PDS export and PA-review packet generation gate on.
+Composed items as of Round 11 Phase 2 Step 4:
+- ✓ §B4 disclaimer identifier registered (gate-level refusal check pending PDS rendered-text boundary)
+- ✓ §B2 disease-claim hard-stop (`evaluateDiseaseClaimGate`)
+- ✓ Review.currentState (`evaluateReviewStateGate` — refuse outside `approved`/`version_locked`)
+- Pending: §B1 allergen, §B3 identity-test, §B5 net quantity, §B11 keystone subset
 
-This composition is itself part of the Step 4 wiring work. Without it, wiring the individual 5 items has nowhere to compose into.
+### PA-review state integration
+
+`Review.currentState` from the PA-review state machinery composes into the Bucket 1 gate via [`evaluateReviewStateGate()` — lib/reviewState.ts](../../lib/reviewState.ts). Refuse-to-export when state ∈ {`draft`, `submitted`, `rejected`}; cleared when state ∈ {`approved`, `version_locked`}; undefined state clears at composition layer (downstream wiring at PDS export gate handles the explicit "no Review exists" check separately per the proposal doc).
+
+Reference: [docs/architecture/pa-review-state-machinery-proposal.md](pa-review-state-machinery-proposal.md).
 
 ---
 
@@ -134,9 +141,10 @@ This composition is itself part of the Step 4 wiring work. Without it, wiring th
 | 1 | Allergen detection | §B1 | Partially wired (detector exists, no gate) | Curate synonyms; species-naming; `Contains:` generator; export-gate composition |
 | 2 | Disease-claim hard stop | §B2 | **Wired (Phase 2 Step 4)** | ✓ Gate composition; product-name cross-screen + per-pattern citation deferred Round 12+ |
 | 3 | Identity-test attestation | §B3 | Unwired (template text only) | Schema; upload flow; MMR/BPR draft-only gate; export-gate composition; §B11 keystone subset |
-| 4 | Disclaimer verbatim | §B4 | Partially wired (inline literal, no constant, no test) | Locked constants singular/plural; frozen-snapshot test; claim-count selector; PDS display validation |
+| 4 | Disclaimer verbatim | §B4 | Partially wired (constants + frozen-snapshot test landed; gate-level refusal pending PDS boundary) | ✓ Constants singular/plural + frozen-snapshot test + claim-count selector + composition-registry ID; PDS display validation pending |
 | 5 | Net quantity unit conversion | §B5 | Unwired | `lib/netQuantity.ts`; CFR rounding; cross-validation; PDS + export-gate composition |
-| Cross | Supplement-side export gate | (architectural) | Unwired | `lib/supplementBucket1Gate.ts` composing all 5 + UL/banned + B11 keystone |
+| — | PA-review state | (machinery) | **Wired (Phase 2 Step 4)** | ✓ `evaluateReviewStateGate` refuses outside `approved`/`version_locked`; composed into Bucket 1 gate |
+| Cross | Supplement-side export gate | (architectural) | **Wired (Phase 1+2 Step 4)** | ✓ `lib/supplementBucket1Gate.ts` composition surface; §B2 + Review.currentState composed; §B1/§B3/§B5/§B11 pending |
 
 The status distribution — 2 partially wired, 2 unwired, 1 partially wired (B4) — implies wiring work for Step 4 is **substantial but bounded**. Each item is well-specified per the Companion Spec; the architectural patterns (locked-constant + frozen-snapshot test, hard-stop primitive + gate composition) are already established on the F&B side and ready to mirror.
 

@@ -29,6 +29,7 @@ import {
 import type { DiseaseClaimFlag } from '../supplementClaims';
 import { B2_DISEASE_CLAIM_ITEM_ID } from '../supplementClaims';
 import { B4_DISCLAIMER_ITEM_ID } from '../supplementDisclaimer';
+import { REVIEW_STATE_GATE_ITEM_ID } from '../reviewState';
 import { isHardStop } from '../hardStop';
 
 // ─── Test fixtures ──────────────────────────────────────────────
@@ -68,6 +69,7 @@ describe('evaluateSupplementBucket1Gate — empty / cleared baseline', () => {
     if (result.hardStop) throw new Error('expected cleared');
     expect(result.composedItems).toContain(B4_DISCLAIMER_ITEM_ID);
     expect(result.composedItems).toContain(B2_DISEASE_CLAIM_ITEM_ID);
+    expect(result.composedItems).toContain(REVIEW_STATE_GATE_ITEM_ID);
   });
 });
 
@@ -137,5 +139,124 @@ describe('evaluateSupplementBucket1Gate — §B2 disease-claim composition', () 
     if (!result.hardStop) throw new Error('expected hard-stop');
     expect(result.evidence).toHaveLength(1);
     expect(result.evidence[0].subject).toBe('diabetes');
+  });
+});
+
+// ============================================================
+// Section C — Review.currentState composition
+// ============================================================
+describe('evaluateSupplementBucket1Gate — Review.currentState composition', () => {
+  it('undefined reviewState → cleared (no state context at composition layer)', () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: undefined });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it("reviewState 'approved' → cleared (export-eligible)", () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: 'approved' });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it("reviewState 'version_locked' → cleared (export-eligible)", () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: 'version_locked' });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it("reviewState 'draft' → Bucket 1 hard-stop fires", () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: 'draft' });
+    expect(result.hardStop).toBe(true);
+    expect(isHardStop(result)).toBe(true);
+  });
+
+  it("reviewState 'submitted' → Bucket 1 hard-stop fires", () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: 'submitted' });
+    expect(result.hardStop).toBe(true);
+  });
+
+  it("reviewState 'rejected' → Bucket 1 hard-stop fires", () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: 'rejected' });
+    expect(result.hardStop).toBe(true);
+  });
+
+  it('review-state hard-stop carries Bucket 1 source marker (not per-item source)', () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: 'draft' });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.source).toBe('supplement-bucket-1');
+  });
+
+  it('review-state hard-stop evidence detail names the state and required allowlist', () => {
+    const result = evaluateSupplementBucket1Gate({ reviewState: 'submitted' });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0].detail).toContain('submitted');
+    expect(result.evidence[0].detail).toContain('approved');
+    expect(result.evidence[0].detail).toContain('version_locked');
+  });
+});
+
+// ============================================================
+// Section D — Combined §B2 + Review.currentState composition
+// ============================================================
+describe('evaluateSupplementBucket1Gate — combined composition', () => {
+  it('§B2 disease flag + draft reviewState → both fire; evidence aggregates', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [makeFlag({ tier: 'disease', match: 'cancer' })],
+      reviewState: 'draft',
+    });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(2);
+    expect(result.evidence.map(e => e.subject)).toContain('cancer');
+    expect(result.evidence.map(e => e.subject)).toContain('PA review state');
+  });
+
+  it('§B2 cleared + approved reviewState → cleared', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [],
+      reviewState: 'approved',
+    });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('§B2 caution-only + version_locked reviewState → cleared', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [makeFlag({ tier: 'caution', match: 'natural' })],
+      reviewState: 'version_locked',
+    });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('§B2 hard-stop + approved reviewState → §B2 fires alone; review-state cleared', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [makeFlag({ tier: 'drug-claim', match: 'treats' })],
+      reviewState: 'approved',
+    });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0].subject).toBe('treats');
+  });
+
+  it('§B2 cleared + draft reviewState → review-state fires alone', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [],
+      reviewState: 'draft',
+    });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0].subject).toBe('PA review state');
+  });
+
+  it('multi-item hard-stop reason summarizes count', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [
+        makeFlag({ tier: 'disease', match: 'cancer' }),
+        makeFlag({ tier: 'drug-claim', match: 'treats' }),
+      ],
+      reviewState: 'rejected',
+    });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.evidence).toHaveLength(3);
+    expect(result.reason).toContain('3');
   });
 });

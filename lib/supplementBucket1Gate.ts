@@ -44,6 +44,10 @@
 //                                         evaluateDiseaseClaimGate
 //                                         composes DiseaseClaimFlag[]
 //                                         into HardStop | cleared.
+//   Review.currentState                : COMPOSED (Phase 2 Step 4).
+//                                         evaluateReviewStateGate
+//                                         refuses export when state
+//                                         ∉ {approved, version_locked}.
 //   §B1 — allergen master list         : pending wiring
 //   §B3 — identity-test attestation    : pending wiring (schema
 //                                         additions required first)
@@ -51,9 +55,6 @@
 //                                         needs to be authored)
 //   §B11 — COA + identity-test linkage : pending wiring (Bucket 1
 //                                         subset only)
-//   Review.currentState                : pending wiring (follow-up
-//                                         commit immediately after
-//                                         this §B2 commit lands)
 //
 // Architectural mirror — see lib/bucketAGate.ts evaluateBucketA()
 // for the F&B-side analogue. Return shape uses the HardStop
@@ -90,6 +91,11 @@ import {
   B2_DISEASE_CLAIM_ITEM_ID,
   type DiseaseClaimFlag,
 } from './supplementClaims';
+import {
+  evaluateReviewStateGate,
+  REVIEW_STATE_GATE_ITEM_ID,
+} from './reviewState';
+import type { ReviewState } from '../types';
 
 /**
  * Parameters consumed by the gate. Each §B item contributes one
@@ -113,6 +119,20 @@ export interface SupplementBucket1GateParams {
    * `disease` and `drug-claim` tiers compose into Bucket 1 evidence.
    */
   diseaseClaimFlags?: readonly DiseaseClaimFlag[];
+
+  /**
+   * Current state of the most-recent PA Review against the
+   * formulation version being evaluated. From Review.currentState
+   * (types/index.ts). PA-review state machinery integration.
+   *
+   * Allowed for export: 'approved' | 'version_locked'.
+   * Refuse-to-export: 'draft' | 'submitted' | 'rejected'.
+   *
+   * Undefined → no state context at composition layer; downstream
+   * wiring (PDS export gate, Phase 3) handles the explicit
+   * "no Review exists for this formulation version" check.
+   */
+  reviewState?: ReviewState;
 }
 
 /**
@@ -153,6 +173,10 @@ const COMPOSED_ITEMS: readonly string[] = [
   // §B2 disease-claim hard stop — composed at Phase 2 Step 4.
   // evaluateDiseaseClaimGate consumes diseaseClaimFlags from params.
   B2_DISEASE_CLAIM_ITEM_ID,
+  // PA-review state — composed at Phase 2 Step 4.
+  // evaluateReviewStateGate consumes reviewState from params.
+  // Refuse-to-export when reviewState ∉ {'approved', 'version_locked'}.
+  REVIEW_STATE_GATE_ITEM_ID,
   // §B1 allergen master list — pending wiring
   // §B3 identity-test attestation — pending wiring (schema needed)
   // §B5 net quantity unit conversion — pending wiring (helper needed)
@@ -180,6 +204,13 @@ export function evaluateSupplementBucket1Gate(
   const b2 = evaluateDiseaseClaimGate(params.diseaseClaimFlags ?? []);
   if (b2.hardStop) {
     evidence.push(...b2.evidence);
+  }
+
+  // PA-review state composition — refuse-to-export when reviewState
+  // is provided and is not 'approved' or 'version_locked'.
+  const reviewGate = evaluateReviewStateGate(params.reviewState);
+  if (reviewGate.hardStop) {
+    evidence.push(...reviewGate.evidence);
   }
 
   // Future §B item gates compose here in the same pattern:

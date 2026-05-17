@@ -56,6 +56,7 @@
 //     operator approval
 // ============================================================
 
+import type { HardStop, HardStopEvidence } from './hardStop';
 import type { Review, ReviewState, ReviewTransition } from '../types';
 
 /**
@@ -238,4 +239,119 @@ export function appendTransition(
   };
 
   return { ok: true, review: newReview };
+}
+
+// ============================================================
+// REVIEW.CURRENTSTATE → BUCKET 1 GATE COMPOSITION
+// ------------------------------------------------------------
+// Round 11 Phase 2 Step 4 (2026-05-17). Per-item gate evaluator
+// that composes a Review.currentState value into a HardStop |
+// cleared result for the supplement Bucket 1 composition gate at
+// lib/supplementBucket1Gate.ts. Mirrors the F&B-side per-item gate
+// pattern (evaluateBucketA at lib/bucketAGate.ts; evaluateDiseaseClaimGate
+// at lib/supplementClaims.ts).
+//
+// Refusal logic: states OTHER than `approved` and `version_locked`
+// trigger refuse-to-export. The gate is the supplement-side analogue
+// of the proposal doc's `canExportPDS()` helper — but operates on
+// state alone, not Review-object lookup. The caller composing the
+// export pipeline (Phase 3 Track C) is responsible for the
+// "is there a review at all?" check before passing review state
+// into this gate; the gate's narrow job is to refuse when the
+// state isn't one of the two export-eligible states.
+//
+// Undefined state is treated as cleared at the composition layer
+// (matches the empty-input semantics of other Bucket 1 items: no
+// data passed → no contribution to the hard-stop). Downstream
+// wiring at the PDS export gate handles the explicit "no Review
+// exists" check separately.
+//
+// ============================================================
+// === DO NOT WEAKEN THIS GATE ===
+// ============================================================
+//
+// This gate exists to prevent PDS export from formulations that
+// have not received PA approval. Per the Round 11 directive:
+// "PDS export only fires from approved or version_locked states."
+// Adding bypasses, promoting draft/submitted/rejected to cleared,
+// or relaxing the state allowlist are regulatory-safety regressions
+// regardless of intent. Read the proposal doc at
+// docs/architecture/pa-review-state-machinery-proposal.md before
+// changing this gate's allowlist.
+// ============================================================
+
+/**
+ * Composition-registry identifier for the PA-review state gate.
+ * Imported by lib/supplementBucket1Gate.ts to register this gate
+ * as a composed item. Stable string — do not rename without
+ * updating the gate's COMPOSED_ITEMS registry.
+ */
+export const REVIEW_STATE_GATE_ITEM_ID = 'review-state-pa-approval' as const;
+
+/**
+ * States that allow export. All other states block.
+ * Matches the directive's "PDS export only fires from approved or
+ * version_locked states" requirement.
+ */
+const EXPORT_ELIGIBLE_STATES: ReadonlySet<ReviewState> = new Set<ReviewState>([
+  'approved',
+  'version_locked',
+]);
+
+/**
+ * Result of evaluating the Review.currentState gate.
+ *
+ *   • `hardStop: true`  — review state is one of {draft, submitted,
+ *                          rejected}. Caller composes into Bucket 1
+ *                          gate's refusal evidence.
+ *   • `hardStop: false` — review state is approved, version_locked,
+ *                          or undefined (no state context provided).
+ */
+export type ReviewStateGateResult =
+  | (HardStop & { source: 'review-state' })
+  | {
+      hardStop: false;
+      source: 'review-state';
+    };
+
+/**
+ * Evaluate the Review.currentState gate for export eligibility.
+ *
+ * Pure function — no side effects. Same state input always produces
+ * the same gate output.
+ *
+ *   • undefined           → cleared (no state context; composition-
+ *                            layer omission; downstream wiring handles
+ *                            "no review exists" check separately)
+ *   • 'approved'          → cleared
+ *   • 'version_locked'    → cleared
+ *   • 'draft'             → hard-stop
+ *   • 'submitted'         → hard-stop
+ *   • 'rejected'          → hard-stop
+ */
+export function evaluateReviewStateGate(
+  state: ReviewState | undefined,
+): ReviewStateGateResult {
+  if (state === undefined) {
+    return { hardStop: false, source: 'review-state' };
+  }
+
+  if (EXPORT_ELIGIBLE_STATES.has(state)) {
+    return { hardStop: false, source: 'review-state' };
+  }
+
+  const evidence: HardStopEvidence[] = [
+    {
+      subject: 'PA review state',
+      detail: `Review state is '${state}'; export requires 'approved' or 'version_locked'.`,
+      citation: 'docs/architecture/pa-review-state-machinery-proposal.md',
+    },
+  ];
+
+  return {
+    hardStop: true,
+    source: 'review-state',
+    reason: `Refuse-to-export: PA review state is '${state}'. Export requires 'approved' or 'version_locked'.`,
+    evidence,
+  };
 }
