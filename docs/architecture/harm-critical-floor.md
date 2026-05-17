@@ -47,13 +47,16 @@ The Round 11 directive's best-guess candidate slate maps **5/5** to the canonica
 - **Blocking condition (target):** Any draft claim text matching a `disease` or `drug-claim` tier pattern; product-name + claim combinations implying disease (e.g., "ColdAway" + "supports immune health"); cross-claim disease implications.
 - **Pass condition (target):** Claim text passes the pattern screen at both isolated-claim and product-name-context layers; substantiation evidence present; auto-applied FDA structure-function disclaimer attached.
 - **Regulatory citation:** 21 CFR 101.93(g); DSHEA §6.
-- **Current implementation status:** **Partially wired.** Pattern library is comprehensive (13 disease-name patterns + 9 drug-claim verbs + 6 caution patterns); `analyzeDraftClaim()` returns structured `DiseaseClaimFlag[]`. Gaps:
-  - No hard-stop at export gate — flags render in UI as advisory, customer can proceed past them
-  - No product-name + claim cross-screening
-  - No non-overridable refusal pattern (per Companion Spec: customer cannot override; only PA can with documented justification)
-  - No claim substantiation evidence linkage
-  - 30-day FDA notification document generation: not implemented
-- **Round 11 wiring scope:** Add product-name + claim cross-screen; compose `disease`/`drug-claim` tier matches into supplement-side export gate as refuse-to-export; add operator dual-confirmation requirement for any override attempt.
+- **Current implementation status:** **Wired (Round 11 Phase 2 Step 4).** Pattern library + `analyzeDraftClaim()` detector unchanged. New per-item gate `evaluateDiseaseClaimGate()` at [lib/supplementClaims.ts](../../lib/supplementClaims.ts) composes pre-computed `DiseaseClaimFlag[]` into `HardStop | cleared`. `disease` and `drug-claim` tier matches drive refuse-to-export; `caution` tier remains advisory (FTC puffery bar is distinct from DSHEA §201(g)(1)(C) hard-stop bar). Composed into [`evaluateSupplementBucket1Gate`](../../lib/supplementBucket1Gate.ts) via `B2_DISEASE_CLAIM_ITEM_ID`. Shared CFR citation `21 CFR 101.93(g); FDCA §201(g)(1)(C)` attached to all hard-stop evidence. Tests at [supplement-disease-claim-gate.test.ts](../../lib/__tests__/supplement-disease-claim-gate.test.ts) (23 cases: cleared, hard-stop, end-to-end with `analyzeDraftClaim`, registry identifier) and [supplement-bucket-1-gate.test.ts](../../lib/__tests__/supplement-bucket-1-gate.test.ts) (Bucket 1 composition tests). Remaining gaps:
+  - Product-name + claim cross-screening: deferred to Round 12+
+  - Per-pattern CFR citation array on `DISEASE_PATTERNS`: deferred to Round 12+ catalog citation enrichment pass
+  - Non-overridable refusal pattern (per Companion Spec: customer cannot override; only PA can with documented justification): pending UI integration
+  - Claim substantiation evidence linkage: pending
+  - 30-day FDA notification document generation: pending
+- **Round 11 wiring scope:** ✓ `evaluateDiseaseClaimGate()` composes `disease` + `drug-claim` matches into hard-stop. ✓ `B2_DISEASE_CLAIM_ITEM_ID` registered in Bucket 1 gate `COMPOSED_ITEMS`. ✓ End-to-end tests with `analyzeDraftClaim`. ✓ Caution-tier filtering verified.
+- **Round 12+ deferrals (tracked):**
+  - **§B2 enhancement — product-name × claim cross-screening.** Expand `analyzeDraftClaim` to accept a `productName` arg and add implication patterns detecting product-name disease implication (e.g., "ColdAway" + "supports immune health" → disease implication). Deferred from Phase 2 Step 4 per scope discipline: pattern detection expansion is separate workstream from composition pattern establishment.
+  - **§B2 enhancement — per-pattern CFR citation array on `DISEASE_PATTERNS`.** Replace shared `B2_DISEASE_CLAIM_CITATION` with per-pattern `citation` field on each entry of `DISEASE_PATTERNS`. Surface granular citation in each hard-stop evidence item. Aligns with Finding #16 (ascorbic acid Tier A promotion) and the broader catalog citation enrichment workstream — same shape: regulatory mapping per catalog entry as a focused workstream.
 
 ---
 
@@ -129,7 +132,7 @@ This composition is itself part of the Step 4 wiring work. Without it, wiring th
 | # | Item | Companion Spec § | Status | Round 11 wiring scope |
 |---|------|------------------|--------|------------------------|
 | 1 | Allergen detection | §B1 | Partially wired (detector exists, no gate) | Curate synonyms; species-naming; `Contains:` generator; export-gate composition |
-| 2 | Disease-claim hard stop | §B2 | Partially wired (detector exists, no hard-stop) | Product-name cross-screen; non-overridable refusal; export-gate composition |
+| 2 | Disease-claim hard stop | §B2 | **Wired (Phase 2 Step 4)** | ✓ Gate composition; product-name cross-screen + per-pattern citation deferred Round 12+ |
 | 3 | Identity-test attestation | §B3 | Unwired (template text only) | Schema; upload flow; MMR/BPR draft-only gate; export-gate composition; §B11 keystone subset |
 | 4 | Disclaimer verbatim | §B4 | Partially wired (inline literal, no constant, no test) | Locked constants singular/plural; frozen-snapshot test; claim-count selector; PDS display validation |
 | 5 | Net quantity unit conversion | §B5 | Unwired | `lib/netQuantity.ts`; CFR rounding; cross-validation; PDS + export-gate composition |

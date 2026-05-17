@@ -26,6 +26,8 @@
 //   • Generates required disclaimers for the active claim set.
 // ============================================================
 
+import type { HardStop, HardStopEvidence } from './hardStop';
+
 // ============================================================
 // NUTRIENT CONTENT CLAIM THRESHOLDS (21 CFR 101.54)
 // ============================================================
@@ -447,6 +449,151 @@ export function analyzeDraftClaim(text: string): DiseaseClaimFlag[] {
     seen.add(k);
     return true;
   });
+}
+
+// ============================================================
+// §B2 — DISEASE-CLAIM HARD-STOP GATE
+// ------------------------------------------------------------
+// Round 11 Phase 2 Step 4 (2026-05-17). Per-§B-item gate evaluator
+// that composes DiseaseClaimFlag[] (produced by analyzeDraftClaim)
+// into a HardStop | cleared result for the supplement Bucket 1
+// composition gate at lib/supplementBucket1Gate.ts.
+//
+// Mirrors the F&B-side per-item gate model at
+// lib/bucketAGate.ts:evaluateBucketA. The detector (analyzeDraftClaim
+// above) is purely advisory and returns the structured flag list;
+// this gate is the refuse-to-export composition surface that turns
+// `disease` and `drug-claim` tier matches into a hard-stop verdict.
+// Caller pre-computes flags via analyzeDraftClaim per claim text and
+// concatenates before invoking this gate.
+//
+// Tier handling:
+//   • `disease`    → hard-stop. Drug claim under DSHEA §201(g)(1)(C).
+//   • `drug-claim` → hard-stop. Verb-based drug claim under DSHEA.
+//   • `caution`    → ADVISORY ONLY. FTC puffery / deceptive-marketing
+//                    scrutiny operates at a different bar than DSHEA
+//                    hard-stop. Caution flags pass through without
+//                    triggering refusal and do not appear in
+//                    refusal evidence. Surfaced separately in UI as
+//                    advisory badges.
+//
+// Citation framing: a single shared CFR citation
+// (B2_DISEASE_CLAIM_CITATION) is attached to all hard-stop evidence
+// items at Round 11 Phase 2 Step 4 scope. Per-pattern citation
+// granularity is deferred to a Round 12+ catalog citation enrichment
+// pass (logged at docs/architecture/harm-critical-floor.md §B2).
+//
+// ============================================================
+// === DO NOT WEAKEN THIS GATE ===
+// ============================================================
+//
+// This gate exists to prevent disease-claim language from passing
+// the export gate and converting the product to an unapproved drug
+// under FDCA §201(g)(1)(C). Per the Companion Spec at
+// docs/regulatory/phase-1-companion-compliance-spec.md §B2: customer
+// cannot override; only PA can with documented justification.
+//
+// Changes that weaken the gate — promoting `disease`/`drug-claim`
+// tiers to advisory, demoting hard-stop matches to PA-reviewable,
+// or relaxing tier classification — are regulatory-safety
+// regressions regardless of intent. Before changing tier semantics
+// or composition behavior: read this docblock end-to-end, consult
+// the Companion Spec, and surface the change explicitly in the PR
+// description for operator approval.
+// ============================================================
+
+/**
+ * Composition-registry identifier for the §B2 disease-claim item.
+ * Imported by lib/supplementBucket1Gate.ts to register this gate
+ * as a composed item. Stable string — do not rename without
+ * updating the gate's COMPOSED_ITEMS registry.
+ */
+export const B2_DISEASE_CLAIM_ITEM_ID = 'b2-disease-claim-hard-stop' as const;
+
+/**
+ * Shared CFR citation applied to all §B2 hard-stop evidence items.
+ *
+ * 21 CFR 101.93(g) governs the disclaimer requirement and the
+ * disease-claim prohibition for dietary supplements. FDCA
+ * §201(g)(1)(C) is the statutory definition that converts a
+ * product to an unapproved drug when a disease claim is made.
+ *
+ * Per-pattern citation enrichment is a Round 12+ deferral — logged
+ * at docs/architecture/harm-critical-floor.md §B2.
+ */
+export const B2_DISEASE_CLAIM_CITATION =
+  '21 CFR 101.93(g); FDCA §201(g)(1)(C)' as const;
+
+/**
+ * Tiers that trigger hard-stop refusal. `caution` is excluded
+ * because the FTC puffery / deceptive-marketing bar is distinct
+ * from the DSHEA disease-claim bar and is handled as advisory UI
+ * elsewhere.
+ */
+const HARD_STOP_TIERS: ReadonlySet<DiseaseClaimFlag['tier']> = new Set<DiseaseClaimFlag['tier']>([
+  'disease',
+  'drug-claim',
+]);
+
+/**
+ * Result of evaluating the §B2 disease-claim gate over a list of
+ * pre-computed flags from analyzeDraftClaim.
+ *
+ * The `hardStop` discriminator narrows the union:
+ *   • `hardStop: true`  — conforms to the HardStop primitive
+ *     (source, reason, evidence). Caller composes into the
+ *     Bucket 1 gate's refusal evidence.
+ *   • `hardStop: false` — gate cleared. No `disease` or
+ *     `drug-claim` tier flags present (caution-only or empty).
+ */
+export type DiseaseClaimGateResult =
+  | (HardStop & { source: 'supplement-disease-claim' })
+  | {
+      hardStop: false;
+      source: 'supplement-disease-claim';
+    };
+
+/**
+ * Evaluate the §B2 disease-claim gate over the supplied flags.
+ *
+ * Pure function — no side effects. Same flags input always produces
+ * the same gate output. Caller is responsible for re-evaluating when
+ * claim text changes (re-run analyzeDraftClaim, re-invoke this gate).
+ *
+ * Filters caution-tier flags (advisory only — handled in UI badge
+ * layer, not in this hard-stop composition). Returns cleared when
+ * no `disease` or `drug-claim` tier flags are present; otherwise
+ * returns a HardStop with one evidence entry per hard-stop flag.
+ */
+export function evaluateDiseaseClaimGate(
+  flags: readonly DiseaseClaimFlag[],
+): DiseaseClaimGateResult {
+  const hardStopFlags = flags.filter(f => HARD_STOP_TIERS.has(f.tier));
+
+  if (hardStopFlags.length === 0) {
+    return {
+      hardStop: false,
+      source: 'supplement-disease-claim',
+    };
+  }
+
+  const evidence: HardStopEvidence[] = hardStopFlags.map(f => ({
+    subject: f.match,
+    detail: `${f.tier} tier — ${f.explanation}`,
+    citation: B2_DISEASE_CLAIM_CITATION,
+  }));
+
+  const reason =
+    hardStopFlags.length === 1
+      ? `Refuse-to-export: disease-claim language detected ("${hardStopFlags[0].match}"). Product would be misbranded as an unapproved drug.`
+      : `Refuse-to-export: ${hardStopFlags.length} disease-claim violations detected. Product would be misbranded as an unapproved drug.`;
+
+  return {
+    hardStop: true,
+    source: 'supplement-disease-claim',
+    reason,
+    evidence,
+  };
 }
 
 // ============================================================
