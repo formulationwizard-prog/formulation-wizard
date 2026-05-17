@@ -710,12 +710,22 @@ export default function FormulationWizard() {
     if (mode !== 'supplements') return;
     if (categorizeDeliveryForm(suppDeliveryForm) !== 'count') return;
 
+    // Round 11 Phase 3 (2026-05-17) fix: skip sync entirely when no
+    // operator count input has been entered. Pre-fix behavior seeded
+    // with servings=30 fallback, which propagated a fake
+    // "30 servings / 60 capsules / N mg per cap" display after bulk
+    // paste — violating the "defaults are 0" direction the operator
+    // set. Sync now only fires when the operator has actually entered
+    // count-based inputs (Servings/Container, Total Units, or made an
+    // edit tracked by lastEditedCountField).
+    const hasOperatorInput =
+      servingsPerContainerOverride !== null ||
+      totalUnitsOverride !== null ||
+      lastEditedCountField !== null;
+    if (!hasOperatorInput) return;
+
     const semantics = perUnitWeightSemantics(suppDeliveryForm);
-    // Read current servings from override or fallback to a sensible default.
-    // Can't depend on autoServingsPerContainer (circular dep with servingSize/
-    // packageSize this effect writes to); use the raw override + a 30-servings
-    // fallback for fresh state.
-    const seedServings = servingsPerContainerOverride ?? 30;
+    const seedServings = servingsPerContainerOverride ?? 0;
     const seedTotalUnits = totalUnitsOverride ?? deriveTotalUnits(seedServings, suppUnitsPerServing);
 
     const reconciled = reconcileCountInputs({
@@ -1004,6 +1014,21 @@ export default function FormulationWizard() {
 
   const updateQuantity = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].qty = parseFloat(val) || 0; setIngredients(u); recalculate(u); } };
   const updateName = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].name = val; setIngredients(u); recalculate(u); } };
+  // Round 11 Phase 3 (2026-05-17) — Bug 2 closure: Current Formulation row
+  // unit dropdown. Changing the unit auto-converts the qty value to
+  // preserve operator-intended mass (e.g., 500 mg → switch to g → 0.5 g).
+  // Canonical grams stays the same; only the display unit + numeric value
+  // adapt. Operator can then edit qty afterward if they want to redefine.
+  const updateUnit = (i: number, newUnit: string) => {
+    const u = [...ingredients];
+    if (!u[i]) return;
+    const oldUnit = u[i].unit;
+    const grams = u[i].qty * (UNIT_TO_GRAMS[oldUnit] || 1);
+    const newQty = grams / (UNIT_TO_GRAMS[newUnit] || 1);
+    u[i] = { ...u[i], qty: newQty, unit: newUnit };
+    setIngredients(u);
+    recalculate(u);
+  };
   const updateCost = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].costPerKg = parseFloat(val) || 0; setIngredients(u); recalculate(u); } };
   /** Change the supplier name on an ingredient (propagates to subsequent Cost Tool + Sourcing lookups). */
   const updateSupplier = (i: number, supplier: string) => {
@@ -3757,8 +3782,22 @@ export default function FormulationWizard() {
                               <FindingPopover finding={inlineFinding} />
                             )}
                             <input type="text" value={ing.name || ''} onChange={(e) => updateName(index, e.target.value)} className="flex-1 bg-transparent border-0 focus:outline-none font-medium text-gray-800 text-sm" />
-                            <input type="number" value={ing.qty || ''} onChange={(e) => updateQuantity(index, e.target.value)} className="w-20 text-center bg-white border border-gray-300 rounded px-1 py-1 text-sm focus:outline-none" />
-                            <span className={`text-xs ${isVolume ? 'text-amber-700 font-semibold' : 'text-gray-500'}`}>{ing.unit}</span>
+                            <input type="number" min={0} step={0.01} value={ing.qty || ''} onChange={(e) => updateQuantity(index, e.target.value)} className="w-20 text-center bg-white border border-gray-300 rounded px-1 py-1 text-sm focus:outline-none" />
+                            {/* Round 11 Phase 3 (2026-05-17) — Bug 2 closure:
+                                editable unit dropdown. Pre-fix this was a static
+                                <span>{ing.unit}</span>, so operators who pasted
+                                or added an ingredient in mg couldn't switch to
+                                g/kg/oz/lb without deleting + re-adding. The
+                                dropdown auto-converts qty to preserve canonical
+                                mass (500 mg → switch to g → 0.5 g). */}
+                            <select
+                              value={ing.unit}
+                              onChange={(e) => updateUnit(index, e.target.value)}
+                              className={`text-xs border border-gray-200 rounded px-1 py-1 bg-white focus:outline-none ${isVolume ? 'text-amber-700 font-semibold' : 'text-gray-700'}`}
+                              title="Change unit (auto-converts quantity to preserve mass)"
+                            >
+                              {mc.units.map(u => <option key={u} value={u}>{u}</option>)}
+                            </select>
                             <span className="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs font-mono text-gray-600" title="Percent of total batch weight">
                               {weightPct.toFixed(1)}%
                             </span>
@@ -3935,13 +3974,25 @@ export default function FormulationWizard() {
                     const noun = SUPP_FORM_NOUN[suppDeliveryForm];
                     const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
                     const semantics = perUnitWeightSemantics(suppDeliveryForm);
-                    // Derive totalUnits via last-edited-wins reconciliation
-                    const reconciled = reconcileCountInputs({
-                      servings: servingsPerContainerOverride ?? autoServingsPerContainer,
-                      totalUnits: totalUnitsOverride ?? 0,
-                      unitsPerServing: suppUnitsPerServing,
-                      lastEdited: lastEditedCountField,
-                    });
+                    // Round 11 Phase 3 (2026-05-17) fix: display 0/0 when no
+                    // operator count input has been entered. Pre-fix behavior
+                    // seeded with autoServingsPerContainer (which falls back
+                    // to 1 when mass is empty, OR to whatever value the sync
+                    // useEffect previously wrote) — produced fake count values
+                    // after bulk paste before operator had a chance to enter
+                    // their real intent.
+                    const hasOperatorInput =
+                      servingsPerContainerOverride !== null ||
+                      totalUnitsOverride !== null ||
+                      lastEditedCountField !== null;
+                    const reconciled = hasOperatorInput
+                      ? reconcileCountInputs({
+                          servings: servingsPerContainerOverride ?? 0,
+                          totalUnits: totalUnitsOverride ?? 0,
+                          unitsPerServing: suppUnitsPerServing,
+                          lastEdited: lastEditedCountField,
+                        })
+                      : { servings: 0, totalUnits: 0 };
                     const displayServings = reconciled.servings;
                     const displayTotalUnits = reconciled.totalUnits;
                     // Per-unit weight: capacity-derived (capsule/softgel) or
