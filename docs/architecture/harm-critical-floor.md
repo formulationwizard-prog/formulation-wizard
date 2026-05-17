@@ -27,13 +27,23 @@ The Round 11 directive's best-guess candidate slate maps **5/5** to the canonica
 - **Blocking condition (target):** Any dietary ingredient or "Other Ingredient" without a verified allergen-source mapping; ambiguous ingredients ("natural flavor", "lecithin" without source, brand-name protein blends without breakdown); tree-nut declarations not naming specific species (almond / walnut / pecan, not "tree nuts"); operator override of a flagged allergen out of the `Contains:` statement without dual-confirmation.
 - **Pass condition (target):** Every ingredient mapped to a citation-backed allergen profile; `Contains:` statement matches the flagged set exactly; tree nuts named by species; brand-name ingredients carry supplier allergen disclosure on file.
 - **Regulatory citation:** FALCPA + FASTER Act; 21 CFR 101.36 Supplement Facts panel rules.
-- **Current implementation status:** **Partially wired.** Substring-matching detector exists and populates the per-ingredient `allergens[]` array, but:
-  - Substring-only matching; no curated synonym list (e.g., "almond meal" may not resolve to "tree nuts (almonds)" with species-specific naming)
-  - No tree-nut species-naming enforcement
-  - No hard block on ambiguous ingredients (natural flavor, brand-name blends)
-  - No `Contains:` statement generation tied to verification gate
-  - No refuse-to-export composition — detector output renders as advisory UI, not as a gate
-- **Round 11 wiring scope:** Curate synonym list per §B1; add ambiguous-ingredient hard flag; build `Contains:` statement generator with specific-vs-generic enforcement; compose into supplement-side export gate (see Cross-Cutting Gap below).
+- **Current implementation status:** **Wired (Round 11 Phase 2 Step 4).** Legacy `detectAllergens()` at [lib/utils.ts](../../lib/utils.ts) is unchanged (string[] shape, page.tsx safety-net usage preserved). New module [lib/supplementAllergen.ts](../../lib/supplementAllergen.ts) adds:
+  - `AllergenMatch` structured type (category + species + matchedKeyword + requiresSpeciesNaming flag)
+  - `detectAllergensDetailed(text)` — species-aware detector with generic-term detection for species-required categories (Tree Nuts, Fish, Shellfish)
+  - `generateContainsStatement(matches)` — FDA-format `Contains:` line per 21 CFR 101.36(b)(1)(i)(B) (Oxford comma, species names for Tree Nuts/Fish/Shellfish, category names otherwise)
+  - `evaluateAllergenGate(input)` — per-item gate refusing when a species-required category is detected via generic term without species name
+  - `B1_ALLERGEN_ITEM_ID` registered in `evaluateSupplementBucket1Gate` `COMPOSED_ITEMS`
+  - Shared CFR citation `21 CFR 101.36(b)(1)(i)(B); FALCPA + FASTER Act` on hard-stop evidence
+  - Targeted false-positive fix: `'butter'` dropped from Milk keywords in the new module (prevents "peanut butter", "almond butter", "cocoa butter" from falsely matching Milk; legacy `detectAllergens` retains the keyword to avoid disturbing existing callers)
+  - Tests at [supplement-allergen-gate.test.ts](../../lib/__tests__/supplement-allergen-gate.test.ts) (49 cases: detection across all Big-9 categories + Mustard, species mapping, generic-term detection, FDA-format Contains statement, gate composition, end-to-end) and Bucket 1 composition tests at [supplement-bucket-1-gate.test.ts](../../lib/__tests__/supplement-bucket-1-gate.test.ts)
+- **Round 11 wiring scope:** ✓ Species-naming enforcement for Tree Nuts/Fish/Shellfish. ✓ `Contains:` statement generator per FDA labeling rules. ✓ Composition into Bucket 1 gate.
+- **Round 12+ deferrals (tracked):**
+  - **§B1 enhancement — ambiguous-ingredient hard flag.** Hard block on "natural flavor", "lecithin" (without source), brand-name protein blends without breakdown. Deferred from Phase 2 Step 4 per scope discipline; pattern detection expansion is separate from composition pattern establishment.
+  - **§B1 enhancement — supplier allergen disclosure registry.** Track supplier-side allergen disclosure on file per ingredient; gate on missing disclosure. Data-layer concern, not detector concern.
+  - **§B1 enhancement — operator dual-confirmation override flow.** UI work; out of gate-logic scope.
+  - **§B1 enhancement — word-boundary or compound-aware keyword detection.** Substring matching produces other false-positives beyond `'butter'`: `'flour'` matches "almond flour" / "coconut flour" / "rice flour" as Wheat; `'cream'` matches "cream of tartar" as Milk; `'egg'` matches "eggplant" as Eggs; `'malt'` matches barley-derived malt as Wheat. Word-boundary or phrase-aware detection is the long-term fix.
+  - **§B1 enhancement — operator-supplied Contains: text validation.** Validate that an operator-provided rendered `Contains:` statement matches the detected allergen set with species naming. Deferred to PDS rendering pipeline boundary (Track C Phase 3).
+  - **Mustard category audit.** `ALLERGENS_LIST` includes Mustard, which is NOT a FALCPA/FASTER major allergen in the US (Canadian/EU requirement). Either remove or document as defensive international labeling — see audit-memo running list.
 
 ---
 
@@ -123,8 +133,9 @@ Composition pattern: each item exposes a per-item gate evaluator (`evaluateXxxGa
 Composed items as of Round 11 Phase 2 Step 4:
 - ✓ §B4 disclaimer identifier registered (gate-level refusal check pending PDS rendered-text boundary)
 - ✓ §B2 disease-claim hard-stop (`evaluateDiseaseClaimGate`)
+- ✓ §B1 allergen species-naming (`evaluateAllergenGate` — refuse on Tree Nuts/Fish/Shellfish generic term without species)
 - ✓ Review.currentState (`evaluateReviewStateGate` — refuse outside `approved`/`version_locked`)
-- Pending: §B1 allergen, §B3 identity-test, §B5 net quantity, §B11 keystone subset
+- Pending: §B3 identity-test, §B5 net quantity, §B11 keystone subset
 
 ### PA-review state integration
 
@@ -138,7 +149,7 @@ Reference: [docs/architecture/pa-review-state-machinery-proposal.md](pa-review-s
 
 | # | Item | Companion Spec § | Status | Round 11 wiring scope |
 |---|------|------------------|--------|------------------------|
-| 1 | Allergen detection | §B1 | Partially wired (detector exists, no gate) | Curate synonyms; species-naming; `Contains:` generator; export-gate composition |
+| 1 | Allergen detection | §B1 | **Wired (Phase 2 Step 4)** | ✓ Species-aware `detectAllergensDetailed` + `generateContainsStatement` + gate composition; ambiguous-ingredient hard flag + supplier disclosure deferred Round 12+ |
 | 2 | Disease-claim hard stop | §B2 | **Wired (Phase 2 Step 4)** | ✓ Gate composition; product-name cross-screen + per-pattern citation deferred Round 12+ |
 | 3 | Identity-test attestation | §B3 | Unwired (template text only) | Schema; upload flow; MMR/BPR draft-only gate; export-gate composition; §B11 keystone subset |
 | 4 | Disclaimer verbatim | §B4 | Partially wired (constants + frozen-snapshot test landed; gate-level refusal pending PDS boundary) | ✓ Constants singular/plural + frozen-snapshot test + claim-count selector + composition-registry ID; PDS display validation pending |

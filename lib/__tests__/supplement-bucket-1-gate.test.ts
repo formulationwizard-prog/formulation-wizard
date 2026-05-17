@@ -30,6 +30,10 @@ import type { DiseaseClaimFlag } from '../supplementClaims';
 import { B2_DISEASE_CLAIM_ITEM_ID } from '../supplementClaims';
 import { B4_DISCLAIMER_ITEM_ID } from '../supplementDisclaimer';
 import { REVIEW_STATE_GATE_ITEM_ID } from '../reviewState';
+import {
+  B1_ALLERGEN_ITEM_ID,
+  type AllergenMatch,
+} from '../supplementAllergen';
 import { isHardStop } from '../hardStop';
 
 // ─── Test fixtures ──────────────────────────────────────────────
@@ -69,7 +73,141 @@ describe('evaluateSupplementBucket1Gate — empty / cleared baseline', () => {
     if (result.hardStop) throw new Error('expected cleared');
     expect(result.composedItems).toContain(B4_DISCLAIMER_ITEM_ID);
     expect(result.composedItems).toContain(B2_DISEASE_CLAIM_ITEM_ID);
+    expect(result.composedItems).toContain(B1_ALLERGEN_ITEM_ID);
     expect(result.composedItems).toContain(REVIEW_STATE_GATE_ITEM_ID);
+  });
+});
+
+function makeAllergenMatch(overrides: Partial<AllergenMatch> = {}): AllergenMatch {
+  return {
+    category: 'Milk',
+    matchedKeyword: 'milk',
+    requiresSpeciesNaming: false,
+    ...overrides,
+  };
+}
+
+// ============================================================
+// Section B' — §B1 allergen composition
+// ============================================================
+describe('evaluateSupplementBucket1Gate — §B1 allergen composition', () => {
+  it('empty allergenMatches → cleared', () => {
+    const result = evaluateSupplementBucket1Gate({ allergenMatches: [] });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('allergen with species named → cleared', () => {
+    const matches = [
+      makeAllergenMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
+    ];
+    const result = evaluateSupplementBucket1Gate({ allergenMatches: matches });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('non-species-required allergen without species → cleared (Milk does not require species)', () => {
+    const matches = [makeAllergenMatch({ category: 'Milk' })];
+    const result = evaluateSupplementBucket1Gate({ allergenMatches: matches });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('Tree Nuts generic term, species undefined → Bucket 1 hard-stop fires', () => {
+    const matches = [
+      makeAllergenMatch({
+        category: 'Tree Nuts',
+        species: undefined,
+        requiresSpeciesNaming: true,
+        matchedKeyword: 'tree nut',
+      }),
+    ];
+    const result = evaluateSupplementBucket1Gate({ allergenMatches: matches });
+    expect(result.hardStop).toBe(true);
+    expect(isHardStop(result)).toBe(true);
+  });
+
+  it('§B1 hard-stop carries Bucket 1 source marker', () => {
+    const matches = [
+      makeAllergenMatch({
+        category: 'Fish',
+        species: undefined,
+        requiresSpeciesNaming: true,
+        matchedKeyword: 'fish',
+      }),
+    ];
+    const result = evaluateSupplementBucket1Gate({ allergenMatches: matches });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.source).toBe('supplement-bucket-1');
+  });
+
+  it('§B1 hard-stop evidence detail names the offending category', () => {
+    const matches = [
+      makeAllergenMatch({
+        category: 'Shellfish',
+        species: undefined,
+        requiresSpeciesNaming: true,
+        matchedKeyword: 'shellfish',
+      }),
+    ];
+    const result = evaluateSupplementBucket1Gate({ allergenMatches: matches });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.evidence[0].detail).toContain('Shellfish');
+  });
+});
+
+// ============================================================
+// Section C' — Combined §B2 + §B1 + Review.currentState composition
+// ============================================================
+describe('evaluateSupplementBucket1Gate — three-item composition', () => {
+  it('§B2 disease + §B1 species violation + draft reviewState → all three fire; evidence aggregates', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [makeFlag({ tier: 'disease', match: 'cancer' })],
+      allergenMatches: [
+        makeAllergenMatch({
+          category: 'Tree Nuts',
+          species: undefined,
+          requiresSpeciesNaming: true,
+          matchedKeyword: 'tree nut',
+        }),
+      ],
+      reviewState: 'draft',
+    });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(3);
+    const subjects = result.evidence.map(e => e.subject);
+    expect(subjects).toContain('cancer');
+    expect(subjects.some(s => s.includes('Tree Nuts'))).toBe(true);
+    expect(subjects).toContain('PA review state');
+  });
+
+  it('all three items clear → cleared', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [],
+      allergenMatches: [
+        makeAllergenMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
+        makeAllergenMatch({ category: 'Milk' }),
+      ],
+      reviewState: 'approved',
+    });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('§B1 fires alone (other items clear) → hard-stop with single §B1 evidence', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [],
+      allergenMatches: [
+        makeAllergenMatch({
+          category: 'Fish',
+          species: undefined,
+          requiresSpeciesNaming: true,
+          matchedKeyword: 'fish',
+        }),
+      ],
+      reviewState: 'approved',
+    });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0].subject).toContain('Fish');
   });
 });
 

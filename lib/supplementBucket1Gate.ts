@@ -44,11 +44,15 @@
 //                                         evaluateDiseaseClaimGate
 //                                         composes DiseaseClaimFlag[]
 //                                         into HardStop | cleared.
+//   §B1 — allergen species-naming      : COMPOSED (Phase 2 Step 4).
+//                                         evaluateAllergenGate refuses
+//                                         when Tree Nuts/Fish/Shellfish
+//                                         detected via generic term
+//                                         without species name.
 //   Review.currentState                : COMPOSED (Phase 2 Step 4).
 //                                         evaluateReviewStateGate
 //                                         refuses export when state
 //                                         ∉ {approved, version_locked}.
-//   §B1 — allergen master list         : pending wiring
 //   §B3 — identity-test attestation    : pending wiring (schema
 //                                         additions required first)
 //   §B5 — net quantity unit conversion : pending wiring (helper
@@ -92,6 +96,11 @@ import {
   type DiseaseClaimFlag,
 } from './supplementClaims';
 import {
+  evaluateAllergenGate,
+  B1_ALLERGEN_ITEM_ID,
+  type AllergenMatch,
+} from './supplementAllergen';
+import {
   evaluateReviewStateGate,
   REVIEW_STATE_GATE_ITEM_ID,
 } from './reviewState';
@@ -119,6 +128,19 @@ export interface SupplementBucket1GateParams {
    * `disease` and `drug-claim` tiers compose into Bucket 1 evidence.
    */
   diseaseClaimFlags?: readonly DiseaseClaimFlag[];
+
+  /**
+   * Pre-computed allergen matches from detectAllergensDetailed() at
+   * lib/supplementAllergen.ts. Caller runs the detector over each
+   * ingredient name (and other free-text allergen-bearing fields)
+   * and concatenates the resulting arrays. §B1.
+   *
+   * Missing or empty array → §B1 contributes no hard-stop. Matches
+   * with `requiresSpeciesNaming: true` and `species: undefined`
+   * (generic 'tree nuts', 'fish', 'shellfish' terms) trigger refusal
+   * per 21 CFR 101.36(b)(1)(i)(B) / FALCPA species-naming rule.
+   */
+  allergenMatches?: readonly AllergenMatch[];
 
   /**
    * Current state of the most-recent PA Review against the
@@ -173,11 +195,14 @@ const COMPOSED_ITEMS: readonly string[] = [
   // §B2 disease-claim hard stop — composed at Phase 2 Step 4.
   // evaluateDiseaseClaimGate consumes diseaseClaimFlags from params.
   B2_DISEASE_CLAIM_ITEM_ID,
+  // §B1 allergen species-naming — composed at Phase 2 Step 4.
+  // evaluateAllergenGate consumes allergenMatches from params.
+  // Refuse-to-export on Tree Nuts/Fish/Shellfish without species name.
+  B1_ALLERGEN_ITEM_ID,
   // PA-review state — composed at Phase 2 Step 4.
   // evaluateReviewStateGate consumes reviewState from params.
   // Refuse-to-export when reviewState ∉ {'approved', 'version_locked'}.
   REVIEW_STATE_GATE_ITEM_ID,
-  // §B1 allergen master list — pending wiring
   // §B3 identity-test attestation — pending wiring (schema needed)
   // §B5 net quantity unit conversion — pending wiring (helper needed)
   // §B11 COA + identity-test linkage — pending wiring (Bucket 1 subset)
@@ -204,6 +229,16 @@ export function evaluateSupplementBucket1Gate(
   const b2 = evaluateDiseaseClaimGate(params.diseaseClaimFlags ?? []);
   if (b2.hardStop) {
     evidence.push(...b2.evidence);
+  }
+
+  // §B1 — allergen species-naming composition. Refuse when a
+  // species-required category (Tree Nuts, Fish, Shellfish) is
+  // detected via generic term without species name.
+  const b1 = evaluateAllergenGate({
+    allergenMatches: params.allergenMatches ?? [],
+  });
+  if (b1.hardStop) {
+    evidence.push(...b1.evidence);
   }
 
   // PA-review state composition — refuse-to-export when reviewState
