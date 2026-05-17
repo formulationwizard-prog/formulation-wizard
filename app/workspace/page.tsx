@@ -70,6 +70,7 @@ import { computePerServingScale } from '@/lib/supplementMath';
 import { validateServingSizeInput } from '@/lib/servingSize';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
 import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, buildDisclaimers } from '@/lib/supplementClaims';
+import { selectSupplementDisclaimer } from '@/lib/supplementDisclaimer';
 import { checkCompatibility, summarizeCompatibility } from '@/lib/supplementCompatibility';
 import { analyzeNDI } from '@/lib/supplementNDI';
 import { analyzeRetailFit } from '@/lib/supplementRetailFit';
@@ -5140,7 +5141,18 @@ export default function FormulationWizard() {
                     • Macros (only if present): Total Fat / Carb / Sugars / Protein / Sodium
                     • Vitamins & Minerals: with established DV, shown with %DV
                     • Other Actives (herbals, aminos, mushrooms, etc.): with "†"
-                    • Other Ingredients: excipients only, in descending weight order */}
+                    • Other Ingredients: excipients only, in descending weight order
+
+                    Round 11 Phase 3 Workstream A.5 [4/N] (§B4 SFP closure —
+                    Phase 2 implementation-discovery finding #10): the DSHEA
+                    disclaimer at the bottom of this panel now consumes
+                    selectSupplementDisclaimer(claimCount) per 21 CFR
+                    101.93(c)(1)/(c)(2). Pre-fix: hardcoded plural string
+                    rendered unconditionally, including when claim count = 0.
+                    Post-fix: SINGULAR form when exactly 1 structure/function
+                    claim; PLURAL form when 2+; no disclaimer when 0.
+                    Frozen-snapshot change-control discipline preserved via
+                    lib/__tests__/supplement-disclaimer.test.ts. */}
                 {mc.labelMode === 'supplement-facts' && (() => {
                   // Build a human-readable serving size for the label:
                   //  • Capsule / Tablet / Softgel / Gummy / Lozenge / Chewable → "N Capsules"
@@ -5152,6 +5164,13 @@ export default function FormulationWizard() {
                   const servingSizeLabel = countable
                     ? `${suppUnitsPerServing} ${unitWord}`
                     : `${suppUnitsPerServing} ${unitWord} (${servingSize}${servingUnit})`;
+                  // §B4 SFP renderer disclaimer routing: compute the active
+                  // structure/function claim count so the DSHEA disclaimer
+                  // at the bottom of the panel routes through the locked-
+                  // constant selector. Matches the Claims Validator card's
+                  // detection (page.tsx:5501) — same input, same logic.
+                  const sfpClaimCount = detectStructureFunctionClaims(ingredients.map(i => i.name)).length;
+                  const sfpDsheaDisclaimer = selectSupplementDisclaimer(sfpClaimCount);
                   const facts = buildSupplementFacts({
                     ingredients,
                     servingSizeInGrams,
@@ -5245,9 +5264,18 @@ export default function FormulationWizard() {
                         </p>
                       )}
 
-                      <p className="text-[9px] mt-2 leading-tight border-t-2 border-black pt-2 italic">
-                        * These statements have not been evaluated by the Food and Drug Administration. This product is not intended to diagnose, treat, cure, or prevent any disease.
-                      </p>
+                      {/* §B4 SFP disclaimer — selector-driven (Round 11 Phase 3
+                          Workstream A.5 [4/N] closure of Phase 2 finding #10).
+                          Renders only when claim count > 0 per CFR 101.93(c);
+                          asterisk-footnote prefix preserved as the SFP's
+                          presentational convention; locked constants from
+                          lib/supplementDisclaimer.ts (SINGULAR vs PLURAL form
+                          routed by selectSupplementDisclaimer per claim count). */}
+                      {sfpDsheaDisclaimer && (
+                        <p className="text-[9px] mt-2 leading-tight border-t-2 border-black pt-2 italic">
+                          * {sfpDsheaDisclaimer}
+                        </p>
+                      )}
                     </div>
                   );
                 })()}
