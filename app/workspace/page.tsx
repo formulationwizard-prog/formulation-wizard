@@ -5500,7 +5500,7 @@ export default function FormulationWizard() {
                 );
                 const sfClaims = detectStructureFunctionClaims(ingredients.map(i => i.name));
                 const draftFlags = analyzeDraftClaim(suppDraftClaim);
-                const disclaimers = buildDisclaimers(sfClaims.length > 0, ingredients.map(i => i.name));
+                const disclaimers = buildDisclaimers(sfClaims.length, ingredients.map(i => i.name));
 
                 const claimsDefaultExpanded = draftFlags.length > 0 || suppDraftClaim.trim().length > 0;
                 const claimsManual = suppCardsManuallyToggled['claims'];

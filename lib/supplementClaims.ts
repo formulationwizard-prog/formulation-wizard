@@ -27,6 +27,7 @@
 // ============================================================
 
 import type { HardStop, HardStopEvidence } from './hardStop';
+import { selectSupplementDisclaimer } from './supplementDisclaimer';
 
 // ============================================================
 // NUTRIENT CONTENT CLAIM THRESHOLDS (21 CFR 101.54)
@@ -607,11 +608,30 @@ export interface DisclaimerSet {
 
 /**
  * Build the required disclaimer block for a claim set.
- * The DSHEA "These statements have not been evaluated…" disclaimer
- * is required on every supplement that makes any structure/function claim.
+ *
+ * The DSHEA disclaimer is required on every supplement that makes any
+ * structure/function claim. CFR 101.93(c) prescribes TWO forms:
+ *   • (c)(1) singular ("This statement has not been evaluated...") when
+ *     exactly ONE claim is present on the label
+ *   • (c)(2) plural ("These statements have not been evaluated...") when
+ *     TWO OR MORE claims are present
+ *
+ * Round 11 Phase 2 Step 4 follow-up (2026-05-17): signature migrated
+ * from `hasStructureFunctionClaim: boolean` to `claimCount: number` and
+ * the inline disclaimer string replaced with selectSupplementDisclaimer()
+ * from lib/supplementDisclaimer.ts — the locked-constant + claim-count
+ * router landed in Phase 1 §B4 work. Pre-migration, this function
+ * always emitted PLURAL regardless of claim count (CFR singular-form
+ * regression).
+ *
+ * The asterisk-footnote prefix ('* ') is preserved as the presentational
+ * convention used by the label rendering layer to footnote-link claims
+ * to the disclaimer. The CFR-verbatim text held in
+ * SUPPLEMENT_DISCLAIMER_SINGULAR / _PLURAL does NOT include the
+ * asterisk; this function prepends it for label-output convenience.
  */
 export function buildDisclaimers(
-  hasStructureFunctionClaim: boolean,
+  claimCount: number,
   ingredientNames: string[]
 ): DisclaimerSet {
   const n = ingredientNames.map(s => s.toLowerCase()).join(' | ');
@@ -636,10 +656,9 @@ export function buildDisclaimers(
   if (/caffeine/.test(n)) {
     additional.push('Contains caffeine. Limit the use of caffeine-containing medications or foods while taking this product. Not for use by those under 18.');
   }
+  const routed = selectSupplementDisclaimer(claimCount);
   return {
-    dsheaDisclaimer: hasStructureFunctionClaim
-      ? '* These statements have not been evaluated by the Food and Drug Administration. This product is not intended to diagnose, treat, cure, or prevent any disease.'
-      : '',
+    dsheaDisclaimer: routed === '' ? '' : `* ${routed}`,
     additionalWarnings: additional,
   };
 }
