@@ -847,12 +847,21 @@ export default function FormulationWizard() {
     { pH: specs.pH, aw: specs.aw },
   );
   // Scheduled-process filing determination + default QA tests.
-  const filingReq = determineFilingRequirement(suggestedHaccp?.id || null, {
-    pH: specs.pH,
-    aw: specs.aw,
-    lowAcidComponentPct: specs.lowAcidComponentPct,
-    productClassification: specs.productClassification,
-  });
+  // Round 11 Phase 3 Workstream A.5 [2/N] (#25g closure): mode threaded
+  // through so supplement-mode returns 21 CFR 111 / DSHEA citations
+  // rather than F&B 21 CFR 113 / 114 fallback. Mode narrowed from the
+  // broader ModeId union to the filing engine's 'fb' | 'supplements'
+  // union (other ModeId verticals pass through as F&B for now).
+  const filingReq = determineFilingRequirement(
+    suggestedHaccp?.id || null,
+    {
+      pH: specs.pH,
+      aw: specs.aw,
+      lowAcidComponentPct: specs.lowAcidComponentPct,
+      productClassification: specs.productClassification,
+    },
+    mode === 'supplements' ? 'supplements' : 'fb',
+  );
   const defaultQaTests = defaultQaTestsForCategory(suggestedHaccp?.id || null);
   const mergedQaTests: QaTest[] = [...defaultQaTests, ...customQaTests];
 

@@ -20,12 +20,29 @@ interface AdvisoryNoticeProps {
   linkHref?: string;
   linkLabel?: string;
   onLinkClick?: () => void;
+  /**
+   * Workspace mode for mode-aware default copy. When `mode === 'supplements'`,
+   * uses the supplement-aware advisory + link-label copy keys ("qualified
+   * regulatory reviewer" framing). Omitted or 'fb' → existing F&B-mode copy
+   * ("Process Authority" framing). Explicit `text` / `linkLabel` props
+   * override the mode-aware defaults.
+   *
+   * Round 11 Phase 3 Workstream A.5 [2/N] (#25f closure). Callers that
+   * render AdvisoryNotice in a mode-specific context (e.g.,
+   * DeterminationEngineCard) pass the active mode; callers in mode-
+   * agnostic contexts (e.g., FindingPopover today) omit the prop and
+   * default to F&B copy. The default-F&B behavior preserves backward
+   * compat — no caller changes required beyond the active mode-aware
+   * site.
+   */
+  mode?: 'fb' | 'supplements';
 }
 
-export function AdvisoryNotice({ text, linkHref, linkLabel, onLinkClick }: AdvisoryNoticeProps) {
+export function AdvisoryNotice({ text, linkHref, linkLabel, onLinkClick, mode }: AdvisoryNoticeProps) {
   const tier = useTier();
-  const body = text ?? getCopy('advisory.processAuthority', tier);
-  const defaultLinkLabel = getCopy('advisory.processAuthority.linkLabel', tier);
+  const isSupplement = mode === 'supplements';
+  const body = text ?? getCopy(isSupplement ? 'advisory.processAuthority.supplements' : 'advisory.processAuthority', tier);
+  const defaultLinkLabel = getCopy(isSupplement ? 'advisory.processAuthority.linkLabel.supplements' : 'advisory.processAuthority.linkLabel', tier);
   const resolvedLinkLabel = linkLabel ?? (onLinkClick || linkHref ? defaultLinkLabel : undefined);
 
   return (

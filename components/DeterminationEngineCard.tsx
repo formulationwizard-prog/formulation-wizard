@@ -267,10 +267,19 @@ export function DeterminationEngineCard({
         </p>
       )}
 
-      {/* Advisory notice — only when an authoritative human review is needed */}
+      {/* Advisory notice — only when an authoritative human review is needed.
+          Round 11 Phase 3 Workstream A.5 [2/N] (#25f closure): mode prop
+          threaded so supplement-mode renders "qualified regulatory reviewer"
+          framing instead of F&B "Process Authority" framing. Mode mapping:
+          DeterminationEngineCard receives modeId as a generic string (lib/
+          modes.ts ModeId union is broader than the TOS-bearing 'fb' |
+          'supplements'); we narrow to AdvisoryNotice's mode union here. */}
       {showAdvisory && (
         <div className="pt-2 border-t border-gray-200">
-          <AdvisoryNotice onLinkClick={onOpenProcessAuthorities} />
+          <AdvisoryNotice
+            onLinkClick={onOpenProcessAuthorities}
+            mode={modeId === 'supplements' ? 'supplements' : 'fb'}
+          />
         </div>
       )}
     </div>

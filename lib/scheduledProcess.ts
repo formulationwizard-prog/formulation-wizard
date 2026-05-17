@@ -30,6 +30,7 @@ export type FormName =
   | 'FDA 2541d, 2541f, or 2541g (method-dependent)'
   | 'FSIS HACCP (no FDA Scheduled Process)'
   | 'None — GRAS / GMP only'
+  | 'None — 21 CFR 111 cGMP framework'
   | 'Pending verified data — confirm with Process Authority'
   | 'Process Authority review strongly recommended';
 
@@ -75,8 +76,43 @@ export function determineFilingRequirement(
     aw?: number;
     lowAcidComponentPct?: number;
     productClassification?: 'acid' | 'acidified' | 'acidified-in-process' | 'lacf' | 'shelf-stable-dry' | 'insufficient-data' | '—';
-  }
+  },
+  /**
+   * Workspace mode discriminator. Round 11 Phase 3 Workstream A.5 [2/N]
+   * (#25g closure). Supplement-mode branch returns supplement-aware
+   * citations (21 CFR 111 cGMP / DSHEA / 21 CFR 101.36 / 101.93) and
+   * suppresses F&B Scheduled Process classification — supplements have
+   * no equivalent FDA filing under 21 CFR 113 / 114. Omitted or 'fb'
+   * preserves pre-Round-11 F&B logic for backward compat.
+   */
+  mode?: 'fb' | 'supplements',
 ): FilingRequirement {
+  // ═══ DIETARY SUPPLEMENT MODE — Round 11 Phase 3 Workstream A.5 [2/N] ═══
+  // Closes Phase 2 implementation-discovery finding #25g. Pre-fix
+  // behavior: supplements fell through to the insufficient-data fallback
+  // returning 21 CFR 113/114 citations. Post-fix: explicit supplement-
+  // mode branch returns 21 CFR 111 + DSHEA framework citations.
+  //
+  // processAuthorityRequired stays `true` to keep the DeterminationEngineCard
+  // advisory firing — the AdvisoryNotice renders supplement-mode copy via
+  // a `mode` prop threaded through from DeterminationEngineCard (#25f
+  // closure mechanism). Same boolean semantics; mode-aware user-facing text.
+  if (mode === 'supplements') {
+    return {
+      required: false,
+      formName: 'None — 21 CFR 111 cGMP framework',
+      citations: [
+        '21 CFR 111 (Dietary Supplement cGMP)',
+        '21 CFR 101.36 (Supplement Facts)',
+        '21 CFR 101.93 (DSHEA structure/function claims + disclaimer)',
+        'DSHEA §403(r)(6) (30-day FDA notification)',
+      ],
+      reason: `Dietary supplement product class — manufactured under 21 CFR 111 cGMP, not FDA Scheduled Process filing (21 CFR 113 / 114 LACF + Acidified Foods do not apply). Required regulatory review areas: ingredient identity testing (21 CFR 111.75(a)(1)); structure/function claim substantiation (DSHEA / 21 CFR 101.93); Supplement Facts panel accuracy (21 CFR 101.36); DSHEA §403(r)(6) 30-day FDA notification for structure/function claims; allergen disclosure (FALCPA + FASTER Act). Confirm with a qualified regulatory reviewer (DSHEA-qualified regulatory consultant or 21 CFR 111-trained quality unit) before commercial production.\n\nThis information is for general educational purposes and does not constitute legal or definitive regulatory advice.`,
+      processAuthorityRequired: true,
+      urgency: 'recommended',
+    };
+  }
+
   // USDA FSIS meat products short-circuit FDA logic entirely.
   if (haccpCategoryId === 'rte-cooked-meat' || haccpCategoryId === 'fermented-dry-cured-meat') {
     return {

@@ -51,8 +51,17 @@ export const STRINGS: CopyCatalog = {
   'determination.label.why':              { pro: 'Why',                                                                                       novice: '' },
 
   // ─── Advisory notice ───
+  // F&B-mode advisory copy (legacy default — applies to F&B mode and any
+  // caller that does not pass `mode='supplements'`).
   'advisory.processAuthority':            { pro: 'Advisory determination — requires Process Authority sign-off before commercial use.',      novice: '' },
   'advisory.processAuthority.linkLabel':  { pro: 'Find a Process Authority →',                                                                novice: '' },
+  // Supplement-mode advisory copy (Round 11 Phase 3 Workstream A.5 [2/N],
+  // #25f closure). Same advisory firing pattern; mode-aware framing —
+  // "qualified regulatory reviewer" instead of "Process Authority" since
+  // supplements operate under DSHEA / 21 CFR 111 cGMP rather than F&B
+  // Process Authority semantics (21 CFR 113.83 / 114.83).
+  'advisory.processAuthority.supplements':            { pro: 'Advisory determination — requires qualified regulatory reviewer sign-off before commercial production.', novice: '' },
+  'advisory.processAuthority.linkLabel.supplements':  { pro: 'Find a qualified reviewer →',                                                                              novice: '' },
 
   // ─── Finding popover (shared shell) ───
   'findings.label.suggestedFix':          { pro: 'Suggested fix',                                                                             novice: '' },
