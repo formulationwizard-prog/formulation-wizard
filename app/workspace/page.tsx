@@ -73,6 +73,23 @@ import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraf
 import { checkCompatibility, summarizeCompatibility } from '@/lib/supplementCompatibility';
 import { analyzeNDI } from '@/lib/supplementNDI';
 import { analyzeRetailFit } from '@/lib/supplementRetailFit';
+import {
+  SUPP_TOS_WELCOME_SUBTITLE,
+  SUPP_TOS_WARNING_HEADING,
+  SUPP_TOS_WARNING_BODY,
+  SUPP_TOS_V1_SECTIONS,
+  SUPP_TOS_ACKNOWLEDGMENT_BUTTON,
+} from '@/lib/supplementTos';
+import {
+  type WorkspaceEntryState,
+  hydrateWorkspaceEntryState,
+  persistMode,
+  persistTosAcceptance,
+  revokeTosAcceptance,
+  determineEntryScreen,
+  checkModeChange,
+  isWorkspaceMode,
+} from '@/lib/workspaceMode';
 
 // ============================================================
 // MAIN COMPONENT
@@ -226,20 +243,64 @@ export default function FormulationWizard() {
   const [trackedSpecsOverride, setTrackedSpecsOverride] = useState<TrackedSpec[] | null>(null);
   const [savedFormulations, setSavedFormulations] = useState<SavedFormulation[]>([]);
   const [activeTab, setActiveTab] = useState<'home' | 'build' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
-  // ----- Terms of Use / liability acknowledgment ------------------------
-  const [tosAccepted, setTosAccepted] = useState(false);
+  // ----- Workspace entry state: mode preference + per-mode TOS ----------
+  // Round 11 Phase 3 Workstream A: segmented per-mode TOS replaces the
+  // prior single-boolean tosAccepted model. State machinery lives in
+  // lib/workspaceMode.ts; see docs/architecture/harm-critical-floor.md
+  // and the Round 11 Phase 3 directive for rationale.
+  //
+  // entryState is null pre-hydration (SSR); becomes WorkspaceEntryState
+  // post-hydration. Caller renders the pre-TOS mode-selection screen,
+  // segment-aware TOS modal, or workspace based on determineEntryScreen.
+  const [entryState, setEntryState] = useState<WorkspaceEntryState | null>(null);
   useEffect(() => {
     // One-shot hydration from localStorage on mount — idiomatic pattern;
     // the react-hooks/purity rule flags it but setState in useEffect is the
     // correct way to seed React state from browser storage post-SSR.
     if (typeof window === 'undefined') return;
+    const hydrated = hydrateWorkspaceEntryState(window.localStorage);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
-    if (window.localStorage.getItem('fw-tos-v1') === 'accepted') setTosAccepted(true);
+    setEntryState(hydrated);
+    // Sync workspace mode state if user already has a mode preference
+    if (hydrated.mode !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- workspace mode sync from persisted preference
+      setMode(hydrated.mode);
+    }
   }, []);
-  const acceptTos = () => {
-    setTosAccepted(true);
-    if (typeof window !== 'undefined') window.localStorage.setItem('fw-tos-v1', 'accepted');
+  // Pre-TOS mode-selection screen handler — user picks mode at first
+  // visit (or returning post-migration from pre-Round-11 fw-tos-v1-only).
+  const selectInitialMode = (chosen: 'supplements' | 'fb') => {
+    if (typeof window !== 'undefined') persistMode(window.localStorage, chosen);
+    setMode(chosen);
+    setEntryState(prev => prev === null ? null : { ...prev, mode: chosen });
   };
+  // Accept the TOS for the currently-active mode. Wraps localStorage
+  // persistence and entryState mutation in a single handler.
+  const acceptTosForCurrentMode = () => {
+    if (entryState === null || entryState.mode === undefined) return;
+    if (typeof window !== 'undefined') {
+      persistTosAcceptance(window.localStorage, entryState.mode);
+    }
+    setEntryState(prev => prev === null ? null : {
+      ...prev,
+      tosAccepted: { ...prev.tosAccepted, [prev.mode!]: true },
+    });
+  };
+  // Revoke TOS acceptance for the currently-active mode and re-prompt.
+  // Used by the command palette "Review Terms of Use" and footer
+  // "Review Terms" affordances.
+  const revokeTosForCurrentMode = () => {
+    if (entryState === null || entryState.mode === undefined) return;
+    if (typeof window !== 'undefined') {
+      revokeTosAcceptance(window.localStorage, entryState.mode);
+    }
+    setEntryState(prev => prev === null ? null : {
+      ...prev,
+      tosAccepted: { ...prev.tosAccepted, [prev.mode!]: false },
+    });
+  };
+  // Derived entry-screen decision. Computed inline at render sites.
+  const entryScreen = entryState === null ? null : determineEntryScreen(entryState);
   // ----- Process Authority directory filter state -----------------------
   const [paStateFilter, setPaStateFilter] = useState<string>('All');
   const [paTypeFilter, setPaTypeFilter] = useState<ProcessAuthorityType | 'All'>('All');
@@ -1118,12 +1179,70 @@ export default function FormulationWizard() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* ══════════════════════════════════════════════════════════════════
-          TERMS OF USE + LIABILITY ACKNOWLEDGMENT (first-visit modal)
-          Required under normal SaaS liability boilerplate. Prevents user
-          from interacting with the tool until they acknowledge that this
-          is advisory/educational, not legal/regulatory/scientific advice.
+          MODE SELECTION SCREEN (pre-TOS, first visit or post-migration)
+          Round 11 Phase 3 Workstream A. User selects vertical
+          (Dietary Supplement / Food & Beverage) before any TOS modal.
+          F&B is non-selectable for Round 11 (Nutraceuticals-first launch
+          per Round 11 directive launch profile); Q4 2026 enables F&B.
           ══════════════════════════════════════════════════════════════════ */}
-      {!tosAccepted && (
+      {entryScreen?.screen === 'mode-selection' && (
+        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 overflow-auto">
+          <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <NautilusMark size={52} />
+              <div>
+                <h2 className="text-2xl font-semibold text-emerald-700">
+                  formulation<span className="text-gray-500 font-light tracking-[0.3em] ml-2 text-base uppercase">wizard</span>
+                </h2>
+                <p className="text-xs text-gray-500 italic">Choose your workspace.</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-700 mb-5 leading-relaxed">
+              Formulation Wizard supports two product verticals with distinct regulatory frameworks. Select the workspace that matches your product class.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Dietary Supplement — selectable */}
+              <button
+                onClick={() => selectInitialMode('supplements')}
+                className="text-left p-5 rounded-lg border-2 border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50 transition"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-3xl">💊</span>
+                  <span className="font-semibold text-gray-900">Dietary Supplement</span>
+                </div>
+                <p className="text-xs text-gray-600 leading-snug">
+                  Capsules, tablets, softgels, gummies, powders, liquids. DSHEA / 21 CFR 111 cGMP / FALCPA framework.
+                </p>
+              </button>
+              {/* F&B — non-selectable in Round 11; Coming Q4 2026 */}
+              <button
+                disabled
+                aria-disabled="true"
+                className="text-left p-5 rounded-lg border-2 border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-3xl">🏭</span>
+                  <span className="font-semibold text-gray-500">Food and Beverage</span>
+                </div>
+                <p className="text-xs text-gray-500 leading-snug">
+                  Sauces, condiments, beverages, snacks. 21 CFR 113 LACF / 114 Acidified / 117 PCQI framework.
+                </p>
+                <p className="mt-2 text-[11px] font-semibold text-amber-700">Coming Q4 2026</p>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          F&B-MODE TERMS OF USE + LIABILITY ACKNOWLEDGMENT
+          Round 11 Phase 3 Workstream A: original F&B-shaped inline content
+          preserved verbatim per directive (no F&B content changes for
+          Round 11; substantive rewrite + migration to lib/foodTos.ts
+          sibling module deferred to Q4 F&B re-entry along with key
+          rename fw-tos-v1 → fw-tos-fnb-v1).
+          ══════════════════════════════════════════════════════════════════ */}
+      {entryScreen?.screen === 'tos-modal' && entryScreen.mode === 'fb' && (
         <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 overflow-auto">
           <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
@@ -1165,7 +1284,7 @@ export default function FormulationWizard() {
             </div>
 
             <button
-              onClick={acceptTos}
+              onClick={acceptTosForCurrentMode}
               className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition"
             >
               ✓ I Understand — This Tool is Advisory Only
@@ -1173,6 +1292,56 @@ export default function FormulationWizard() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          SUPPLEMENT-MODE TERMS OF USE (fw-tos-supp-v1)
+          Round 11 Phase 3 Workstream A. Renders the locked text from
+          lib/supplementTos.ts. Frozen-snapshot test at
+          lib/__tests__/supplement-tos.test.ts is the change-control
+          gate — modifications to text fail the test until snapshot is
+          deliberately updated per the documented process.
+          ══════════════════════════════════════════════════════════════════ */}
+      {entryScreen?.screen === 'tos-modal' && entryScreen.mode === 'supplements' && (
+        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 overflow-auto">
+          <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <NautilusMark size={52} />
+              <div>
+                <h2 className="text-2xl font-semibold text-emerald-700">
+                  formulation<span className="text-gray-500 font-light tracking-[0.3em] ml-2 text-base uppercase">wizard</span>
+                </h2>
+                <p className="text-xs text-gray-500 italic">{SUPP_TOS_WELCOME_SUBTITLE}</p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-4">
+              <h3 className="text-sm font-bold text-amber-900 mb-2 inline-flex items-center gap-1.5">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" aria-hidden="true" />
+                <span>{SUPP_TOS_WARNING_HEADING}</span>
+              </h3>
+              <p className="text-xs text-amber-900 leading-relaxed">
+                {SUPP_TOS_WARNING_BODY}
+              </p>
+            </div>
+
+            <div className="text-xs text-gray-700 space-y-2 mb-4 max-h-64 overflow-auto">
+              {SUPP_TOS_V1_SECTIONS.map(section => (
+                <p key={section.id}>
+                  <strong>{section.heading}</strong> {section.body}
+                </p>
+              ))}
+            </div>
+
+            <button
+              onClick={acceptTosForCurrentMode}
+              className="w-full px-4 py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition"
+            >
+              {SUPP_TOS_ACKNOWLEDGMENT_BUTTON}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════════════════════════
           COMMAND PALETTE (⌘K / Ctrl+K)
           Global search + quick actions overlay. Searches formulas,
@@ -1222,7 +1391,7 @@ export default function FormulationWizard() {
           { label: 'Save current formula', icon: '💾', run: () => { saveFormulation(); } },
           { label: 'Compare saved formulas', icon: '🔀', run: () => { setActiveTab('saved'); } },
           { label: 'Toggle appearance mode', icon: '🌓', run: () => { setAppearance(appearance === 'light' ? 'dim' : appearance === 'dim' ? 'dark' : 'light'); } },
-          { label: 'Review Terms of Use', icon: <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />, run: () => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); } },
+          { label: 'Review Terms of Use', icon: <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />, run: () => { revokeTosForCurrentMode(); } },
         ];
         actions.forEach(a => {
           if (!q || a.label.toLowerCase().includes(q)) {
@@ -1496,13 +1665,41 @@ export default function FormulationWizard() {
                   key={id}
                   onClick={() => {
                     if (id === mode) return;
+                    // Round 11 Phase 3 Workstream A: per-mode TOS check
+                    // before any mode change. lib/modes.ts ModeId is
+                    // broader than the TOS-bearing WorkspaceMode union;
+                    // narrow via isWorkspaceMode. MODE_ORDER currently
+                    // contains only 'fb'/'supplements' so the narrow
+                    // branch is reachable in practice — the else path
+                    // is forward-compat for future verticals added to
+                    // MODE_ORDER before their TOS lands.
+                    if (entryState !== null && isWorkspaceMode(id)) {
+                      const change = checkModeChange(entryState, id);
+                      if (!change.proceed) {
+                        // Defer formulation reset until target TOS accepted.
+                        // Persist mode preference + sync workspace mode +
+                        // update entryState so the TOS modal fires.
+                        if (typeof window !== 'undefined') {
+                          persistMode(window.localStorage, id);
+                        }
+                        setMode(id);
+                        setEntryState(prev => prev === null ? null : { ...prev, mode: id });
+                        return;
+                      }
+                    }
                     if (ingredients.length > 0) {
                       const confirmed = window.confirm(
                         `Switching to ${m.name} will clear the current formulation (different ingredient database). Continue?`
                       );
                       if (!confirmed) return;
                     }
+                    if (typeof window !== 'undefined' && isWorkspaceMode(id)) {
+                      persistMode(window.localStorage, id);
+                    }
                     setMode(id);
+                    if (isWorkspaceMode(id)) {
+                      setEntryState(prev => prev === null ? null : { ...prev, mode: id });
+                    }
                     setIngredients([]);
                     setSelectedPackaging(null);
                     setSelectedClosure(null);
@@ -9255,15 +9452,31 @@ ${serviceNotes || '(none)'}
       {/* ══════════════════════════════════════════════════════════════════
           PERSISTENT FOOTER DISCLAIMER (on every tab)
           ══════════════════════════════════════════════════════════════════ */}
+      {/* Footer text is mode-aware per Round 11 Phase 3 Workstream A
+          footer inspection. Supplement mode: "qualified regulatory
+          reviewer" (segment-neutral; accurate for DSHEA-qualified
+          regulatory consultants). F&B mode: "Process Authority"
+          (F&B-canonical per 21 CFR 113.83 / 114.83). Both link to
+          the shared Process Authorities tab. */}
       <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 text-gray-300 text-[10px] py-2 px-4 text-center z-40 print:hidden backdrop-blur-sm">
         <span className="opacity-80 inline-flex items-center gap-1.5 flex-wrap justify-center">
           <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" aria-hidden="true" />
           <span>
             Advisory tool only — not legal, regulatory, or scientific advice.
-            All regulatory classifications and filing indicators require verification by a qualified
-            <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">Process Authority</button>
-            before commercial production.
-            <button onClick={() => { if (typeof window !== 'undefined') window.localStorage.removeItem('fw-tos-v1'); setTosAccepted(false); }} className="underline ml-2 hover:text-emerald-300">Review Terms</button>
+            {entryState?.mode === 'supplements' ? (
+              <>
+                {' '}Harm-critical floor checks require verification by a qualified
+                <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">regulatory reviewer</button>
+                before commercial production.
+              </>
+            ) : (
+              <>
+                {' '}All regulatory classifications and filing indicators require verification by a qualified
+                <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">Process Authority</button>
+                before commercial production.
+              </>
+            )}
+            <button onClick={() => { revokeTosForCurrentMode(); }} className="underline ml-2 hover:text-emerald-300">Review Terms</button>
           </span>
         </span>
       </div>
