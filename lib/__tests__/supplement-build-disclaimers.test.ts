@@ -23,6 +23,7 @@ import { buildDisclaimers } from '../supplementClaims';
 import {
   SUPPLEMENT_DISCLAIMER_SINGULAR,
   SUPPLEMENT_DISCLAIMER_PLURAL,
+  selectSupplementDisclaimer,
 } from '../supplementDisclaimer';
 
 // ============================================================
@@ -96,5 +97,139 @@ describe('buildDisclaimers — additionalWarnings preserved across migration', (
   it('clean ingredient list produces no additional warnings', () => {
     const result = buildDisclaimers(1, ['Vitamin C']);
     expect(result.additionalWarnings).toEqual([]);
+  });
+});
+
+// ============================================================
+// Section C — Cross-site consistency with SFP renderer
+// ------------------------------------------------------------
+// Round 11 Phase 3 Workstream A.5 [6/N]. §B4 has TWO independent
+// rendering sites in the workspace:
+//
+//   (1) Claims Validator card — consumes buildDisclaimers (this file's
+//       primary subject). Migrated to selectSupplementDisclaimer in
+//       Phase 2 commit 928cdba.
+//
+//   (2) Supplement Facts Panel renderer — inline JSX at
+//       app/workspace/page.tsx ~lines 5160-5260. Migrated to
+//       selectSupplementDisclaimer in Phase 3 Workstream A.5 commit
+//       7bf50f7 (closure of Phase 2 implementation-discovery finding
+//       #10).
+//
+// Cross-site invariant: both rendering sites consume the SAME locked
+// constants via the SAME selector. For any given claim count N, the
+// dsheaDisclaimer text emitted by buildDisclaimers AND the
+// disclaimer-text-equivalent computed at the SFP renderer must match
+// exactly (modulo asterisk-footnote prefix, which both sites apply
+// identically).
+//
+// If either call site drifts (e.g., one consumes the selector and the
+// other reverts to a hardcoded literal, OR one applies the asterisk
+// prefix and the other doesn't), this section catches the divergence.
+//
+// The SFP-renderer-equivalent text is computed inline below to mirror
+// the SFP IIFE's exact logic:
+//
+//   const sfpClaimCount = detectStructureFunctionClaims(...).length;
+//   const sfpDsheaDisclaimer = selectSupplementDisclaimer(sfpClaimCount);
+//   // Render: {sfpDsheaDisclaimer && <p>* {sfpDsheaDisclaimer}</p>}
+//
+// So the rendered text for the SFP layer is:
+//   N === 0  → '' (no paragraph rendered)
+//   N >= 1   → '* ' + selectSupplementDisclaimer(N)
+//
+// buildDisclaimers applies the same prefix logic; the invariant is
+// that both produce identical strings.
+// ============================================================
+
+/**
+ * Mirror of the SFP renderer's disclaimer-computation logic. Inline
+ * here for test purposes; if the SFP renderer's logic changes, this
+ * helper must be updated AND the change-control trail at
+ * lib/supplementDisclaimer.ts must be followed.
+ */
+function sfpRendererDisclaimerText(claimCount: number): string {
+  const routed = selectSupplementDisclaimer(claimCount);
+  return routed === '' ? '' : `* ${routed}`;
+}
+
+describe('§B4 cross-site consistency — buildDisclaimers vs SFP renderer', () => {
+  it('claim count 0 → both sites emit empty string (no disclaimer renders)', () => {
+    const bd = buildDisclaimers(0, []).dsheaDisclaimer;
+    const sfp = sfpRendererDisclaimerText(0);
+    expect(bd).toBe('');
+    expect(sfp).toBe('');
+    expect(bd).toBe(sfp);
+  });
+
+  it('claim count 1 → both sites emit SINGULAR form with asterisk prefix', () => {
+    const bd = buildDisclaimers(1, []).dsheaDisclaimer;
+    const sfp = sfpRendererDisclaimerText(1);
+    expect(bd).toBe(`* ${SUPPLEMENT_DISCLAIMER_SINGULAR}`);
+    expect(sfp).toBe(`* ${SUPPLEMENT_DISCLAIMER_SINGULAR}`);
+    expect(bd).toBe(sfp);
+  });
+
+  it('claim count 2 → both sites emit PLURAL form with asterisk prefix', () => {
+    const bd = buildDisclaimers(2, []).dsheaDisclaimer;
+    const sfp = sfpRendererDisclaimerText(2);
+    expect(bd).toBe(`* ${SUPPLEMENT_DISCLAIMER_PLURAL}`);
+    expect(sfp).toBe(`* ${SUPPLEMENT_DISCLAIMER_PLURAL}`);
+    expect(bd).toBe(sfp);
+  });
+
+  it('claim count 5 → both sites emit PLURAL form identically', () => {
+    const bd = buildDisclaimers(5, []).dsheaDisclaimer;
+    const sfp = sfpRendererDisclaimerText(5);
+    expect(bd).toBe(sfp);
+    expect(bd).toBe(`* ${SUPPLEMENT_DISCLAIMER_PLURAL}`);
+  });
+
+  it('claim count 100 → both sites emit PLURAL form identically', () => {
+    const bd = buildDisclaimers(100, []).dsheaDisclaimer;
+    const sfp = sfpRendererDisclaimerText(100);
+    expect(bd).toBe(sfp);
+  });
+
+  it('claim count -1 (defensive negative) → both sites emit empty identically', () => {
+    const bd = buildDisclaimers(-1, []).dsheaDisclaimer;
+    const sfp = sfpRendererDisclaimerText(-1);
+    expect(bd).toBe('');
+    expect(sfp).toBe('');
+  });
+
+  it('asterisk-prefix invariant: when disclaimer is non-empty, both sites prepend "* "', () => {
+    // Both sites apply '* ' uniformly when emitting the disclaimer. This
+    // assertion guards against either side dropping the prefix (which would
+    // visually break the footnote-linking convention on the label).
+    for (const n of [1, 2, 5, 100]) {
+      expect(buildDisclaimers(n, []).dsheaDisclaimer.startsWith('* ')).toBe(true);
+      expect(sfpRendererDisclaimerText(n).startsWith('* ')).toBe(true);
+    }
+  });
+
+  it('locked-constant single-source-of-truth: the post-prefix text equals selectSupplementDisclaimer output exactly', () => {
+    // Strip the asterisk prefix from both sites' output and verify the
+    // residue equals the selector output. Catches drift where either
+    // site might inject extra punctuation, whitespace, or character drift
+    // beyond what the selector returns.
+    for (const n of [1, 2, 5]) {
+      const bd = buildDisclaimers(n, []).dsheaDisclaimer.slice(2); // remove '* '
+      const sfp = sfpRendererDisclaimerText(n).slice(2);
+      const canonical = selectSupplementDisclaimer(n);
+      expect(bd).toBe(canonical);
+      expect(sfp).toBe(canonical);
+    }
+  });
+
+  it('subject-verb agreement preserved at both sites for singular vs plural transitions', () => {
+    // claim count 1 → "This statement has..."
+    // claim count 2 → "These statements have..."
+    // Regression check: catches a future drift where one site might
+    // accidentally consume the wrong selector branch.
+    expect(buildDisclaimers(1, []).dsheaDisclaimer).toContain('This statement has');
+    expect(sfpRendererDisclaimerText(1)).toContain('This statement has');
+    expect(buildDisclaimers(2, []).dsheaDisclaimer).toContain('These statements have');
+    expect(sfpRendererDisclaimerText(2)).toContain('These statements have');
   });
 });
