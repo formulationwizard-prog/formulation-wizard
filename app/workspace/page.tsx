@@ -5828,10 +5828,15 @@ export default function FormulationWizard() {
               })()}
 
               {/* Spec Analysis Panel — only the formulator's selected tracked specs render.
-                  Toggle the checklist near Product Type to add/remove metrics. */}
+                  Toggle the checklist near Product Type to add/remove metrics.
+                  Round 11 Phase 3 Workstream A.5 [3/N] (#25h): title is mode-aware.
+                  Supplement mode drops the "Food Science" F&B branding for
+                  "Formulation Spec Analysis" — the panel itself is supplement-
+                  relevant (aw, moisture, etc. are tracked specs for supplements
+                  too), just the framing was F&B-branded. */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-gray-800">🔬 Food Science Spec Analysis</h2>
+                  <h2 className="text-lg font-semibold text-gray-800">🔬 {mode === 'supplements' ? 'Formulation Spec Analysis' : 'Food Science Spec Analysis'}</h2>
                   <span className="text-xs text-gray-400">{effectiveTrackedSpecs.length === 0 ? 'No specs tracked — pick from checklist' : `${effectiveTrackedSpecs.length} tracked`}</span>
                 </div>
                 {ingredients.length === 0 ? (
@@ -6107,8 +6112,19 @@ export default function FormulationWizard() {
                         </p>
                       )}
                     </div>
+                    {/* Round 11 Phase 3 Workstream A.5 [3/N] (#25i): instrument
+                        list is mode-aware. F&B retains pH meter / Brix refractometer
+                        / a_w meter / Bostwick consistometer / Brookfield viscometer.
+                        Supplements reference HPLC (label-claim potency assays),
+                        ICP-MS (heavy metals), dissolution / disintegration testing
+                        per USP <711>/<2040>, a_w meter, and Karl Fischer titrator
+                        (moisture). Brix refractometer / Bostwick / Brookfield are
+                        F&B-only instruments (sugar / sauce viscosity); not
+                        applicable to typical supplement product classes. */}
                     <p className="text-xs text-gray-400 mt-3">
-                      Estimates based on ingredient composition. Use for formulation scoping; final product specs require lab verification (pH meter, Brix refractometer, a_w meter, Bostwick consistometer, Brookfield viscometer).
+                      {mode === 'supplements'
+                        ? 'Estimates based on ingredient composition. Use for formulation scoping; final product specs require lab verification (HPLC for label-claim potency assays, ICP-MS for heavy metals, dissolution / disintegration testing per USP <711>/<2040>, a_w meter, Karl Fischer titrator for moisture).'
+                        : 'Estimates based on ingredient composition. Use for formulation scoping; final product specs require lab verification (pH meter, Brix refractometer, a_w meter, Bostwick consistometer, Brookfield viscometer).'}
                     </p>
                   </>
                 )}
