@@ -139,4 +139,163 @@ That's the load-bearing line — uses the broken `scale`. Once `scale` is mode-g
 - UI styling / brand voice on the Supplement Facts panel render (downstream of math fix; verify visually after math correction lands).
 - Save/load behavior for supplement formulations across mode switches.
 
+---
+
+# Post-Phase-2 UI Verification Audit (2026-05-17)
+
+**Anchor:** Workspace screenshot captured 2026-05-17 in supplement mode (Nutraceuticals selected, "Dietary Supplement" Product Class, 1 ingredient Vitamin C Ascorbic Acid USP). Screenshot surfaced 10 distinct F&B-leakage and §B4-regression issues at code locations Phase 1 Track A (Finding #25 a/b/c) did not cover. Same Finding #25 pattern — F&B regulatory framework leaking into supplement-mode rendering surface — at additional code locations.
+
+**Severity tiering:**
+- **Launch-blocking (Finding #25 d–j pattern + §B4 SFP regression):** Issues that would ship F&B-framework labels in supplement-mode workspace or violate CFR 101.93(c) on the Supplement Facts Panel. Must fix before August 2026 Nutraceuticals MVP. **PDS generation depends on clean supplement-mode rendering substrate** — Phase 3 Workstream B (PDS) is gated on these fixes per Workstream A.5 sequencing decision.
+- **Non-launch-blocking quality:** UX, validation, and status-logic issues that don't violate CFR but degrade the operator experience. Phase 4 pre-deploy queue or Round 12+ depending on severity.
+
+---
+
+## Launch-blocking findings — Finding #25 pattern at additional code locations
+
+### Finding #25d — Suggested HACCP Program section renders in supplement mode
+
+- **Location:** [app/workspace/page.tsx:6373-6488](../../app/workspace/page.tsx#L6373-L6488)
+- **Trace:** The HACCP card wrapper at line 6373 (`<div className="bg-white rounded-xl border border-gray-200 p-6">`) has **no mode gate**. Adjacent card immediately above (Ingredient Compatibility, line 6297) IS properly mode-gated with `{mode === 'supplements' && ingredients.length > 0 && ...}`. The HACCP card was missed.
+- **Symptom:** "🛡️ Suggested HACCP Program [INFERRED]" header renders in supplement mode. HACCP is the F&B Hazard Analysis Critical Control Points framework; supplements use 21 CFR 111 cGMP instead.
+- **Fix shape:** Add `mode !== 'supplements'` guard wrapping the entire HACCP card section (lines 6373-6488). The 21 CFR 111 cGMP card that DOES render below it (visible in screenshot bottom right) is the supplement-correct equivalent.
+
+### Finding #25e — Scheduled Process Filing subsection in supplement mode
+
+- **Location:** [app/workspace/page.tsx:6439-6458](../../app/workspace/page.tsx#L6439-L6458) (nested inside the HACCP card)
+- **Trace:** Subsection at line 6439 renders `Scheduled Process Filing` heading + `filingReq.formName` + "Open 📋 Filing →" button. Inherits the HACCP card's missing mode gate.
+- **Symptom:** "SCHEDULED PROCESS FILING" / "Pending verified data — confirm with Process Authority" / explicit "21 CFR 113/114" references render in supplement-mode card. Scheduled Process Filing is 21 CFR 113 / 114 LACF + Acidified Foods workflow; F&B-only.
+- **Fix shape:** Closed when #25d mode-gates the parent HACCP card. No separate fix needed.
+
+### Finding #25f — "Process Authority" terminology + "Find a Process Authority →" link in Determination Engine card
+
+- **Location:** [components/AdvisoryNotice.tsx:25-55](../../components/AdvisoryNotice.tsx) (consumes copy keys `'advisory.processAuthority'` + `'advisory.processAuthority.linkLabel'` from `lib/copy/strings.ts`) ; rendered by [components/DeterminationEngineCard.tsx:271-275](../../components/DeterminationEngineCard.tsx#L271-L275) gated by `showAdvisory`
+- **Trace:** `showAdvisory` at [DeterminationEngineCard.tsx:226-229](../../components/DeterminationEngineCard.tsx#L226-L229) fires when `filing.processAuthorityRequired === true` OR severity ∈ {critical, warning, caution}. For supplements, severity is `'info'` (per the supplement branch at line 68-75), so the advisory should be gated by `filing.processAuthorityRequired` alone. The filing engine at [lib/scheduledProcess.ts:175](../../lib/scheduledProcess.ts#L175) defaults to `processAuthorityRequired: true` at the catch-all branch, which is what fires for supplements (no supplement-aware filing path exists).
+- **Symptom:** "Advisory determination — requires Process Authority sign-off before commercial use." + "⚖️ Find a Process Authority →" link render under the supplement-mode determination card. "Process Authority" is the F&B-canonical 21 CFR 113.83/114.83 term; supplements need "qualified regulatory reviewer" or similar (same mode-aware wording we just shipped at the footer in commit f0d6790).
+- **Fix shape:** Two-part:
+  - (a) Mode-aware AdvisoryNotice — pass `mode` prop OR `text` + `linkLabel` overrides from `DeterminationEngineCard` based on `modeId === 'supplements'`. Supplement copy uses "qualified regulatory reviewer".
+  - (b) Filing engine — `determineFilingRequirement` should branch on mode (or accept mode as input); supplement mode returns `processAuthorityRequired: false` (the supplement-specific "PA verification" semantics live at the §B3 attestation layer + Bucket 1 gate, not at the F&B Scheduled Process Filing layer).
+
+### Finding #25g — Citations "21 CFR 113 · 21 CFR 114" in supplement Determination Engine
+
+- **Location:** [components/DeterminationEngineCard.tsx:262-268](../../components/DeterminationEngineCard.tsx#L262-L268)
+- **Trace:** Citations rendered from `filing.citations` array. The filing engine ([lib/scheduledProcess.ts:175](../../lib/scheduledProcess.ts#L175) default branch) returns 21 CFR 113/114 citations for any classification including the supplement fallthrough.
+- **Symptom:** Determination card prose says "Acidified-foods and LACF logic do not apply; the relevant analyses are dosage safety (UL), stability/overage, NDI, and label claims." — correctly supplement-aware. BUT the same card's CITATIONS line shows "21 CFR 113 · 21 CFR 114" — internal contradiction within the same card.
+- **Fix shape:** Filing engine returns supplement-specific citations array for supplement mode: `['21 CFR 111', 'DSHEA §403(r)(6)', '21 CFR 101.36', '21 CFR 101.93']` or similar. Closes alongside #25f filing-engine mode-branching.
+
+### Finding #25h — "Food Science Spec Analysis" panel title in supplement mode
+
+- **Location:** [app/workspace/page.tsx:5821-5827](../../app/workspace/page.tsx#L5821-L5827)
+- **Trace:** Panel wrapper at line 5823 has no mode gate. Title at line 5825 hardcodes "🔬 Food Science Spec Analysis".
+- **Symptom:** "Food Science" terminology + 🔬 icon render in supplement-mode workspace. "Food Science" is F&B-branded; supplements would use "Formulation Spec Analysis" or "Quality Spec Analysis".
+- **Fix shape:** Two paths possible:
+  - (a) Mode-aware title — `mode === 'supplements' ? 'Formulation Spec Analysis' : 'Food Science Spec Analysis'`. Card itself stays visible (supplements still track aw / moisture / other specs — see Specs to Track checklist).
+  - (b) Move panel content to a supplement-mode equivalent card already rendering in the supplement workflow; hide the F&B panel entirely.
+  - Recommend (a) — simpler, card has legitimate supplement-mode use (aw and moisture% are correctly tracked).
+
+### Finding #25i — F&B-only instruments in Spec Analysis disclaimer (Bostwick consistometer, Brookfield viscometer)
+
+- **Location:** [app/workspace/page.tsx](../../app/workspace/page.tsx) — Food Science Spec Analysis panel disclaimer text, near line 5825 (exact line within the panel block; needs precise locate during fix implementation)
+- **Symptom:** Disclaimer text reads "Estimates based on ingredient composition. Use for formulation scoping; final product specs require lab verification (pH meter, Brix refractometer, a_w meter, Bostwick consistometer, Brookfield viscometer)."
+  - **pH meter** — applies to liquid supplements but not most solid supplements
+  - **Brix refractometer** — F&B sugar measurement; not applicable to supplements
+  - **a_w meter** — applies to both
+  - **Bostwick consistometer** — F&B sauce/condiment viscosity; not applicable to supplements
+  - **Brookfield viscometer** — F&B leaning; some supplement use for liquids/syrups
+- **Fix shape:** Mode-aware disclaimer text. Supplement instruments: HPLC (potency), ICP-MS (heavy metals), dissolution tester, disintegration tester, a_w meter. Pulls from per-class instrument registry; coupled with #25h fix.
+
+### Finding #25j — HACCP hazard categories (Biological / Chemical / Physical) in supplement mode
+
+- **Location:** [app/workspace/page.tsx:6469-6488](../../app/workspace/page.tsx#L6469-L6488)
+- **Trace:** Three category cards (lines 6471, 6477, 6483) render inside the HACCP card body. Inherit the HACCP card's missing mode gate.
+- **Symptom:** Bio/Chem/Phys hazard category labels render in supplement mode. Content under them (Botanical mis-identification / Heavy metals on botanicals / Glass fragments) is partially supplement-relevant, but the surrounding HACCP framework labels are F&B framework.
+- **Fix shape:** Closed when #25d mode-gates the parent HACCP card. The supplement-equivalent hazard taxonomy lives downstream in 21 CFR 111 cGMP card content.
+
+---
+
+## Launch-blocking finding — §B4 disclaimer regression at Supplement Facts Panel
+
+### §B4 Supplement Facts Panel renders hardcoded plural disclaimer regardless of claim count
+
+- **Location:** [app/workspace/page.tsx:5239-5241](../../app/workspace/page.tsx#L5239-L5241)
+- **Trace:** The Supplement Facts Panel rendering at lines 5163-5244 (inline JSX, not a component) emits the disclaimer at line 5239-5241 as an **inline hardcoded plural string**:
+  ```tsx
+  <p className="text-[9px] mt-2 leading-tight border-t-2 border-black pt-2 italic">
+    * These statements have not been evaluated by the Food and Drug Administration. This product is not intended to diagnose, treat, cure, or prevent any disease.
+  </p>
+  ```
+  Renders **unconditionally** whenever the Supplement Facts panel renders. Does NOT consume `selectSupplementDisclaimer(claimCount)` from `lib/supplementDisclaimer.ts`.
+- **Why Phase 2 §B4 migration didn't catch this:** Phase 2 commit 928cdba migrated `buildDisclaimers` at `lib/supplementClaims.ts` and its caller at `app/workspace/page.tsx:5503` (the Claims Validator card rendering — see [page.tsx:5798-5815](../../app/workspace/page.tsx#L5798-L5815)). That migration consumes the selector correctly. But the Supplement Facts Panel renderer at line 5163-5244 is a **second, independent rendering site** for the disclaimer that was not migrated. Two rendering sites; one migrated, one not.
+- **CFR violation:** 21 CFR 101.93(c)(1) requires the SINGULAR form when exactly one structure/function claim is present on the label; 21 CFR 101.93(c)(2) requires plural when 2+. Per the regulation, the disclaimer is required only when claims are present (claim count > 0). The SFP renderer ignores claim count entirely.
+- **Fix shape:**
+  - Replace the inline string with conditional rendering: `{claimCount > 0 && <p>...{selectSupplementDisclaimer(claimCount)}...</p>}`
+  - The asterisk-footnote prefix (`'* '`) is the presentational convention preserved in `buildDisclaimers` output; SFP renderer should match — prepend `'* '` to the selector output
+  - Extend §B4 frozen-snapshot test discipline to cover this rendering site (e.g., assert SFP renderer consumes `selectSupplementDisclaimer`, OR add a render-time test asserting the panel emits the correct form for 0/1/2+ claim counts)
+- **Phase 2 implementation-discovery finding #10** — this is the second §B4 regression discovery (Item #8 was `buildDisclaimers` PLURAL-only; this is the SFP-renderer parallel issue). Both close the §B4 gap. Confirms the value of UI-verification discipline.
+
+---
+
+## Non-launch-blocking quality findings
+
+### Finding #25l — Serving Size unit + Servings/Container validation gap (launch-adjacent)
+
+- **Symptom:** Serving Size = "1" with unit dropdown set to **mcg**. Package Size = 60 g. Auto-computed Servings/Container = **60,000,000** (displayed as "60000000" without thousands separators).
+- **Trace:**
+  - Mode-switch reconciliation at [app/workspace/page.tsx:135-176](../../app/workspace/page.tsx#L135-L176) correctly sets supplement-appropriate defaults (servingSize=2, packageSize=60, both 'g') when switching from F&B with F&B defaults. So the 1/mcg state must have been set manually OR via load-from-saved.
+  - Serving Size unit dropdown at [page.tsx:3762](../../app/workspace/page.tsx#L3762) renders `{mc.units.map(u => <option key={u}>{u}</option>)}` — exposes ALL mode units including mcg, mg, g, kg with no constraint. For supplements, mcg is technically valid for trace-ingredient quantities but clearly absurd as a serving-size aggregate (no capsule/powder serving is 1 microgram total).
+  - Auto-compute at [page.tsx:534-535](../../app/workspace/page.tsx#L534-L535): `Math.round((packageSizeInGrams / servingSizeInGrams) * 10) / 10` with no upper-bound clamp. 60g / 0.000001g = 60,000,000 — math is correct given inputs; the upstream input is unsanitary.
+  - No `validateServingSizeInput` upper-bound check for combined absurdity (input value within nominal min/max but unit choice produces nonsensical aggregate).
+- **Why launch-adjacent rather than pure quality:**
+  - PDS export will render "Servings Per Container: 60,000,000" on the Supplement Facts Panel verbatim — that's a wrong-on-the-label value reaching consumer-facing artifact at export time. Not a direct CFR violation (CFR doesn't cap servings/container) but a real-world labeling integrity failure
+  - Would survive PA review if PA is rubber-stamping (which the platform's positioning explicitly does NOT assume — but the input is also so obviously wrong that catching it at the platform layer is the right discipline)
+  - Phase 2 §B5 net-quantity tolerance check (±2% declared-vs-computed) might catch some downstream effects but the root cause is input-validation upstream of §B5
+- **Fix shape (three layers, increasing intrusiveness):**
+  - (a) **Sanity cap on Servings/Container** — block / warn when auto-computed value exceeds some threshold (e.g., 500 servings hard-warn for typical supplement containers; allow override with explicit operator acknowledgment). Smallest surface, catches the worst-case immediately.
+  - (b) **Serving Size unit auto-suggest by delivery form** — capsule/tablet/softgel → default 'mg'; gummy/chewable → default 'mg'; powder → default 'g'; liquid → default 'mL'. Updates when delivery form changes (similar pattern to the existing mode-switch unit reconciliation at line 135-176). Prevents the mcg-default trap.
+  - (c) **Sanity warning on serving size mass** — when `servingSize * UNIT_TO_GRAMS[servingUnit]` produces a value below some threshold (e.g., < 1 mg for solid forms), surface a warning hint near the input. Defensive in depth.
+  - Recommend (a) + (b) for Workstream A.5; (c) deferred to Round 12+ refinement.
+- **Severity:** Launch-blocking-adjacent. PDS export-time concern. Recommend including in Workstream A.5 scope rather than deferring to Phase 4 pre-deploy.
+
+### Quality Finding B — Determination Engine internal contradiction
+
+- **Symptom:** Same card displays correct supplement prose ("Acidified-foods and LACF logic do not apply") AND incorrect F&B citations ("21 CFR 113 · 21 CFR 114"). Already captured as Finding #25g.
+- **Severity:** Launch-blocking. Closes alongside #25g.
+
+### Quality Finding C — Formula Status cards all green on a 0g formulation
+
+- **Symptom:** Top of workspace shows 6 status pills (Safety / Stability / Compatibility / NDI / Claims / Retail Fit) all green with positive copy ("All doses safe", "No bottleneck", "Ready", etc.) when the formulation has 1 ingredient at 0.0g quantity.
+- **Trace:** Status logic likely uses presence-of-ingredient rather than quantity-meaningfulness as the input. Showing "All doses safe" on a 0g formulation is technically true (no doses → no doses unsafe) but misleads operator confidence.
+- **Severity:** Quality, not regulatory. Phase 4 pre-deploy queue OR Round 12+ depending on operator priority.
+
+---
+
+## Bonus observation — potential Finding #25k (USDA fallback for supplements)
+
+- **Symptom:** Hint text under Add Ingredient reads "Industrial DB first, then USDA fallback. Or browse the 🍎 Ingredient DB tab." USDA FoodData Central is food-specific; supplement ingredients are typically not in USDA database. USDA fallback for supplements may surface false matches (food items partially matching supplement ingredient names).
+- **Severity:** Marginal. Could be #25k if it causes ingredient-data quality issues at launch. Worth verifying behavior during Workstream A.5 fixes.
+
+---
+
+## Workstream A.5 scope summary
+
+**In scope (launch-blocking):**
+- #25d (HACCP card mode-gate)
+- #25e (closes with #25d)
+- #25f (AdvisoryNotice + filing-engine mode-branching)
+- #25g (filing-engine citations mode-branching — closes with #25f)
+- #25h (Food Science panel title mode-aware)
+- #25i (Spec Analysis disclaimer instruments mode-aware — closes with #25h)
+- #25j (closes with #25d)
+- §B4 SFP renderer migration to `selectSupplementDisclaimer`
+- #25l (Serving Size unit + Servings/Container validation — fix layers (a) sanity cap + (b) delivery-form-aware unit default)
+
+**Deferred (Phase 4 pre-deploy queue or Round 12+):**
+- Quality Finding C (status cards on 0g formulation)
+- #25l fix layer (c) — sanity warning on absurdly small serving-size mass (defensive depth)
+- Potential #25k (USDA fallback for supplements — verify behavior, may not need action)
+
+**Estimated commit count:** 5-7 commits scoped per concern (mode-gating the HACCP card cluster; mode-branching AdvisoryNotice + filing engine; mode-aware Spec Analysis panel; §B4 SFP renderer migration; #25l Serving Size validation; consolidation + Bucket-1-gate-pre-flight extension for SFP-disclaimer + #25l scenarios). Pre-flight tests where text is regulatorily-sensitive (frozen-snapshot patterns for any new locked strings); state-machine tests where mode-gating logic is non-trivial.
+
+**Workstream B (PDS generation) sequencing gate:** Workstream A.5 closes before Workstream B Step 1 begins. Per Workstream A.5 sequencing decision — PDS reads workspace state, and Workstream A.5 fixes the supplement-mode rendering substrate.
+
 Round 11 directive will scope what's in vs deferred. This memo provides the entry points.
