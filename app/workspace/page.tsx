@@ -6361,19 +6361,23 @@ export default function FormulationWizard() {
                 );
               })()}
 
-              {/* Suggested HACCP Program.
-                  Round 8 Item 5: HACCP card uses standard confidence vocabulary
+              {/* Suggested HACCP Program / Suggested cGMP Program.
+                  Round 8 Item 5: card uses standard confidence vocabulary
                   (INFERRED for template-derived guidance, MEASURED once a
                   PA-approved plan is uploaded — upload-flow lands in Round 9+).
-                  Today every plan rendered here is INFERRED — derived from the
-                  product-type process template, not from a verified facility-
-                  specific HACCP plan. The card-level INFERRED pill replaces the
-                  prior "Starter Template" vocabulary. The disclaimer text below
-                  also uses INFERRED to align with the rest of the workspace. */}
+                  Round 11 Phase 3 Workstream A.5 (#25d/e/j): card framing is
+                  now mode-aware. F&B retains the HACCP framework framing;
+                  supplements use 21 CFR 111 cGMP framing. The framework name
+                  displayed in the green band below comes from lib/haccp.ts —
+                  supplement-mode entry at lib/haccp.ts:641 yields the
+                  "21 CFR 111 cGMP (Dietary Supplement)" framework name. The
+                  HACCP mismatch banner is already upstream-gated for
+                  supplements (lib/haccp.ts:881 early-return). The Scheduled
+                  Process Filing subsection is mode-gated to F&B-only below. */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <h2 className="text-lg font-semibold text-gray-800 inline-flex items-center gap-2">
-                    <span>🛡️ Suggested HACCP Program</span>
+                    <span>🛡️ {mode === 'supplements' ? 'Suggested cGMP Program' : 'Suggested HACCP Program'}</span>
                     <ConfidencePill conf="inferred" />
                   </h2>
                   <span className="text-xs text-gray-400">Auto-classified from product type + specs</span>
@@ -6424,11 +6428,17 @@ export default function FormulationWizard() {
 
                 {!suggestedHaccp ? (
                   <div className="text-center py-6 text-gray-400 text-sm italic">
-                    Select a Product Type and add ingredients — we&apos;ll recommend an appropriate HACCP category based on the tags and estimated pH / a_w.
+                    Select a Product Type and add ingredients — we&apos;ll recommend an appropriate {mode === 'supplements' ? 'cGMP framework' : 'HACCP category'} based on the tags and estimated specs.
                   </div>
                 ) : (
                   <>
-                    {/* Filing requirement banner — most consequential info, shown up top */}
+                    {/* Filing requirement banner — F&B-only.
+                        Round 11 Phase 3 Workstream A.5 (#25e): Scheduled
+                        Process Filing is 21 CFR 113 / 114 LACF + Acidified
+                        Foods workflow; not applicable to dietary supplements
+                        (21 CFR 111 cGMP has no equivalent "scheduled process
+                        filing" concept). Mode-gated to F&B only. */}
+                    {mode !== 'supplements' && (
                     <div className={`p-3 rounded-lg mb-3 border-2 ${
                       filingReq.urgency === 'critical' ? 'bg-red-50 border-red-300' :
                       filingReq.urgency === 'recommended' ? 'bg-amber-50 border-amber-300' :
@@ -6456,6 +6466,7 @@ export default function FormulationWizard() {
                       </div>
                       <p className="text-xs text-gray-700 mt-1.5">{filingReq.reason}</p>
                     </div>
+                    )}
 
                     <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg mb-3">
                       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -6537,11 +6548,20 @@ export default function FormulationWizard() {
                     {/* Round 8 Item 5: vocabulary-unification footer. The card-level
                         INFERRED pill (next to the heading) signals this is
                         template-derived guidance; this footer states the substance
-                        — facility-specific PCQI / Process Authority validation is
-                        required to elevate the plan from INFERRED to MEASURED. */}
+                        — facility-specific qualified-reviewer validation is required
+                        to elevate the plan from INFERRED to MEASURED.
+                        Round 11 Phase 3 Workstream A.5: mode-aware copy — F&B
+                        references PCQI / Process Authority and HACCP plan
+                        validation; supplements reference DSHEA-qualified regulatory
+                        consultant / 21 CFR 111-trained quality unit and 21 CFR 111
+                        cGMP plan validation. */}
                     <p className="text-xs text-gray-400 mt-3 inline-flex items-start gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
-                      <span>This plan is INFERRED from the product type and process template — not yet a facility-specific verified HACCP plan. Every production facility must develop and validate its own HACCP plan with a qualified PCQI or certified Process Authority. Critical limits, monitoring frequency, and corrective actions must be validated for your specific product and equipment before this guidance is elevated to MEASURED.</span>
+                      {mode === 'supplements' ? (
+                        <span>This plan is INFERRED from the product type and process template — not yet a facility-specific verified 21 CFR 111 cGMP plan. Every production facility must develop and validate its own cGMP plan with a DSHEA-qualified regulatory consultant or 21 CFR 111-trained quality unit. Critical control points, monitoring frequency, and corrective actions must be validated for your specific product and equipment before this guidance is elevated to MEASURED.</span>
+                      ) : (
+                        <span>This plan is INFERRED from the product type and process template — not yet a facility-specific verified HACCP plan. Every production facility must develop and validate its own HACCP plan with a qualified PCQI or certified Process Authority. Critical limits, monitoring frequency, and corrective actions must be validated for your specific product and equipment before this guidance is elevated to MEASURED.</span>
+                      )}
                     </p>
                   </>
                 )}
