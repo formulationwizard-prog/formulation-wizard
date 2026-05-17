@@ -35,6 +35,7 @@ import {
   ALLERGEN_REGULATORY_METADATA,
   type AllergenMatch,
 } from '../supplementAllergen';
+import { B5_NET_QUANTITY_ITEM_ID } from '../netQuantity';
 import { isHardStop } from '../hardStop';
 
 // ─── Test fixtures ──────────────────────────────────────────────
@@ -75,6 +76,7 @@ describe('evaluateSupplementBucket1Gate — empty / cleared baseline', () => {
     expect(result.composedItems).toContain(B4_DISCLAIMER_ITEM_ID);
     expect(result.composedItems).toContain(B2_DISEASE_CLAIM_ITEM_ID);
     expect(result.composedItems).toContain(B1_ALLERGEN_ITEM_ID);
+    expect(result.composedItems).toContain(B5_NET_QUANTITY_ITEM_ID);
     expect(result.composedItems).toContain(REVIEW_STATE_GATE_ITEM_ID);
   });
 });
@@ -157,6 +159,71 @@ describe('evaluateSupplementBucket1Gate — §B1 allergen composition', () => {
 });
 
 // ============================================================
+// Section B'' — §B5 net quantity composition
+// ============================================================
+describe('evaluateSupplementBucket1Gate — §B5 net quantity composition', () => {
+  it('undefined netQuantityInput → §B5 not evaluated; gate cleared at this composition layer', () => {
+    const result = evaluateSupplementBucket1Gate({ netQuantityInput: undefined });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('netQuantityInput with valid declaration + matching computed mass → cleared', () => {
+    const result = evaluateSupplementBucket1Gate({
+      netQuantityInput: {
+        form: 'solid',
+        totalMassG: 30,
+        declaredNetQuantity: {
+          primary: { value: 30, unit: 'g' },
+        },
+      },
+    });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('netQuantityInput with missing declaration → Bucket 1 hard-stop fires', () => {
+    const result = evaluateSupplementBucket1Gate({
+      netQuantityInput: {
+        form: 'solid',
+        totalMassG: 30,
+      },
+    });
+    expect(result.hardStop).toBe(true);
+    expect(isHardStop(result)).toBe(true);
+  });
+
+  it('netQuantityInput with tolerance breach → Bucket 1 hard-stop fires', () => {
+    const result = evaluateSupplementBucket1Gate({
+      netQuantityInput: {
+        form: 'solid',
+        totalMassG: 30,
+        declaredNetQuantity: {
+          primary: { value: 35, unit: 'g' },
+        },
+      },
+    });
+    expect(result.hardStop).toBe(true);
+  });
+
+  it('§B5 hard-stop carries Bucket 1 source marker', () => {
+    const result = evaluateSupplementBucket1Gate({
+      netQuantityInput: { form: 'solid', totalMassG: 30 },
+    });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.source).toBe('supplement-bucket-1');
+  });
+
+  it('§B5 hard-stop evidence detail names the net-quantity defect', () => {
+    const result = evaluateSupplementBucket1Gate({
+      netQuantityInput: { form: 'solid', totalMassG: 30 },
+    });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(
+      result.evidence.some(e => e.detail.toLowerCase().includes('net quantity')),
+    ).toBe(true);
+  });
+});
+
+// ============================================================
 // Section C' — Combined §B2 + §B1 + Review.currentState composition
 // ============================================================
 describe('evaluateSupplementBucket1Gate — three-item composition', () => {
@@ -211,6 +278,25 @@ describe('evaluateSupplementBucket1Gate — three-item composition', () => {
     if (!result.hardStop) return;
     expect(result.evidence).toHaveLength(1);
     expect(result.evidence[0].subject).toContain('Fish');
+  });
+
+  it('§B2 + §B1 + §B5 + Review.currentState all fire → 4 evidence items aggregated', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [makeFlag({ tier: 'disease', match: 'cancer' })],
+      allergenMatches: [
+        makeAllergenMatch({
+          category: 'Tree Nuts',
+          species: undefined,
+          requiresSpeciesNaming: true,
+          matchedKeyword: 'tree nut',
+        }),
+      ],
+      netQuantityInput: { form: 'solid', totalMassG: 30 },
+      reviewState: 'draft',
+    });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(4);
   });
 });
 

@@ -113,8 +113,23 @@ The Round 11 directive's best-guess candidate slate maps **5/5** to the canonica
 - **Blocking condition (target):** Wrong unit conversion (oz vs fl oz; g vs mg); off-by-one rounding under CFR rules (weight ≤1 lb in oz, >1 lb in lb+oz; metric in g for <1000g and kg for ≥1000g); net contents inconsistent with `serving size × servings per container`; floating-point drift past the rounding boundary.
 - **Pass condition (target):** Dual-unit declaration generated correctly against the regulatorily-preferred unit; rounding applied per CFR; net contents = serving size × servings per container cross-validated.
 - **Regulatory citation:** 21 CFR 101.105.
-- **Current implementation status:** **Unwired.** No net-quantity declaration logic exists. PDS panel does not currently render net contents. Math primitives are available but not composed.
-- **Round 11 wiring scope:** Create `lib/netQuantity.ts` with `computeNetQuantityDeclaration({ count, weightG, servingSize, servingsPerContainer }) → { primary, metric, rounded }`; add CFR rounding logic; add cross-validation against serving math; compose into PDS export gate and supplement-side export gate (when PDS pipeline ships in Track C).
+- **Current implementation status:** **Wired (Round 11 Phase 2 Step 4).** New module [lib/netQuantity.ts](../../lib/netQuantity.ts):
+  - `NetQuantityInput` type — caller passes `totalMassG`/`totalVolumeMl` from workspace cascade + explicit `form: 'solid' | 'liquid'` discriminator + optional operator-declared net quantity
+  - `computeNetQuantityDeclaration(input)` — canonical dual-unit declaration with CFR-shaped rounding per 21 CFR 101.105 (mg/g/kg + oz/lb for solid; mL/L + fl oz for liquid)
+  - `evaluateNetQuantityGate(input)` — per-item gate refusing on (a) form/dimension mismatch, (b) missing operator declaration per 21 CFR 101.105(a), (c) US customary primary without metric secondary (dual-unit), (d) declared net quantity outside ±2% of computed mass/volume per 21 CFR 101.105(q)
+  - `B5_NET_QUANTITY_ITEM_ID` registered in `evaluateSupplementBucket1Gate` `COMPOSED_ITEMS`
+  - Shared citation `21 CFR 101.105` on hard-stop evidence
+  - Float precision discipline: strict `>` with `EPSILON = 1e-9` absorbs IEEE 754 drift so exact ±2% boundary values fire by intent, not by float artifact
+  - Tests at [supplement-net-quantity-gate.test.ts](../../lib/__tests__/supplement-net-quantity-gate.test.ts) (45 cases): unit conversion accuracy (toBeCloseTo intermediates, exact toBe rounded), CFR rounding boundaries, label-text format, cleared paths, hard-stop paths, ±2% boundary discipline (102.0% cleared / 102.01% hard-stop / 98.0% cleared / 97.99% hard-stop), invalid-input defense (zero, negative, NaN, undefined), conflict scenarios (form/dim mismatch, both dims provided)
+  - Bucket 1 composition tests extended in [supplement-bucket-1-gate.test.ts](../../lib/__tests__/supplement-bucket-1-gate.test.ts) with §B5 composition coverage + four-item composition test (§B2 + §B1 + §B5 + Review.currentState all fire → 4 evidence items)
+- **Round 11 wiring scope:** ✓ `computeNetQuantityDeclaration` dual-unit generator with CFR rounding. ✓ `evaluateNetQuantityGate` per-item gate with ±2% symmetric tolerance. ✓ Composition into Bucket 1 gate.
+- **Round 12+ deferrals (tracked):**
+  - **§B5 enhancement — pint and gallon support.** Supplement labels rarely declare net quantity in those ranges; deferred until customer scenario surfaces them.
+  - **§B5 enhancement — asymmetric under-fill vs over-fill tolerance.** CFR 101.105(q) treats short-fill (declared > actual = consumer detriment) more seriously than over-fill (declared < actual = conservative claim). Round 11 uses symmetric ±2%; Round 12+ can introduce asymmetric tolerances when customer-zero data suggests benefit.
+  - **§B5 enhancement — tolerance calibration against FDA enforcement-discretion data.** Recalibrate ±2% against real-world enforcement-discretion observations and customer-zero feedback.
+  - **§B5 enhancement — operator-selectable rounding precision.** Round 11 uses conventional precision (integer mg/g/mL; 2-decimal oz/lb/fl oz/kg/L). Round 12+: operator chooses precision per label design.
+  - **§B5 enhancement — internal primary-vs-metric-secondary consistency check.** Catch operator-typed mismatches like "1 oz (50 g)" (1 oz ≠ 50 g). Round 11 only cross-validates against computed mass/volume; internal consistency deferred.
+  - **§B5 enhancement — explicit packaging-spec field for declared net quantity.** Schema field for operator-supplied manufacturer-spec net quantity that overrides computed mass; useful when manufacturer data differs slightly from computed total. Lands with PDS pipeline integration.
 
 ---
 
@@ -136,8 +151,9 @@ Composed items as of Round 11 Phase 2 Step 4:
 - ✓ §B4 disclaimer identifier registered (gate-level refusal check pending PDS rendered-text boundary)
 - ✓ §B2 disease-claim hard-stop (`evaluateDiseaseClaimGate`)
 - ✓ §B1 allergen species-naming (`evaluateAllergenGate` — refuse on Tree Nuts/Fish/Shellfish generic term without species)
+- ✓ §B5 net quantity declaration (`evaluateNetQuantityGate` — refuse on missing declaration, missing dual-unit, or ±2% tolerance breach)
 - ✓ Review.currentState (`evaluateReviewStateGate` — refuse outside `approved`/`version_locked`)
-- Pending: §B3 identity-test, §B5 net quantity, §B11 keystone subset
+- Pending: §B3 identity-test, §B11 keystone subset
 
 ### PA-review state integration
 
@@ -155,7 +171,7 @@ Reference: [docs/architecture/pa-review-state-machinery-proposal.md](pa-review-s
 | 2 | Disease-claim hard stop | §B2 | **Wired (Phase 2 Step 4)** | ✓ Gate composition; product-name cross-screen + per-pattern citation deferred Round 12+ |
 | 3 | Identity-test attestation | §B3 | Unwired (template text only) | Schema; upload flow; MMR/BPR draft-only gate; export-gate composition; §B11 keystone subset |
 | 4 | Disclaimer verbatim | §B4 | Partially wired (constants + frozen-snapshot test landed; gate-level refusal pending PDS boundary) | ✓ Constants singular/plural + frozen-snapshot test + claim-count selector + composition-registry ID; PDS display validation pending |
-| 5 | Net quantity unit conversion | §B5 | Unwired | `lib/netQuantity.ts`; CFR rounding; cross-validation; PDS + export-gate composition |
+| 5 | Net quantity unit conversion | §B5 | **Wired (Phase 2 Step 4)** | ✓ `lib/netQuantity.ts` dual-unit generator + CFR rounding + ±2% cross-validation + gate composition; pint/gallon, asymmetric tolerance, operator-selectable precision deferred Round 12+ |
 | — | PA-review state | (machinery) | **Wired (Phase 2 Step 4)** | ✓ `evaluateReviewStateGate` refuses outside `approved`/`version_locked`; composed into Bucket 1 gate |
 | Cross | Supplement-side export gate | (architectural) | **Wired (Phase 1+2 Step 4)** | ✓ `lib/supplementBucket1Gate.ts` composition surface; §B2 + Review.currentState composed; §B1/§B3/§B5/§B11 pending |
 

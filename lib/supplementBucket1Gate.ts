@@ -49,14 +49,18 @@
 //                                         when Tree Nuts/Fish/Shellfish
 //                                         detected via generic term
 //                                         without species name.
+//   §B5 — net quantity unit conversion : COMPOSED (Phase 2 Step 4).
+//                                         evaluateNetQuantityGate
+//                                         refuses on missing declaration,
+//                                         missing dual-unit, or ±2%
+//                                         tolerance breach per CFR
+//                                         101.105.
 //   Review.currentState                : COMPOSED (Phase 2 Step 4).
 //                                         evaluateReviewStateGate
 //                                         refuses export when state
 //                                         ∉ {approved, version_locked}.
 //   §B3 — identity-test attestation    : pending wiring (schema
 //                                         additions required first)
-//   §B5 — net quantity unit conversion : pending wiring (helper
-//                                         needs to be authored)
 //   §B11 — COA + identity-test linkage : pending wiring (Bucket 1
 //                                         subset only)
 //
@@ -101,6 +105,11 @@ import {
   type AllergenMatch,
 } from './supplementAllergen';
 import {
+  evaluateNetQuantityGate,
+  B5_NET_QUANTITY_ITEM_ID,
+  type NetQuantityInput,
+} from './netQuantity';
+import {
   evaluateReviewStateGate,
   REVIEW_STATE_GATE_ITEM_ID,
 } from './reviewState';
@@ -141,6 +150,20 @@ export interface SupplementBucket1GateParams {
    * per 21 CFR 101.36(b)(1)(i)(B) / FALCPA species-naming rule.
    */
   allergenMatches?: readonly AllergenMatch[];
+
+  /**
+   * Net quantity input for §B5 evaluation. Caller derives totalMassG
+   * or totalVolumeMl from the workspace cascade and passes the
+   * form discriminator + operator-declared net quantity per
+   * lib/netQuantity.ts NetQuantityInput. §B5.
+   *
+   * Undefined → §B5 not evaluated at this composition layer (caller
+   * has not yet provided net quantity context; e.g., draft formulation
+   * before packaging is selected). Defined → gate enforces declaration
+   * mandate, dual-unit requirement, and ±2% cross-validation tolerance
+   * per 21 CFR 101.105.
+   */
+  netQuantityInput?: NetQuantityInput;
 
   /**
    * Current state of the most-recent PA Review against the
@@ -199,12 +222,16 @@ const COMPOSED_ITEMS: readonly string[] = [
   // evaluateAllergenGate consumes allergenMatches from params.
   // Refuse-to-export on Tree Nuts/Fish/Shellfish without species name.
   B1_ALLERGEN_ITEM_ID,
+  // §B5 net quantity declaration — composed at Phase 2 Step 4.
+  // evaluateNetQuantityGate consumes netQuantityInput from params.
+  // Refuse-to-export on missing declaration, missing dual-unit, or
+  // ±2% tolerance breach per 21 CFR 101.105.
+  B5_NET_QUANTITY_ITEM_ID,
   // PA-review state — composed at Phase 2 Step 4.
   // evaluateReviewStateGate consumes reviewState from params.
   // Refuse-to-export when reviewState ∉ {'approved', 'version_locked'}.
   REVIEW_STATE_GATE_ITEM_ID,
   // §B3 identity-test attestation — pending wiring (schema needed)
-  // §B5 net quantity unit conversion — pending wiring (helper needed)
   // §B11 COA + identity-test linkage — pending wiring (Bucket 1 subset)
 ];
 
@@ -239,6 +266,18 @@ export function evaluateSupplementBucket1Gate(
   });
   if (b1.hardStop) {
     evidence.push(...b1.evidence);
+  }
+
+  // §B5 — net quantity declaration composition. Gate only evaluates
+  // when netQuantityInput is explicitly provided; absence is treated
+  // as "no net quantity context at composition layer" (e.g., draft
+  // formulation pre-packaging selection). When present, gate enforces
+  // CFR 101.105 declaration mandate + dual-unit + ±2% tolerance.
+  if (params.netQuantityInput !== undefined) {
+    const b5 = evaluateNetQuantityGate(params.netQuantityInput);
+    if (b5.hardStop) {
+      evidence.push(...b5.evidence);
+    }
   }
 
   // PA-review state composition — refuse-to-export when reviewState
