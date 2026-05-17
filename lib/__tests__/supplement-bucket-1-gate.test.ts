@@ -32,6 +32,7 @@ import { B4_DISCLAIMER_ITEM_ID } from '../supplementDisclaimer';
 import { REVIEW_STATE_GATE_ITEM_ID } from '../reviewState';
 import {
   B1_ALLERGEN_ITEM_ID,
+  ALLERGEN_REGULATORY_METADATA,
   type AllergenMatch,
 } from '../supplementAllergen';
 import { isHardStop } from '../hardStop';
@@ -79,10 +80,12 @@ describe('evaluateSupplementBucket1Gate — empty / cleared baseline', () => {
 });
 
 function makeAllergenMatch(overrides: Partial<AllergenMatch> = {}): AllergenMatch {
+  const category = overrides.category ?? 'Milk';
   return {
-    category: 'Milk',
+    category,
     matchedKeyword: 'milk',
     requiresSpeciesNaming: false,
+    regulatoryTier: ALLERGEN_REGULATORY_METADATA[category].tier,
     ...overrides,
   };
 }

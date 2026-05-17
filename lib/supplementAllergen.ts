@@ -57,9 +57,10 @@
 
 import type { HardStop, HardStopEvidence } from './hardStop';
 
-/** Big-9 allergen categories per FALCPA + FASTER Act, plus Mustard
- *  (carried in lib/utils.ts ALLERGENS_LIST for defensive completeness;
- *  not a FALCPA/FASTER major allergen — see audit-memo running list). */
+/** Allergen categories tracked by this module. Includes the FALCPA + FASTER
+ *  Big-9 (Milk, Eggs, Fish, Shellfish, Tree Nuts, Peanuts, Wheat, Soybeans,
+ *  Sesame) plus international-additional categories (currently: Mustard).
+ *  See ALLERGEN_REGULATORY_METADATA below for per-category tier + citation. */
 export type AllergenCategory =
   | 'Milk'
   | 'Eggs'
@@ -73,12 +74,67 @@ export type AllergenCategory =
   | 'Mustard';
 
 /**
+ * Regulatory tier for an allergen category. Drives gate behavior at the
+ * supplement Bucket 1 composition layer.
+ */
+export type AllergenRegulatoryTier =
+  /**
+   * FALCPA + FASTER Act Big-9. US-required hard-stop tier. Refusal-bearing
+   * at Round 11 export gate when species-naming or other §B1 conditions
+   * fire on categories of this tier.
+   */
+  | 'falcpa-faster-big-9'
+  /**
+   * International-additional categories (Canada, EU, Australia/NZ).
+   * Currently: Mustard. Surfaced for awareness but advisory only at
+   * Round 11 — does NOT contribute to gate refusal. Jurisdiction-selector
+   * that elevates this tier to hard-stop when customer indicates Canada /
+   * EU / AUS-NZ market scope is Round 12+ work.
+   */
+  | 'international-additional';
+
+/**
+ * Per-category regulatory metadata: tier classification + citation for the
+ * underlying authority. Used to:
+ *   • populate AllergenMatch.regulatoryTier during detection
+ *   • drive gate-level filtering (only falcpa-faster-big-9 contributes to
+ *     hard-stop refusal at Round 11)
+ *   • surface the regulatory basis in UI advisory rendering
+ *
+ * Citation strings name the statute or standard, not a specific clause —
+ * the per-match section-level citation (e.g., 21 CFR 101.36(b)(1)(i)(B))
+ * comes from B1_ALLERGEN_CITATION when the gate fires on a specific
+ * species-naming defect.
+ */
+export const ALLERGEN_REGULATORY_METADATA: Record<
+  AllergenCategory,
+  { tier: AllergenRegulatoryTier; citation: string }
+> = {
+  // FALCPA Big-8 (Milk, Eggs, Fish, Shellfish, Tree Nuts, Peanuts, Wheat,
+  // Soybeans) + FASTER Act 2021 (Sesame) = US Big-9 statutory tier.
+  'Milk':      { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Eggs':      { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Fish':      { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Shellfish': { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Tree Nuts': { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Peanuts':   { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Wheat':     { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Soybeans':  { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act' },
+  'Sesame':    { tier: 'falcpa-faster-big-9',     citation: 'FALCPA (21 U.S.C. §343(w)); FASTER Act (2021)' },
+  // International-additional: not US-statutory; required in non-US
+  // jurisdictions. Round 11 treats as advisory; jurisdiction selector
+  // for hard-stop elevation deferred to Round 12+.
+  'Mustard':   { tier: 'international-additional', citation: 'Health Canada Priority Allergens; EU Regulation 1169/2011 Annex II; FSANZ Standard 1.2.3' },
+};
+
+/**
  * Structured allergen match returned by detectAllergensDetailed.
  * Richer than the legacy detectAllergens() string[] shape to support
  * gate-level species-naming enforcement.
  */
 export interface AllergenMatch {
-  /** Big-9 + Mustard category. */
+  /** Allergen category — Big-9 or international-additional. See
+   *  ALLERGEN_REGULATORY_METADATA for tier classification. */
   category: AllergenCategory;
   /**
    * Specific species when detected (e.g., 'Almonds' for Tree Nuts;
@@ -103,6 +159,16 @@ export interface AllergenMatch {
    * Sesame, Mustard (category name is sufficient).
    */
   requiresSpeciesNaming: boolean;
+  /**
+   * Regulatory tier sourced from ALLERGEN_REGULATORY_METADATA.
+   *
+   *   • 'falcpa-faster-big-9'      — US-statutory hard-stop tier.
+   *                                   Refusal-bearing at gate.
+   *   • 'international-additional' — Advisory only at Round 11.
+   *                                   Currently: Mustard (Health
+   *                                   Canada / EU / FSANZ).
+   */
+  regulatoryTier: AllergenRegulatoryTier;
 }
 
 /**
@@ -222,6 +288,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         species,
         matchedKeyword: keyword,
         requiresSpeciesNaming: true,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Tree Nuts'].tier,
       });
       treeNutSpeciesFound = true;
     }
@@ -234,6 +301,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         species: undefined,
         matchedKeyword: generic[0],
         requiresSpeciesNaming: true,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Tree Nuts'].tier,
       });
     }
   }
@@ -247,6 +315,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         species,
         matchedKeyword: keyword,
         requiresSpeciesNaming: true,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Fish'].tier,
       });
       fishSpeciesFound = true;
     }
@@ -259,6 +328,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         species: undefined,
         matchedKeyword: generic[0],
         requiresSpeciesNaming: true,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Fish'].tier,
       });
     }
   }
@@ -272,6 +342,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         species,
         matchedKeyword: keyword,
         requiresSpeciesNaming: true,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Shellfish'].tier,
       });
       shellfishSpeciesFound = true;
     }
@@ -284,6 +355,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         species: undefined,
         matchedKeyword: generic[0],
         requiresSpeciesNaming: true,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Shellfish'].tier,
       });
     }
   }
@@ -296,6 +368,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         category,
         matchedKeyword: matched,
         requiresSpeciesNaming: false,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA[category].tier,
       });
     }
   }
@@ -378,18 +451,30 @@ export interface AllergenGateInput {
  * Pure function — no side effects. Refuses when any match has
  * `requiresSpeciesNaming: true` AND `species` is undefined (a
  * species-required category was detected via a generic term
- * without naming a species per 21 CFR 101.36(b)(1)(i)(B)).
+ * without naming a species per 21 CFR 101.36(b)(1)(i)(B)) AND
+ * the match's regulatory tier is the US-statutory hard-stop tier
+ * (`falcpa-faster-big-9`).
+ *
+ * International-additional tier matches (currently Mustard from
+ * Health Canada / EU / FSANZ jurisdictions) are advisory only at
+ * Round 11 and do NOT contribute to gate refusal — even if a
+ * future species-naming requirement were added for a category at
+ * that tier. Jurisdiction-selector elevation to hard-stop is
+ * Round 12+ work (logged at docs/architecture/harm-critical-floor.md
+ * §B1).
  *
  * Compliant matches (species named, or category does not require
- * species) pass through. Non-compliant matches contribute one
- * evidence entry each. The gate cleared branch has no `evidence`
- * field per the HardStop discriminator pattern.
+ * species, or category is not US-statutory) pass through. Non-
+ * compliant matches contribute one evidence entry each.
  */
 export function evaluateAllergenGate(
   input: AllergenGateInput,
 ): AllergenGateResult {
   const violations = input.allergenMatches.filter(
-    m => m.requiresSpeciesNaming && m.species === undefined,
+    m =>
+      m.requiresSpeciesNaming &&
+      m.species === undefined &&
+      m.regulatoryTier === 'falcpa-faster-big-9',
   );
 
   if (violations.length === 0) {

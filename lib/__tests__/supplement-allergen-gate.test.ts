@@ -23,6 +23,7 @@ import {
   generateContainsStatement,
   evaluateAllergenGate,
   B1_ALLERGEN_ITEM_ID,
+  ALLERGEN_REGULATORY_METADATA,
   type AllergenMatch,
 } from '../supplementAllergen';
 import { isHardStop } from '../hardStop';
@@ -30,10 +31,12 @@ import { isHardStop } from '../hardStop';
 // ─── Test fixtures ──────────────────────────────────────────────
 
 function makeMatch(overrides: Partial<AllergenMatch> = {}): AllergenMatch {
+  const category = overrides.category ?? 'Milk';
   return {
-    category: 'Milk',
+    category,
     matchedKeyword: 'milk',
     requiresSpeciesNaming: false,
+    regulatoryTier: ALLERGEN_REGULATORY_METADATA[category].tier,
     ...overrides,
   };
 }
@@ -433,5 +436,100 @@ describe('evaluateAllergenGate — end-to-end with detectAllergensDetailed', () 
 describe('§B1 composition-registry identifier', () => {
   it('exports a stable identifier consumed by the Bucket 1 gate', () => {
     expect(B1_ALLERGEN_ITEM_ID).toBe('b1-allergen-species-naming');
+  });
+});
+
+// ============================================================
+// Section G — Regulatory tier classification + Mustard advisory
+// ============================================================
+describe('ALLERGEN_REGULATORY_METADATA — tier classification', () => {
+  it('classifies all FALCPA + FASTER Big-9 categories as falcpa-faster-big-9 tier', () => {
+    const big9: Array<keyof typeof ALLERGEN_REGULATORY_METADATA> = [
+      'Milk', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts',
+      'Peanuts', 'Wheat', 'Soybeans', 'Sesame',
+    ];
+    for (const cat of big9) {
+      expect(ALLERGEN_REGULATORY_METADATA[cat].tier).toBe('falcpa-faster-big-9');
+    }
+  });
+
+  it('classifies Mustard as international-additional tier', () => {
+    expect(ALLERGEN_REGULATORY_METADATA['Mustard'].tier).toBe('international-additional');
+  });
+
+  it('Big-9 citation names FALCPA + FASTER Act', () => {
+    expect(ALLERGEN_REGULATORY_METADATA['Milk'].citation).toContain('FALCPA');
+    expect(ALLERGEN_REGULATORY_METADATA['Milk'].citation).toContain('FASTER Act');
+  });
+
+  it('Mustard citation names Health Canada + EU + FSANZ authorities', () => {
+    const citation = ALLERGEN_REGULATORY_METADATA['Mustard'].citation;
+    expect(citation).toContain('Health Canada');
+    expect(citation).toContain('EU Regulation 1169/2011');
+    expect(citation).toContain('FSANZ');
+  });
+});
+
+describe('detectAllergensDetailed — regulatoryTier population', () => {
+  it('Big-9 match carries falcpa-faster-big-9 tier', () => {
+    const matches = detectAllergensDetailed('Whey protein concentrate');
+    expect(matches[0].regulatoryTier).toBe('falcpa-faster-big-9');
+  });
+
+  it('Tree Nuts match carries falcpa-faster-big-9 tier', () => {
+    const matches = detectAllergensDetailed('Almond meal');
+    expect(matches[0].regulatoryTier).toBe('falcpa-faster-big-9');
+  });
+
+  it('Mustard match carries international-additional tier', () => {
+    const matches = detectAllergensDetailed('Mustard seed extract');
+    const mustard = matches.find(m => m.category === 'Mustard');
+    expect(mustard?.regulatoryTier).toBe('international-additional');
+  });
+});
+
+describe('evaluateAllergenGate — Mustard advisory behavior (Round 11)', () => {
+  it('Mustard alone → cleared (international-additional tier does not trigger hard-stop)', () => {
+    const matches = detectAllergensDetailed('Mustard powder');
+    const result = evaluateAllergenGate({ allergenMatches: matches });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('Mustard + Big-9 species-naming violation → hard-stop fires (Big-9 only; Mustard absent from evidence)', () => {
+    const matches: AllergenMatch[] = [
+      makeMatch({
+        category: 'Mustard',
+        requiresSpeciesNaming: false,
+      }),
+      makeMatch({
+        category: 'Tree Nuts',
+        species: undefined,
+        requiresSpeciesNaming: true,
+        matchedKeyword: 'tree nut',
+      }),
+    ];
+    const result = evaluateAllergenGate({ allergenMatches: matches });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0].detail).toContain('Tree Nuts');
+    expect(result.evidence[0].detail).not.toContain('Mustard');
+  });
+
+  it('hypothetical international-additional with species violation → cleared (tier filter suppresses hard-stop)', () => {
+    // Synthesize a match for an international-additional tier with the
+    // species-naming-violation shape. Mustard does not require species
+    // today, but this test verifies the tier filter at the gate boundary
+    // so future international-additional categories with species rules
+    // remain advisory until jurisdiction-selector lands in Round 12+.
+    const synthetic: AllergenMatch = {
+      category: 'Mustard',
+      species: undefined,
+      matchedKeyword: 'mustard',
+      requiresSpeciesNaming: true, // hypothetical future state
+      regulatoryTier: 'international-additional',
+    };
+    const result = evaluateAllergenGate({ allergenMatches: [synthetic] });
+    expect(result.hardStop).toBe(false);
   });
 });

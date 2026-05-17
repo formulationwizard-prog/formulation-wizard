@@ -43,7 +43,9 @@ The Round 11 directive's best-guess candidate slate maps **5/5** to the canonica
   - **§B1 enhancement — operator dual-confirmation override flow.** UI work; out of gate-logic scope.
   - **§B1 enhancement — word-boundary or compound-aware keyword detection.** Substring matching produces other false-positives beyond `'butter'`: `'flour'` matches "almond flour" / "coconut flour" / "rice flour" as Wheat; `'cream'` matches "cream of tartar" as Milk; `'egg'` matches "eggplant" as Eggs; `'malt'` matches barley-derived malt as Wheat. Word-boundary or phrase-aware detection is the long-term fix.
   - **§B1 enhancement — operator-supplied Contains: text validation.** Validate that an operator-provided rendered `Contains:` statement matches the detected allergen set with species naming. Deferred to PDS rendering pipeline boundary (Track C Phase 3).
-  - **Mustard category audit.** `ALLERGENS_LIST` includes Mustard, which is NOT a FALCPA/FASTER major allergen in the US (Canadian/EU requirement). Either remove or document as defensive international labeling — see audit-memo running list.
+  - **§B1 enhancement — jurisdiction selector.** Round 12+: customer-scope selector that elevates `international-additional` tier (currently Mustard; placeholder for future Lupin/etc. additions) to hard-stop refusal when target market includes Canada / EU / AUS-NZ. Round 11 treats international-additional tier as advisory only.
+
+  - **Mustard tier separation (RESOLVED — Round 11 Phase 2 Step 4 follow-up).** `ALLERGEN_REGULATORY_METADATA` now classifies categories by tier: nine FALCPA + FASTER Big-9 categories at `falcpa-faster-big-9` tier (hard-stop) and Mustard at `international-additional` tier (advisory). Citations: FALCPA (21 U.S.C. §343(w)) + FASTER Act for Big-9; Health Canada Priority Allergens + EU Regulation 1169/2011 Annex II + FSANZ Standard 1.2.3 for Mustard. `evaluateAllergenGate` filters refusal-bearing matches to Big-9 tier; international-additional matches surface in detection output for advisory UI but do NOT contribute to gate refusal.
 
 ---
 
