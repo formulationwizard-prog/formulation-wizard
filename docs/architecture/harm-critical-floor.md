@@ -81,9 +81,26 @@ The Round 11 directive's best-guess candidate slate maps **5/5** to the canonica
 - **Blocking condition (target):** Any dietary ingredient without a customer-or-contracted-lab identity test record on file, lot-linked, date-stamped within lot validity, with test type appropriate to ingredient class (FTIR/HPLC/HPTLC for botanicals, organoleptic for water/commodities, DNA barcoding for hard-to-ID botanicals).
 - **Pass condition (target):** Every dietary ingredient: supplier COA on file + customer/contracted lab identity test on file + appropriate test type + lot-linked + date-within-validity.
 - **Regulatory citation:** 21 CFR 111.75(a)(1).
-- **Current implementation status:** **Unwired.** Operator-facing template text references the requirement, but no schema, no upload flow, no record linkage, no enforcement. cGMP records (MMR, BPR) do not currently mark "draft-only pending identity testing."
-- **Round 11 wiring scope:** Add `identityTestRecord` field to per-ingredient schema (lot id, test type, test date, test result file ref, lab attribution); add upload flow; gate MMR/BPR finalization on identity-test completeness; compose into supplement-side export gate.
-- **Adjacency:** Tightly coupled with §B11 (Customer-COA upload + identity-test linkage — "the architectural keystone" per Companion Spec). §B11 is cross-cutting Bucket 1+2 and is the implementation surface for the identity-test record-keeping. Out of Round 11's strict 5-item slate but architecturally entangled — Step 4 wiring will need to scope at least the Bucket 1 portion of §B11 (identity-test linkage + allergen-disclosure preservation) to make §B3 functional.
+- **Current implementation status:** **Wired (Round 11 Phase 2 Step 4).** New schema + module land together:
+  - [`IdentityTestAttestation` type at types/index.ts](../../types/index.ts) — §B11 Bucket 1 keystone subset entity carrying `id`, `ingredientName`, `supplierName`, `identityTestMethod`, `attestedAt`, `attestedBy`, optional `testPerformedAt`, `coaReference`, `lotId`
+  - Forward-compatible `SavedFormulation.attestations?: IdentityTestAttestation[]` storage location declared at Round 11 (mirrors `reviews?: Review[]` pattern); persistence wires in Round 12
+  - New module [lib/identityTest.ts](../../lib/identityTest.ts) with `evaluateIdentityTestGate(input)`, `B3_IDENTITY_TEST_ITEM_ID`, `B3_IDENTITY_TEST_CITATION = '21 CFR 111.75(a)(1)'`
+  - Gate enforces coverage (every required ingredient has at least one attestation) + structural validation (supplier name ≥2 chars, method non-empty, attestedBy non-empty, attestedAt parseable / not future beyond 5-min clock-skew grace / not before 2000-01-01 implausibility floor, optional testPerformedAt ≤ attestedAt)
+  - Among multiple attestations per ingredient, latest by `attestedAt` is selected for validation
+  - Composed into [`evaluateSupplementBucket1Gate`](../../lib/supplementBucket1Gate.ts) via `B3_IDENTITY_TEST_ITEM_ID`
+  - Tests at [supplement-identity-test-gate.test.ts](../../lib/__tests__/supplement-identity-test-gate.test.ts) (31 cases): cleared paths including the **anti-creep boundary test** (gate clears on structurally-correct but substantively-meaningless attestations — codifies the PA-review boundary in executable form), coverage hard-stop, field-level hard-stop, timestamp hard-stop with 5-min clock-skew grace and 2000-01-01 implausibility floor, evidence + reason shape, rename-breaks-linkage subtle-behavior regression test
+  - Bucket 1 composition tests extended in [supplement-bucket-1-gate.test.ts](../../lib/__tests__/supplement-bucket-1-gate.test.ts) with §B3 composition + **5-item full composition test** (§B2 + §B1 + §B5 + §B3 + Review.currentState all fire → 5 evidence items aggregated) + 5-item happy-path cleared test
+- **Round 11 wiring scope:** ✓ `IdentityTestAttestation` schema. ✓ `SavedFormulation.attestations` forward-compat field. ✓ `evaluateIdentityTestGate` per-item gate. ✓ Composition into Bucket 1 gate. ✓ Anti-creep boundary test codifying PA-review territory.
+- **Integrity model (do not let this drift):** The §B3 gate enforces EXISTENCE AND STRUCTURAL CORRECTNESS only. It does NOT validate substance (supplier appropriateness, method appropriateness, COA accuracy, test-result conformance). Software detects "missing or malformed"; human PA validates "appropriate and accurate". An attestation with structurally-correct but substantively-meaningless fields (supplier 'Acme Suppliers', method 'we tested it') clears the gate — that's intentional PA-review territory. The boundary is documented in module docblock, type docblock, and executable boundary test.
+- **Round 12+ deferrals (tracked):**
+  - **§B3 enhancement — persistence layer.** localStorage / Supabase write/read paths against the `SavedFormulation.attestations` shape declared at Round 11.
+  - **§B3 enhancement — operator UI for attestation entry.** Form for creating / updating attestation records per ingredient, supplier autocomplete, method selector.
+  - **§B3 enhancement — COA file upload + storage.** Move `coaReference` from string-locator to actual file storage + content validation.
+  - **§B3 enhancement — lot-level tracking + stale-attestation enforcement.** Once lot schema lands, configurable staleness threshold tied to lot validity; recurring COA refresh workflows.
+  - **§B3 enhancement — method-appropriateness check per ingredient class.** FTIR for actives, organoleptic for water/commodities, DNA barcoding for hard-to-ID botanicals. Round 11 accepts free-text method; Round 12+ enforces against known-method list with per-ingredient-class mapping.
+  - **§B3 enhancement — supplier registry + audit trail.** Vendor portal, multi-formulation supplier tracking, automated identity verification against external sources.
+  - **§B3 enhancement — UUID migration.** Round 11 links by `ingredientName`; rename breaks linkage (correct behavior, forces re-attestation). Round 12+ schema firming may migrate to ingredient UUIDs.
+- **§B11 status:** Bucket 1 keystone subset (record-keeping schema + COA-to-identity-test linkage data model) wired as the `IdentityTestAttestation` type at Round 11. Bucket 2 portion (supplier management, file storage, automated identity verification, recurring refresh workflows, supplier audit trail) deferred to Round 12+ — explicit anti-creep boundary maintained throughout Step 4 implementation.
 
 ---
 
@@ -152,8 +169,9 @@ Composed items as of Round 11 Phase 2 Step 4:
 - ✓ §B2 disease-claim hard-stop (`evaluateDiseaseClaimGate`)
 - ✓ §B1 allergen species-naming (`evaluateAllergenGate` — refuse on Tree Nuts/Fish/Shellfish generic term without species)
 - ✓ §B5 net quantity declaration (`evaluateNetQuantityGate` — refuse on missing declaration, missing dual-unit, or ±2% tolerance breach)
+- ✓ §B3 identity-test attestation (`evaluateIdentityTestGate` — refuse on missing coverage or malformed attestation; §B11 Bucket 1 keystone schema enablement)
 - ✓ Review.currentState (`evaluateReviewStateGate` — refuse outside `approved`/`version_locked`)
-- Pending: §B3 identity-test, §B11 keystone subset
+- All 5 §B harm-critical floor items wired (§B1 + §B2 + §B3 + §B4 + §B5); §B11 Bucket 2 portion deferred Round 12+
 
 ### PA-review state integration
 
@@ -169,7 +187,7 @@ Reference: [docs/architecture/pa-review-state-machinery-proposal.md](pa-review-s
 |---|------|------------------|--------|------------------------|
 | 1 | Allergen detection | §B1 | **Wired (Phase 2 Step 4)** | ✓ Species-aware `detectAllergensDetailed` + `generateContainsStatement` + gate composition; ambiguous-ingredient hard flag + supplier disclosure deferred Round 12+ |
 | 2 | Disease-claim hard stop | §B2 | **Wired (Phase 2 Step 4)** | ✓ Gate composition; product-name cross-screen + per-pattern citation deferred Round 12+ |
-| 3 | Identity-test attestation | §B3 | Unwired (template text only) | Schema; upload flow; MMR/BPR draft-only gate; export-gate composition; §B11 keystone subset |
+| 3 | Identity-test attestation | §B3 | **Wired (Phase 2 Step 4)** | ✓ `IdentityTestAttestation` schema + `evaluateIdentityTestGate` + Bucket 1 composition + anti-creep boundary test; persistence + UI + lot tracking + method appropriateness deferred Round 12+ |
 | 4 | Disclaimer verbatim | §B4 | Partially wired (constants + frozen-snapshot test landed; gate-level refusal pending PDS boundary) | ✓ Constants singular/plural + frozen-snapshot test + claim-count selector + composition-registry ID; PDS display validation pending |
 | 5 | Net quantity unit conversion | §B5 | **Wired (Phase 2 Step 4)** | ✓ `lib/netQuantity.ts` dual-unit generator + CFR rounding + ±2% cross-validation + gate composition; pint/gallon, asymmetric tolerance, operator-selectable precision deferred Round 12+ |
 | — | PA-review state | (machinery) | **Wired (Phase 2 Step 4)** | ✓ `evaluateReviewStateGate` refuses outside `approved`/`version_locked`; composed into Bucket 1 gate |

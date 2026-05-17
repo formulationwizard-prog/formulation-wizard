@@ -36,6 +36,8 @@ import {
   type AllergenMatch,
 } from '../supplementAllergen';
 import { B5_NET_QUANTITY_ITEM_ID } from '../netQuantity';
+import { B3_IDENTITY_TEST_ITEM_ID } from '../identityTest';
+import type { IdentityTestAttestation } from '../../types';
 import { isHardStop } from '../hardStop';
 
 // ─── Test fixtures ──────────────────────────────────────────────
@@ -77,6 +79,7 @@ describe('evaluateSupplementBucket1Gate — empty / cleared baseline', () => {
     expect(result.composedItems).toContain(B2_DISEASE_CLAIM_ITEM_ID);
     expect(result.composedItems).toContain(B1_ALLERGEN_ITEM_ID);
     expect(result.composedItems).toContain(B5_NET_QUANTITY_ITEM_ID);
+    expect(result.composedItems).toContain(B3_IDENTITY_TEST_ITEM_ID);
     expect(result.composedItems).toContain(REVIEW_STATE_GATE_ITEM_ID);
   });
 });
@@ -223,6 +226,79 @@ describe('evaluateSupplementBucket1Gate — §B5 net quantity composition', () =
   });
 });
 
+// ─── §B3 attestation fixture ─────────────────────────────────
+
+function makeAttestation(overrides: Partial<IdentityTestAttestation> = {}): IdentityTestAttestation {
+  return {
+    id: 'att-bucket1-test',
+    ingredientName: 'Vitamin C',
+    supplierName: 'Acme Suppliers, Inc.',
+    identityTestMethod: 'HPLC',
+    attestedAt: '2026-05-01T10:00:00.000Z',
+    attestedBy: 'operator',
+    ...overrides,
+  };
+}
+
+const FIXED_NOW = '2026-05-17T12:00:00.000Z';
+
+// ============================================================
+// Section B''' — §B3 identity-test composition
+// ============================================================
+describe('evaluateSupplementBucket1Gate — §B3 identity-test composition', () => {
+  it('undefined identityTestInput → §B3 not evaluated; gate cleared at this layer', () => {
+    const result = evaluateSupplementBucket1Gate({ identityTestInput: undefined });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('identityTestInput with valid attestation matching required ingredient → cleared', () => {
+    const result = evaluateSupplementBucket1Gate({
+      identityTestInput: {
+        requiredIngredientNames: ['Vitamin C'],
+        attestations: [makeAttestation()],
+        now: FIXED_NOW,
+      },
+    });
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('identityTestInput with missing attestation → Bucket 1 hard-stop fires', () => {
+    const result = evaluateSupplementBucket1Gate({
+      identityTestInput: {
+        requiredIngredientNames: ['Vitamin C'],
+        attestations: [],
+        now: FIXED_NOW,
+      },
+    });
+    expect(result.hardStop).toBe(true);
+    expect(isHardStop(result)).toBe(true);
+  });
+
+  it('§B3 hard-stop carries Bucket 1 source marker', () => {
+    const result = evaluateSupplementBucket1Gate({
+      identityTestInput: {
+        requiredIngredientNames: ['Vitamin C'],
+        attestations: [],
+        now: FIXED_NOW,
+      },
+    });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.source).toBe('supplement-bucket-1');
+  });
+
+  it('§B3 hard-stop evidence detail names the missing ingredient', () => {
+    const result = evaluateSupplementBucket1Gate({
+      identityTestInput: {
+        requiredIngredientNames: ['Vitamin C'],
+        attestations: [],
+        now: FIXED_NOW,
+      },
+    });
+    if (!result.hardStop) throw new Error('expected hard-stop');
+    expect(result.evidence.some(e => e.detail.includes('Vitamin C'))).toBe(true);
+  });
+});
+
 // ============================================================
 // Section C' — Combined §B2 + §B1 + Review.currentState composition
 // ============================================================
@@ -297,6 +373,58 @@ describe('evaluateSupplementBucket1Gate — three-item composition', () => {
     expect(result.hardStop).toBe(true);
     if (!result.hardStop) return;
     expect(result.evidence).toHaveLength(4);
+  });
+
+  it('all 5 §B + state items fire → 5 evidence items aggregated (Phase 2 Step 4 full §B coverage)', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [makeFlag({ tier: 'disease', match: 'cancer' })],
+      allergenMatches: [
+        makeAllergenMatch({
+          category: 'Fish',
+          species: undefined,
+          requiresSpeciesNaming: true,
+          matchedKeyword: 'fish',
+        }),
+      ],
+      netQuantityInput: { form: 'solid', totalMassG: 30 },
+      identityTestInput: {
+        requiredIngredientNames: ['Vitamin C'],
+        attestations: [],
+        now: FIXED_NOW,
+      },
+      reviewState: 'draft',
+    });
+    expect(result.hardStop).toBe(true);
+    if (!result.hardStop) return;
+    expect(result.evidence).toHaveLength(5);
+    const subjects = result.evidence.map(e => e.subject);
+    expect(subjects).toContain('cancer');
+    expect(subjects.some(s => s.includes('Fish'))).toBe(true);
+    expect(subjects.some(s => s.toLowerCase().includes('net quantity'))).toBe(true);
+    expect(subjects.some(s => s.includes('Vitamin C'))).toBe(true);
+    expect(subjects).toContain('PA review state');
+  });
+
+  it('all 5 items clear → cleared (full Phase 2 Step 4 §B happy path)', () => {
+    const result = evaluateSupplementBucket1Gate({
+      diseaseClaimFlags: [],
+      allergenMatches: [
+        makeAllergenMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
+        makeAllergenMatch({ category: 'Milk' }),
+      ],
+      netQuantityInput: {
+        form: 'solid',
+        totalMassG: 30,
+        declaredNetQuantity: { primary: { value: 30, unit: 'g' } },
+      },
+      identityTestInput: {
+        requiredIngredientNames: ['Vitamin C'],
+        attestations: [makeAttestation()],
+        now: FIXED_NOW,
+      },
+      reviewState: 'approved',
+    });
+    expect(result.hardStop).toBe(false);
   });
 });
 

@@ -276,6 +276,16 @@ export interface SavedFormulation {
    * and transition-log helpers.
    */
   reviews?: Review[];
+  /**
+   * Per-ingredient identity-test attestations (Round 11 Phase 2 Step 4 —
+   * §B3 + §B11 Bucket 1 keystone subset, 2026-05-17). Forward-compatible
+   * storage location declared at Round 11; persistence layer wires in
+   * Round 12 alongside Reviews. The §B3 gate consumes attestations via
+   * `identityTestInput` on SupplementBucket1GateParams, not by reading
+   * this field directly. See types/index.ts IdentityTestAttestation for
+   * the entity schema and lib/identityTest.ts for the gate evaluator.
+   */
+  attestations?: IdentityTestAttestation[];
 }
 
 // ============================================================
@@ -387,6 +397,104 @@ export interface Review {
   /** Free-text reason for the review (e.g., "Initial release",
    *  "Post-amendment per CR-2026-09", "Annual recertification"). */
   reason?: string;
+}
+
+// ============================================================
+// §B3 + §B11 BUCKET 1 — IDENTITY-TEST ATTESTATION SCHEMA
+// (Round 11 Phase 2 Step 4 — 2026-05-17)
+// ------------------------------------------------------------
+// Companion Spec §B3 (identity-test attestation per dietary
+// ingredient, 21 CFR 111.75(a)(1)) requires the Bucket 1 portion
+// of §B11 (record-keeping schema + COA-to-identity-test linkage)
+// to function. This block defines the §B11 Bucket 1 subset
+// schema; lib/identityTest.ts owns the §B3 gate evaluator that
+// consumes it.
+//
+// Round 11 scope: schema + in-memory data model + gate logic.
+// Persistence (localStorage / Supabase), operator UI for entry,
+// COA file upload, supplier registry, lot tracking, method-
+// appropriateness check per ingredient class — all deferred to
+// Round 12+ per docs/architecture/harm-critical-floor.md §B3.
+// ============================================================
+
+/**
+ * Per-ingredient identity-test attestation. Operator declares that a
+ * supplier-provided identity test was performed for the dietary
+ * ingredient per 21 CFR 111.75(a)(1). The platform records the
+ * attestation; PA verifies the substance (supplier appropriateness,
+ * method appropriateness, COA accuracy, test-result conformance).
+ *
+ * Round 11 scope: schema + in-memory data model + gate composition.
+ * Round 12: persistence layer + operator UI flow + COA file storage
+ * land. Forward-compatible storage location is declared at
+ * SavedFormulation.attestations.
+ *
+ * INTEGRITY MODEL — do not let this drift:
+ *   The presence of an attestation record is NOT evidence that the
+ *   test was actually performed. Operator can fabricate. PA review
+ *   is the integrity check. The §B3 gate at lib/identityTest.ts
+ *   enforces existence and structural correctness ONLY:
+ *     • Every required dietary ingredient has at least one
+ *       attestation record on file
+ *     • Required fields are populated and well-formed
+ *     • Timestamps are structurally plausible (not in the future,
+ *       not implausibly old)
+ *   The gate does NOT validate substance:
+ *     • Whether the supplier is real and appropriate (PA)
+ *     • Whether the supplier provides quality identity testing (PA)
+ *     • Whether the method is appropriate for the ingredient class (PA)
+ *     • Whether COA content matches ingredient specs (PA, Round 12+)
+ *     • Whether the attestation is honest and accurate (PA)
+ *   Software detects "missing or malformed"; human authority validates
+ *   "appropriate and accurate". Future readers — including AI
+ *   assistants — must respect this boundary. See
+ *   docs/architecture/harm-critical-floor.md §B3 for the full
+ *   automated-vs-PA verification boundary.
+ */
+export interface IdentityTestAttestation {
+  /** Stable UUID for this attestation. */
+  id: string;
+  /**
+   * Ingredient name this attestation covers. Linked by name in Round 11
+   * (workspace ingredients don't yet carry stable IDs); Round 12+ schema
+   * firming may migrate to ingredient UUIDs.
+   *
+   * Subtle behavior: if the operator renames an ingredient, the linkage
+   * here breaks and the §B3 gate refuses on "no attestation for renamed
+   * ingredient". This is the CORRECT behavior — a rename is a different
+   * ingredient identity from the gate's perspective and forces re-
+   * attestation. Document on any rename-handling UI.
+   */
+  ingredientName: string;
+  /** Supplier of the dietary ingredient. Gate validates non-empty + ≥2 chars
+   *  (structural); PA validates supplier appropriateness (substance). */
+  supplierName: string;
+  /** Identity-test method declared per 21 CFR 111.75(a)(1). Free-text in
+   *  Round 11; Round 12+ may enforce against a known-method list (FTIR,
+   *  HPLC, HPTLC, organoleptic, DNA barcoding, etc.) with per-ingredient-
+   *  class appropriateness mapping. Gate validates non-empty (structural);
+   *  PA validates method appropriateness (substance). */
+  identityTestMethod: string;
+  /** ISO timestamp when the operator created the attestation record.
+   *  Gate validates structural plausibility (parseable, not in the future
+   *  beyond clock-skew grace window, not before 2000-01-01 implausibility
+   *  floor); PA validates that the timestamp reflects a real test event. */
+  attestedAt: string;
+  /** Operator identifier (user name). Gate validates non-empty. */
+  attestedBy: string;
+  /** Optional ISO timestamp of when the underlying identity test was
+   *  performed (typically earlier than attestedAt). When provided, gate
+   *  enforces structural ordering: testPerformedAt ≤ attestedAt and not
+   *  malformed. */
+  testPerformedAt?: string;
+  /** Optional COA reference — Round 11 is a string locator (filename,
+   *  supplier doc ID, external URL); Round 12+ ties to actual file
+   *  storage and content validation. */
+  coaReference?: string;
+  /** Optional ingredient lot ID this attestation covers. Round 11 has
+   *  no lot-tracking schema; this field is declarative documentation of
+   *  intent for Round 12+ lot schema work. */
+  lotId?: string;
 }
 
 /**

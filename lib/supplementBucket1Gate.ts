@@ -55,14 +55,19 @@
 //                                         missing dual-unit, or ±2%
 //                                         tolerance breach per CFR
 //                                         101.105.
+//   §B3 — identity-test attestation    : COMPOSED (Phase 2 Step 4).
+//                                         evaluateIdentityTestGate
+//                                         refuses on missing coverage or
+//                                         malformed attestation per CFR
+//                                         111.75(a)(1). §B11 Bucket 1
+//                                         keystone (IdentityTestAttestation
+//                                         schema at types/index.ts) is
+//                                         enablement, not separately
+//                                         composed.
 //   Review.currentState                : COMPOSED (Phase 2 Step 4).
 //                                         evaluateReviewStateGate
 //                                         refuses export when state
 //                                         ∉ {approved, version_locked}.
-//   §B3 — identity-test attestation    : pending wiring (schema
-//                                         additions required first)
-//   §B11 — COA + identity-test linkage : pending wiring (Bucket 1
-//                                         subset only)
 //
 // Architectural mirror — see lib/bucketAGate.ts evaluateBucketA()
 // for the F&B-side analogue. Return shape uses the HardStop
@@ -109,6 +114,11 @@ import {
   B5_NET_QUANTITY_ITEM_ID,
   type NetQuantityInput,
 } from './netQuantity';
+import {
+  evaluateIdentityTestGate,
+  B3_IDENTITY_TEST_ITEM_ID,
+  type IdentityTestGateInput,
+} from './identityTest';
 import {
   evaluateReviewStateGate,
   REVIEW_STATE_GATE_ITEM_ID,
@@ -164,6 +174,24 @@ export interface SupplementBucket1GateParams {
    * per 21 CFR 101.105.
    */
   netQuantityInput?: NetQuantityInput;
+
+  /**
+   * Identity-test attestation input for §B3 evaluation. Caller passes
+   * the list of dietary ingredients requiring attestation + the
+   * available IdentityTestAttestation records (sourced from
+   * SavedFormulation.attestations once Round 12 persistence lands;
+   * in Round 11, caller manages in-memory).
+   *
+   * Undefined → §B3 not evaluated at this composition layer. Defined →
+   * gate enforces coverage (every required ingredient has at least
+   * one attestation) + structural validation per 21 CFR 111.75(a)(1).
+   *
+   * INTEGRITY MODEL: enforces existence + structural correctness only.
+   * Substance validation (supplier appropriateness, method
+   * appropriateness, COA accuracy) is PA-review territory. See
+   * lib/identityTest.ts module docblock for the full boundary statement.
+   */
+  identityTestInput?: IdentityTestGateInput;
 
   /**
    * Current state of the most-recent PA Review against the
@@ -227,12 +255,17 @@ const COMPOSED_ITEMS: readonly string[] = [
   // Refuse-to-export on missing declaration, missing dual-unit, or
   // ±2% tolerance breach per 21 CFR 101.105.
   B5_NET_QUANTITY_ITEM_ID,
+  // §B3 identity-test attestation — composed at Phase 2 Step 4.
+  // evaluateIdentityTestGate consumes identityTestInput from params.
+  // Refuse-to-export when any required dietary ingredient lacks
+  // structurally-valid attestation per 21 CFR 111.75(a)(1).
+  // §B11 Bucket 1 keystone subset is the IdentityTestAttestation
+  // schema at types/index.ts — enablement, not separately composed.
+  B3_IDENTITY_TEST_ITEM_ID,
   // PA-review state — composed at Phase 2 Step 4.
   // evaluateReviewStateGate consumes reviewState from params.
   // Refuse-to-export when reviewState ∉ {'approved', 'version_locked'}.
   REVIEW_STATE_GATE_ITEM_ID,
-  // §B3 identity-test attestation — pending wiring (schema needed)
-  // §B11 COA + identity-test linkage — pending wiring (Bucket 1 subset)
 ];
 
 /**
@@ -277,6 +310,20 @@ export function evaluateSupplementBucket1Gate(
     const b5 = evaluateNetQuantityGate(params.netQuantityInput);
     if (b5.hardStop) {
       evidence.push(...b5.evidence);
+    }
+  }
+
+  // §B3 — identity-test attestation composition. Gate only evaluates
+  // when identityTestInput is explicitly provided; absence is treated
+  // as "no attestation context at composition layer" (e.g., early-
+  // draft formulation pre-supplier selection). When present, gate
+  // enforces coverage + structural validation per 21 CFR 111.75(a)(1).
+  // Integrity model: existence + structural correctness only; substance
+  // validation is PA-review territory (see lib/identityTest.ts docblock).
+  if (params.identityTestInput !== undefined) {
+    const b3 = evaluateIdentityTestGate(params.identityTestInput);
+    if (b3.hardStop) {
+      evidence.push(...b3.evidence);
     }
   }
 
