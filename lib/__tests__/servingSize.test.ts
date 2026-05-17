@@ -41,21 +41,29 @@ describe('validateServingSizeInput — decimal entry acceptance (T7-03, T7-04, T
   });
 });
 
-describe('validateServingSizeInput — min clamp (default 0.1)', () => {
-  it('"0" → 0.1 (clamped to default min)', () => {
-    expect(validateServingSizeInput('0')).toBe(0.1);
+describe('validateServingSizeInput — min clamp (default 0; Round 11 Phase 3)', () => {
+  // Round 11 Phase 3 (2026-05-17): default min changed from 0.1 → 0 so
+  // fresh empty supplement formulations can show 0 without being
+  // auto-clamped to 0.1. Operator enters real value; helper accepts the
+  // honest empty state.
+  it('"0" → 0 (allowed at new default min)', () => {
+    expect(validateServingSizeInput('0')).toBe(0);
   });
 
-  it('"-5" → 0.1 (clamped; negative not allowed)', () => {
-    expect(validateServingSizeInput('-5')).toBe(0.1);
+  it('"-5" → 0 (clamped; negative still not allowed)', () => {
+    expect(validateServingSizeInput('-5')).toBe(0);
   });
 
-  it('"0.05" → 0.1 (clamped; below min)', () => {
-    expect(validateServingSizeInput('0.05')).toBe(0.1);
+  it('"0.05" → 0.05 (above new min; 0.01 precision supported)', () => {
+    expect(validateServingSizeInput('0.05')).toBe(0.05);
   });
 
-  it('exactly at default min: "0.1" → 0.1 (boundary inclusive)', () => {
-    expect(validateServingSizeInput('0.1')).toBe(0.1);
+  it('"0.01" → 0.01 (Round 11 Phase 3 supplement-formulator precision support)', () => {
+    expect(validateServingSizeInput('0.01')).toBe(0.01);
+  });
+
+  it('exactly at default min: "0" → 0 (boundary inclusive)', () => {
+    expect(validateServingSizeInput('0')).toBe(0);
   });
 });
 
@@ -93,17 +101,21 @@ describe('validateServingSizeInput — T7-01 increment-beyond-30 behavior (no wr
   });
 });
 
-describe('validateServingSizeInput — fallback for unparseable input', () => {
-  it('"" (empty string) → 30 (default fallback)', () => {
-    expect(validateServingSizeInput('')).toBe(30);
+describe('validateServingSizeInput — fallback for unparseable input (default 0; Round 11 Phase 3)', () => {
+  // Round 11 Phase 3 (2026-05-17): default fallback changed from 30 → 0
+  // so unparseable inputs map to the fresh empty state rather than
+  // auto-filling a guess number. Operator enters real value rather
+  // than overriding a number that was never theirs.
+  it('"" (empty string) → 0 (default fallback)', () => {
+    expect(validateServingSizeInput('')).toBe(0);
   });
 
-  it('"abc" → 30 (NaN fallback)', () => {
-    expect(validateServingSizeInput('abc')).toBe(30);
+  it('"abc" → 0 (NaN fallback)', () => {
+    expect(validateServingSizeInput('abc')).toBe(0);
   });
 
-  it('"   " (whitespace) → 30 (whitespace-only is unparseable)', () => {
-    expect(validateServingSizeInput('   ')).toBe(30);
+  it('"   " (whitespace) → 0 (whitespace-only is unparseable)', () => {
+    expect(validateServingSizeInput('   ')).toBe(0);
   });
 });
 

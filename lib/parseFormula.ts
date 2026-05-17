@@ -67,7 +67,12 @@ const UNIT_ALIASES: Record<string, string> = {
   // Weight
   g: 'g', gram: 'g', grams: 'g',
   kg: 'kg', kilogram: 'kg', kilograms: 'kg',
-  mg: 'g',  // treat mg as g, will be small
+  // Round 11 Phase 3 (2026-05-17): mg + mcg preserve to canonical unit
+  // (previously mg coerced to g per F&B-era "will be small" heuristic;
+  // breaks supplement formulator workflows where 500 mg ≠ 500 g —
+  // 1000× error class). Phase 2 implementation-discovery finding #11.
+  mg: 'mg', milligram: 'mg', milligrams: 'mg',
+  mcg: 'mcg', microgram: 'mcg', micrograms: 'mcg', ug: 'mcg', μg: 'mcg',
   oz: 'oz', ounce: 'oz', ounces: 'oz',
   lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
   // Volume (metric)
@@ -91,7 +96,12 @@ export const VOLUME_TO_ML: Record<string, number> = {
 };
 export const VOLUME_UNITS = new Set(Object.keys(VOLUME_TO_ML));
 
-const QTY_UNIT_PATTERN = /(\d+(?:[.,]\d+)?)\s*(gallons?|gal|quarts?|qt|pints?|pt|kg|mg|g|oz|lbs?|ml|l\b|fl\s*oz|floz|fluid\s*ounces?|tsp|teaspoons?|tbsp|tbs|tbl|tablespoons?|cups?|\bc\b|grams?|kilograms?|ounces?|pounds?|milliliters?|millilitres?|liters?|litres?)\b/i;
+// Round 11 Phase 3 (2026-05-17): mcg + microgram(s) + ug + μg added so
+// supplement formulator inputs preserve canonical unit ("500 mcg Vitamin
+// D3" no longer falls through to default 'g'). Order matters in regex
+// alternation: mcg listed BEFORE mg (irrelevant for ambiguity given the
+// literal-character matching, but consistency with the alias table order).
+const QTY_UNIT_PATTERN = /(\d+(?:[.,]\d+)?)\s*(gallons?|gal|quarts?|qt|pints?|pt|kg|mcg|micrograms?|μg|ug|mg|milligrams?|g|oz|lbs?|ml|l\b|fl\s*oz|floz|fluid\s*ounces?|tsp|teaspoons?|tbsp|tbs|tbl|tablespoons?|cups?|\bc\b|grams?|kilograms?|ounces?|pounds?|milliliters?|millilitres?|liters?|litres?)\b/i;
 
 /**
  * Normalize fraction notation to decimal floats.

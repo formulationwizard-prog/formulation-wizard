@@ -28,12 +28,19 @@
 // ============================================================
 
 export interface ServingSizeBounds {
-  /** Minimum allowed value (inclusive). Default 0.1. */
+  /** Minimum allowed value (inclusive). Default 0 — Round 11 Phase 3
+   *  (2026-05-17): pre-A.5-followup default was 0.1, matching F&B-era
+   *  no-zero-allowed assumption. New default allows empty/zero state
+   *  (fresh formulation, operator has not yet entered a value). */
   min?: number;
   /** Maximum allowed value (inclusive). Default 100. */
   max?: number;
-  /** Value to return when input is unparseable (NaN). Default 30 —
-   *  matches the pre-Round-11 inline fallback at page.tsx:3555. */
+  /** Value to return when input is unparseable (NaN). Default 0 —
+   *  Round 11 Phase 3 (2026-05-17): pre-A.5-followup default was 30
+   *  (sensible F&B default). New default returns 0 so unparseable
+   *  inputs map to the fresh empty state rather than auto-filling
+   *  a guess. Operator enters real value rather than overriding a
+   *  number that was never theirs. */
   fallback?: number;
 }
 
@@ -53,9 +60,9 @@ export function validateServingSizeInput(
   rawInput: string,
   bounds: ServingSizeBounds = {}
 ): number {
-  const min = bounds.min ?? 0.1;
+  const min = bounds.min ?? 0;
   const max = bounds.max ?? 100;
-  const fallback = bounds.fallback ?? 30;
+  const fallback = bounds.fallback ?? 0;
 
   const parsed = parseFloat(rawInput);
   if (Number.isNaN(parsed)) return fallback;

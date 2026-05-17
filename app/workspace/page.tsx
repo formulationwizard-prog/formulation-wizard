@@ -154,9 +154,19 @@ export default function FormulationWizard() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [ingredientStatement, setIngredientStatement] = useState('');
   const [allergenStatement, setAllergenStatement] = useState<string[]>([]);
-  const [servingSize, setServingSize] = useState(30);
+  // Round 11 Phase 3 (2026-05-17): defaults changed from 30g serving /
+  // 300g package to 0. Pre-A.5-followup behavior anchored fresh
+  // formulations to F&B-default sauce-sized values that aren't
+  // meaningful for supplements (where 60+ capsule containers at 2g/cap
+  // ≈ 120g are typical) or for fresh F&B work (where the operator
+  // hasn't yet decided batch size). 0 is the honest empty-state default;
+  // operator enters real values. The mode-switch reconciliation
+  // useEffect below preserves back-compat for existing saved state
+  // (still detects 30/300 F&B legacy → 2/60 supplement legacy
+  // transitions for users with pre-0-default saved formulations).
+  const [servingSize, setServingSize] = useState(0);
   const [servingUnit, setServingUnit] = useState('g');
-  const [packageSize, setPackageSize] = useState(300);
+  const [packageSize, setPackageSize] = useState(0);
   const [packageUnit, setPackageUnit] = useState('g');
 
   // ----- Mode-switch unit reconciliation --------------------------------------
@@ -4067,15 +4077,18 @@ export default function FormulationWizard() {
                   })()
                 ) : (
                   // ─── Mass-based / volume-based supplement variant + F&B variant ─────
+                  // Round 11 Phase 3 (2026-05-17): min={0} + step={0.01} so
+                  // operator can leave fields empty for fresh formulations and
+                  // enter 0.01 g precision (typical supplement formulator needs
+                  // decimal grams for trace ingredients).
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
                       <div className="flex gap-1">
                         <input
                           type="number"
-                          min={0.1}
-                          max={100}
-                          step="any"
+                          min={0}
+                          step={0.01}
                           value={servingSize}
                           onChange={(e) => setServingSize(validateServingSizeInput(e.target.value))}
                           className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
@@ -4101,7 +4114,14 @@ export default function FormulationWizard() {
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-2">Package Size</label>
                       <div className="flex gap-1">
-                        <input type="number" value={packageSize} onChange={(e) => setPackageSize(Math.max(0.1, parseFloat(e.target.value) || 300))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={packageSize}
+                          onChange={(e) => setPackageSize(Math.max(0, parseFloat(e.target.value) || 0))}
+                          className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                        />
                         <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
                           {(mode === 'supplements' ? allowedPackageUnits(suppDeliveryForm) : mc.units).map(u => <option key={u}>{u}</option>)}
                         </select>
@@ -4122,8 +4142,8 @@ export default function FormulationWizard() {
                       </div>
                       <input
                         type="number"
-                        min={0.1}
-                        step={0.1}
+                        min={0}
+                        step={0.01}
                         value={servingsPerContainer}
                         onChange={(e) => {
                           const v = parseFloat(e.target.value);
