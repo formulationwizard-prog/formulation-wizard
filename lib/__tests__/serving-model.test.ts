@@ -86,16 +86,16 @@ describe('perUnitWeightSemantics (SP3 refinement)', () => {
 // Section C — Capsule capacity table
 // ============================================================
 describe('capsuleCapacityMg', () => {
-  it('size #000 → 1000 mg', () => { expect(capsuleCapacityMg('000')).toBe(1000); });
-  it('size #00 → 800 mg', () => { expect(capsuleCapacityMg('00')).toBe(800); });
-  it('size #0 → 680 mg (matches existing workspace display)', () => {
-    expect(capsuleCapacityMg('0')).toBe(680);
-  });
-  it('size #1 → 480 mg', () => { expect(capsuleCapacityMg('1')).toBe(480); });
-  it('size #2 → 360 mg', () => { expect(capsuleCapacityMg('2')).toBe(360); });
-  it('size #3 → 270 mg', () => { expect(capsuleCapacityMg('3')).toBe(270); });
-  it('size #4 → 210 mg', () => { expect(capsuleCapacityMg('4')).toBe(210); });
-  it('size #5 → 130 mg', () => { expect(capsuleCapacityMg('5')).toBe(130); });
+  // Values match the workspace Capsule Size dropdown labels — industry
+  // max-volumetric capacities (single source of truth in lib/servingModel.ts).
+  it('size #000 → 1370 mg (largest)', () => { expect(capsuleCapacityMg('000')).toBe(1370); });
+  it('size #00 → 950 mg', () => { expect(capsuleCapacityMg('00')).toBe(950); });
+  it('size #0 → 680 mg (most common)', () => { expect(capsuleCapacityMg('0')).toBe(680); });
+  it('size #1 → 500 mg', () => { expect(capsuleCapacityMg('1')).toBe(500); });
+  it('size #2 → 355 mg', () => { expect(capsuleCapacityMg('2')).toBe(355); });
+  it('size #3 → 275 mg', () => { expect(capsuleCapacityMg('3')).toBe(275); });
+  it('size #4 → 205 mg', () => { expect(capsuleCapacityMg('4')).toBe(205); });
+  it('size #5 → 130 mg (smallest)', () => { expect(capsuleCapacityMg('5')).toBe(130); });
 
   it('capacities decrease monotonically from #000 to #5', () => {
     const sizes: CapsuleSize[] = ['000', '00', '0', '1', '2', '3', '4', '5'];

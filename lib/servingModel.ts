@@ -130,22 +130,25 @@ export function perUnitWeightSemantics(form: SupplementDeliveryForm): PerUnitWei
 }
 
 /**
- * Standard pharmaceutical capsule capacities (mg, dense-powder fill).
- * USP / industry convention; volumetric capacities. Actual fill
- * weight depends on ingredient density; Round 12+ may add density-
- * aware adjustments if customer-zero data surfaces the need.
+ * Standard pharmaceutical capsule capacities (mg, max volumetric
+ * dense-powder fill). Matches the values displayed in the workspace
+ * Capsule Size dropdown (app/workspace/page.tsx) — single source of
+ * truth here; consumers import via capsuleCapacityMg().
  *
- * Source: standard capsule manufacturer specifications (Capsugel /
- * ACG / Lonza published reference data).
+ * Source: industry max-volumetric capacities (densest powder fills
+ * at 100% packing efficiency). Actual fill weight depends on
+ * ingredient density; Round 12+ may add density-aware adjustments
+ * (typical observed range 50-90% of max) if customer-zero data
+ * surfaces the need.
  */
 const CAPSULE_CAPACITY_MG: Record<CapsuleSize, number> = {
-  '000': 1000,
-  '00': 800,
+  '000': 1370,
+  '00': 950,
   '0': 680,
-  '1': 480,
-  '2': 360,
-  '3': 270,
-  '4': 210,
+  '1': 500,
+  '2': 355,
+  '3': 275,
+  '4': 205,
   '5': 130,
 };
 

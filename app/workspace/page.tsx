@@ -79,7 +79,7 @@ import {
   perUnitWeightSemantics,
   capsuleCapacityMg,
   computeFillWeightPerUnit,
-  deriveServings,
+  utilizationBand,
   deriveTotalUnits,
   reconcileCountInputs,
   allowedServingUnits,
@@ -243,9 +243,10 @@ export default function FormulationWizard() {
     setSuppCardsManuallyToggled(prev => ({ ...prev, [id]: !currentlyExpanded }));
   };
   /** Max fill weight per standard hard-shell capsule (mg) — empirical industry values. */
-  const CAPSULE_CAPACITY_MG: Record<CapsuleSize, number> = {
-    '000': 1370, '00': 950, '0': 680, '1': 500, '2': 355, '3': 275, '4': 205, '5': 130,
-  };
+  // Capsule capacity table now lives in lib/servingModel.ts (single
+  // source of truth, dropdown values + helper agree). Use the helper
+  // capsuleCapacityMg(size) at call sites. Round 11 Phase 3 Workstream
+  // A.5 [5c/N] dedup.
   /** Label noun for delivery forms — used on the Supplement Facts Serving Size row. */
   const SUPP_FORM_NOUN: Record<SupplementDeliveryForm, { singular: string; plural: string }> = {
     capsule:   { singular: 'Capsule',   plural: 'Capsules'   },
@@ -4106,41 +4107,53 @@ export default function FormulationWizard() {
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && (() => {
                 // Fill weight per unit in milligrams (serving / unitsPerServing).
+                // For count-based forms post-5b, servingSizeInGrams is itself
+                // derived from count inputs via the sync useEffect, so this
+                // computation is consistent with the count-based input model.
                 const fillWeightMg = suppUnitsPerServing > 0
                   ? (servingSizeInGrams * 1000) / suppUnitsPerServing
                   : 0;
-                const capsuleCap = CAPSULE_CAPACITY_MG[suppCapsuleSize];
+                const capsuleCap = capsuleCapacityMg(suppCapsuleSize);
                 const capsuleUsagePct = capsuleCap > 0 ? (fillWeightMg / capsuleCap) * 100 : 0;
                 const isCapsule = suppDeliveryForm === 'capsule' || suppDeliveryForm === 'softgel';
-                // Classify capacity status for color + advice text.
-                //   'unrealistic' → fill > 1.5× #000 (1,500 mg capsule max) means the serving
-                //     size input is almost certainly wrong — a 30g F&B-default serving survived
-                //     the mode switch, for example. Prompt the user to fix the serving size
-                //     rather than bark about capsule capacity.
-                //   'over' → over physically possible fill for the selected capsule size
-                //   'low' → underutilized capsule (< 40%)
-                //   'good' → on target
-                let capStatus: 'good' | 'low' | 'over' | 'unrealistic' = 'good';
+                // Round 11 Phase 3 Workstream A.5 [5c/N] — SP9 color band
+                // classification via utilizationBand helper (single source
+                // of truth at lib/servingModel.ts). Bands:
+                //   • grey       — 0% (empty / not-yet-evaluable)
+                //   • amber-low  — <50% (cost-optimization advisory)
+                //   • green      — 50-90% (normal range)
+                //   • amber-high — 90-100% (approaching over-fill)
+                //   • red        — >100% (impossible as specified — SP10 over-fill)
+                // Replaces the pre-A.5 hand-coded 40%/100%/1.5x-largest thresholds.
+                const utilizationRatio = capsuleUsagePct / 100;
+                const band = isCapsule && fillWeightMg > 0
+                  ? utilizationBand(utilizationRatio)
+                  : 'grey';
                 let capAdvice = '';
-                const LARGEST_CAPSULE_MG = 1370; // size #000
                 if (isCapsule && fillWeightMg > 0) {
-                  if (fillWeightMg > LARGEST_CAPSULE_MG * 1.5) {
-                    capStatus = 'unrealistic';
-                    capAdvice = `Fill weight of ${Math.round(fillWeightMg).toLocaleString()} mg per unit isn't physically possible in any capsule (largest = 1,370 mg). Lower the Serving Size field below — for a 2-capsule serving, a 2 g (2,000 mg) serving size is typical.`;
-                  } else if (capsuleUsagePct > 100) {
-                    capStatus = 'over';
-                    capAdvice = `Over capacity — upsize capsule or split into more units per serving.`;
-                  } else if (capsuleUsagePct < 40) {
-                    capStatus = 'low';
-                    capAdvice = `Low fill — consider a smaller capsule size for cleaner presentation and lower cost.`;
-                  } else {
-                    capAdvice = `On target. Good fill density reduces breakage and powder settling.`;
+                  switch (band) {
+                    case 'red':
+                      capAdvice = `Over-fill — fill weight ${Math.round(fillWeightMg).toLocaleString()} mg exceeds capsule capacity ${capsuleCap} mg (${capsuleUsagePct.toFixed(0)}% utilization). Reduce ingredient mass or select a larger capsule size.`;
+                      break;
+                    case 'amber-high':
+                      capAdvice = `Approaching over-fill — ${capsuleUsagePct.toFixed(0)}% of capsule capacity. May not pack reliably; consider a larger capsule size.`;
+                      break;
+                    case 'green':
+                      capAdvice = `On target — ${capsuleUsagePct.toFixed(0)}% fill density reduces breakage and powder settling.`;
+                      break;
+                    case 'amber-low':
+                      capAdvice = `Low fill — ${capsuleUsagePct.toFixed(0)}% of capsule capacity. Consider a smaller capsule for cleaner presentation and lower cost.`;
+                      break;
+                    case 'grey':
+                      // Empty formulation; no advice needed
+                      break;
                   }
                 }
-                const statusColor = capStatus === 'unrealistic' ? 'text-slate-700 bg-slate-50 border-slate-300'
-                                  : capStatus === 'over' ? 'text-red-700 bg-red-50 border-red-200'
-                                  : capStatus === 'low' ? 'text-amber-700 bg-amber-50 border-amber-200'
-                                  : 'text-emerald-700 bg-emerald-50 border-emerald-200';
+                const statusColor = band === 'red' ? 'text-red-700 bg-red-50 border-red-300'
+                                  : band === 'amber-high' ? 'text-amber-700 bg-amber-50 border-amber-300'
+                                  : band === 'amber-low' ? 'text-amber-700 bg-amber-50 border-amber-200'
+                                  : band === 'green' ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                  : 'text-slate-600 bg-slate-50 border-slate-200';
                 return (
                   <div className="bg-white rounded-xl border border-gray-200 p-6">
                     <div className="flex items-center justify-between mb-4">
