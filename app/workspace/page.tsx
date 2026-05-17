@@ -71,6 +71,20 @@ import { validateServingSizeInput } from '@/lib/servingSize';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
 import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, buildDisclaimers } from '@/lib/supplementClaims';
 import { selectSupplementDisclaimer } from '@/lib/supplementDisclaimer';
+import {
+  type SupplementDeliveryForm,
+  type CapsuleSize,
+  type LastEditedCountField,
+  categorizeDeliveryForm,
+  perUnitWeightSemantics,
+  capsuleCapacityMg,
+  computeFillWeightPerUnit,
+  deriveServings,
+  deriveTotalUnits,
+  reconcileCountInputs,
+  allowedServingUnits,
+  allowedPackageUnits,
+} from '@/lib/servingModel';
 import { checkCompatibility, summarizeCompatibility } from '@/lib/supplementCompatibility';
 import { analyzeNDI } from '@/lib/supplementNDI';
 import { analyzeRetailFit } from '@/lib/supplementRetailFit';
@@ -176,14 +190,36 @@ export default function FormulationWizard() {
     }
   }, [mode, mc.units, servingUnit, packageUnit, newUnit, servingSize, packageSize]);
 
+
   // ----- Supplement-specific dosage model (visible only when mode === 'supplements') --
   // Delivery form controls the noun shown on the Supplement Facts label ("2 Capsules"
-  // vs. "1 Softgel" vs. "1 Scoop"), and unlocks the capsule-size fill-weight calculator.
-  type SupplementDeliveryForm = 'capsule' | 'tablet' | 'softgel' | 'gummy' | 'powder' | 'liquid' | 'lozenge' | 'chewable';
-  type CapsuleSize = '000' | '00' | '0' | '1' | '2' | '3' | '4' | '5';
+  // vs. "1 Softgel" vs. "1 Scoop"), and drives the input model for the
+  // Serving & Package Size card. Round 11 Phase 3 Workstream A.5 #25l
+  // structural fix: count-based forms (capsule/tablet/softgel/gummy/lozenge/
+  // chewable) consume count-based inputs and derive mass; mass-based (powder)
+  // and volume-based (liquid) forms use constrained unit dropdowns.
+  // Types + categorization helpers in lib/servingModel.ts.
   const [suppDeliveryForm, setSuppDeliveryForm] = useState<SupplementDeliveryForm>('capsule');
   const [suppUnitsPerServing, setSuppUnitsPerServing] = useState<number>(2);
   const [suppCapsuleSize, setSuppCapsuleSize] = useState<CapsuleSize>('0');
+  // #25l structural fix state additions (Round 11 Phase 3 Workstream A.5 [5b]):
+  //
+  //   lastEditedCountField  — discriminator for SP6 last-edited-wins
+  //                            reconciliation. When servings changes →
+  //                            'servings'; when totalUnits changes →
+  //                            'totalUnits'. Drives which is canonical when
+  //                            unitsPerServing changes.
+  //   totalUnitsOverride    — operator-supplied totalUnits when editing
+  //                            count-first ("60 capsules in this bottle").
+  //                            Otherwise derived from servings × unitsPerServing.
+  //   suppPerUnitWeightMg   — operator-supplied target per-unit weight in mg
+  //                            for tablet/gummy/lozenge/chewable forms
+  //                            (perUnitWeightSemantics === 'operator-input').
+  //                            Defaults to capsule-size capacity for those
+  //                            forms (500 mg sensible starting point).
+  const [lastEditedCountField, setLastEditedCountField] = useState<LastEditedCountField>(null);
+  const [totalUnitsOverride, setTotalUnitsOverride] = useState<number | null>(null);
+  const [suppPerUnitWeightMg, setSuppPerUnitWeightMg] = useState<number>(500);
   /** Intended audience for the supplement — tightens UL thresholds (pregnancy retinol, pediatric iron, etc.). */
   const [suppAudience, setSuppAudience] = useState<SupplementAudience>('general');
   // ----- Supplement stability / overage conditions ---------------------------
@@ -636,6 +672,76 @@ export default function FormulationWizard() {
   const totalCost = ingredients.reduce((sum, ing) => sum + ((ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000) * (ing.costPerKg || 0), 0);
   const totalWeightKg = ingredients.reduce((sum, ing) => sum + (ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000, 0);
   const totalBatchGrams = totalWeightKg * 1000;
+
+  // ----- #25l count-based form sync (Round 11 Phase 3 Workstream A.5 [5b/N]) ---
+  // For count-based supplement delivery forms (capsule/tablet/softgel/gummy/
+  // lozenge/chewable), the operator inputs count-based values via the new
+  // Serving & Package Size card UI. This effect bridges those count inputs
+  // into the legacy servingSize / servingUnit / packageSize / packageUnit
+  // state so downstream consumers (Supplement Facts panel, cost per serving,
+  // perServing scaling, etc.) continue to work without per-call-site
+  // refactoring.
+  //
+  // Per-unit weight semantics split (SP3):
+  //   • capacity-derived (capsule/softgel) → per-unit mg = totalBatchGrams /
+  //     totalUnits, bounded by capsule shell capacity
+  //   • operator-input (tablet/gummy/lozenge/chewable) → per-unit mg =
+  //     suppPerUnitWeightMg (operator-supplied target weight)
+  //
+  // Effect skips when newly-derived values are zero (empty formulation or
+  // pre-ingredient state) so the legacy default display (2g / 60g) remains
+  // visible until the operator adds ingredients. Effect does NOT depend on
+  // legacy servingSize/Unit/packageSize/Unit to avoid re-running on its own
+  // writes; React's identity check on setState prevents re-render storms.
+  useEffect(() => {
+    if (mode !== 'supplements') return;
+    if (categorizeDeliveryForm(suppDeliveryForm) !== 'count') return;
+
+    const semantics = perUnitWeightSemantics(suppDeliveryForm);
+    // Read current servings from override or fallback to a sensible default.
+    // Can't depend on autoServingsPerContainer (circular dep with servingSize/
+    // packageSize this effect writes to); use the raw override + a 30-servings
+    // fallback for fresh state.
+    const seedServings = servingsPerContainerOverride ?? 30;
+    const seedTotalUnits = totalUnitsOverride ?? deriveTotalUnits(seedServings, suppUnitsPerServing);
+
+    const reconciled = reconcileCountInputs({
+      servings: seedServings,
+      totalUnits: seedTotalUnits,
+      unitsPerServing: suppUnitsPerServing,
+      lastEdited: lastEditedCountField,
+    });
+    const totalUnits = reconciled.totalUnits;
+
+    const perUnitMg = semantics === 'capacity-derived'
+      ? computeFillWeightPerUnit(totalBatchGrams, totalUnits)
+      : suppPerUnitWeightMg;
+
+    const newServingMg = perUnitMg * suppUnitsPerServing;
+    const newPackageG = (perUnitMg * totalUnits) / 1000;
+
+    // Skip sync when derived values are non-meaningful (empty formulation
+    // for capacity-derived forms; bad operator input for input-driven forms).
+    if (newServingMg <= 0 || newPackageG <= 0) return;
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- count-input → mass-state sync
+    setServingSize(newServingMg);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setServingUnit('mg');
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPackageSize(newPackageG);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPackageUnit('g');
+  }, [
+    mode,
+    suppDeliveryForm,
+    suppUnitsPerServing,
+    suppPerUnitWeightMg,
+    servingsPerContainerOverride,
+    totalUnitsOverride,
+    lastEditedCountField,
+    totalBatchGrams,
+  ]);
   const costPerServing = totalWeightKg > 0 ? (totalCost / totalWeightKg) * (servingSizeInGrams / 1000) : 0;
 
   // Packaging cost per retail unit (container + closure/dispenser).
@@ -3753,92 +3859,240 @@ export default function FormulationWizard() {
                 )}
               </div>
 
-              {/* Serving & Package */}
+              {/* Serving & Package Size.
+                  Round 11 Phase 3 Workstream A.5 [5b/N] #25l structural fix:
+                  delivery-form-aware input model. Count-based forms (capsule/
+                  tablet/softgel/gummy/lozenge/chewable) consume count inputs +
+                  per-unit weight; mass shown read-only. Mass/volume forms keep
+                  editable mass/volume inputs with constrained unit dropdowns
+                  (closes the 60M-servings input vector — no mcg for serving
+                  size). F&B mode unchanged. */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Serving & Package Size</h2>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
-                    <div className="flex gap-1">
-                      <input
-                        type="number"
-                        min={0.1}
-                        max={100}
-                        step="any"
-                        value={servingSize}
-                        onChange={(e) => setServingSize(validateServingSizeInput(e.target.value))}
-                        className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
-                      />
-                      <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
-                    </div>
-                    {mode === 'supplements' && (() => {
-                      // Bridge between mass-based serving size and count-based label ("2 Capsules").
-                      // The Delivery Form card owns the count and per-unit noun; this card owns
-                      // the mass used for math. Surface the relationship so it's never ambiguous.
-                      const noun = SUPP_FORM_NOUN[suppDeliveryForm];
-                      const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
-                      const countable = ['capsule', 'tablet', 'softgel', 'gummy', 'lozenge', 'chewable'].includes(suppDeliveryForm);
-                      const massMg = servingSize * (UNIT_TO_GRAMS[servingUnit] || 1) * 1000;
-                      const perUnitMg = suppUnitsPerServing > 0 ? massMg / suppUnitsPerServing : 0;
-                      return (
+                {mode === 'supplements' && categorizeDeliveryForm(suppDeliveryForm) === 'count' ? (
+                  // ─── Count-based supplement form variant ─────────────────
+                  (() => {
+                    const noun = SUPP_FORM_NOUN[suppDeliveryForm];
+                    const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
+                    const semantics = perUnitWeightSemantics(suppDeliveryForm);
+                    // Derive totalUnits via last-edited-wins reconciliation
+                    const reconciled = reconcileCountInputs({
+                      servings: servingsPerContainerOverride ?? autoServingsPerContainer,
+                      totalUnits: totalUnitsOverride ?? 0,
+                      unitsPerServing: suppUnitsPerServing,
+                      lastEdited: lastEditedCountField,
+                    });
+                    const displayServings = reconciled.servings;
+                    const displayTotalUnits = reconciled.totalUnits;
+                    // Per-unit weight: capacity-derived (capsule/softgel) or
+                    // operator-input (tablet/gummy/lozenge/chewable per SP3 split).
+                    const perUnitMg = semantics === 'capacity-derived'
+                      ? computeFillWeightPerUnit(totalBatchGrams, displayTotalUnits)
+                      : suppPerUnitWeightMg;
+                    const derivedServingMassMg = perUnitMg * suppUnitsPerServing;
+                    const derivedPackageMassG = (perUnitMg * displayTotalUnits) / 1000;
+                    return (
+                      <>
+                        <div className="grid grid-cols-3 gap-4">
+                          {/* Servings/Container — operator editable */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="block text-sm font-medium text-gray-600">Servings/Container</label>
+                              {(servingsPerContainerOverride !== null || lastEditedCountField !== null) && (
+                                <button
+                                  onClick={() => {
+                                    setServingsPerContainerOverride(null);
+                                    setTotalUnitsOverride(null);
+                                    setLastEditedCountField(null);
+                                  }}
+                                  className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
+                                  title="Reset to auto-derived values"
+                                >
+                                  ↻ auto
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={displayServings}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (isNaN(v) || v <= 0) {
+                                  setServingsPerContainerOverride(null);
+                                } else {
+                                  setServingsPerContainerOverride(v);
+                                  setLastEditedCountField('servings');
+                                }
+                              }}
+                              className="w-full text-center border border-emerald-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                              How many servings per bottle / pouch / container.
+                            </p>
+                          </div>
+                          {/* Total Units in Package — bidirectional with Servings */}
+                          <div>
+                            <label className="block text-sm font-medium text-gray-600 mb-2">
+                              Total {unitWord} / Container
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={displayTotalUnits}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (isNaN(v) || v <= 0) {
+                                  setTotalUnitsOverride(null);
+                                } else {
+                                  setTotalUnitsOverride(v);
+                                  setLastEditedCountField('totalUnits');
+                                }
+                              }}
+                              className="w-full text-center border border-emerald-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                              Auto-syncs with Servings × Units Per Serving ({suppUnitsPerServing}).
+                            </p>
+                          </div>
+                          {/* Per-Unit Weight — derived for capsule/softgel; operator-input for tablet/gummy/lozenge/chewable */}
+                          <div>
+                            <label className="block text-sm font-medium text-gray-600 mb-2">
+                              Per-{noun.singular} Weight
+                            </label>
+                            {semantics === 'capacity-derived' ? (
+                              <>
+                                <div className="w-full text-center border border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-lg font-bold text-emerald-700">
+                                  {perUnitMg.toFixed(0)} mg
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                                  Derived from formulation ÷ total {unitWord.toLowerCase()}.
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex gap-1">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    value={suppPerUnitWeightMg}
+                                    onChange={(e) => {
+                                      const v = parseFloat(e.target.value);
+                                      if (!isNaN(v) && v > 0) setSuppPerUnitWeightMg(v);
+                                    }}
+                                    className="w-full text-center border border-emerald-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                                  />
+                                  <div className="border border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-sm text-gray-600">mg</div>
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                                  Target {noun.singular.toLowerCase()} weight (die-set / mold).
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {/* Derived mass display — read-only */}
+                        <div className="mt-3 p-2 bg-gray-50 rounded-lg text-xs text-gray-700 leading-relaxed">
+                          <p>
+                            <span className="font-semibold">Label will read:</span>{' '}
+                            <span className="font-mono">&ldquo;{suppUnitsPerServing} {unitWord}&rdquo;</span>
+                            {' '}per serving.
+                          </p>
+                          <p className="mt-0.5">
+                            <span className="font-semibold">Serving Size (mass):</span>{' '}
+                            <span className="font-mono">{derivedServingMassMg.toFixed(0)} mg</span>
+                            <span className="text-gray-400 mx-2">·</span>
+                            <span className="font-semibold">Package Size (mass):</span>{' '}
+                            <span className="font-mono">{derivedPackageMassG.toFixed(2)} g</span>
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-gray-400 italic">
+                            Computed from count inputs + per-unit weight. Serving Size mass is no longer directly editable for {suppDeliveryForm} forms.
+                          </p>
+                        </div>
+                      </>
+                    );
+                  })()
+                ) : (
+                  // ─── Mass-based / volume-based supplement variant + F&B variant ─────
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
+                      <div className="flex gap-1">
+                        <input
+                          type="number"
+                          min={0.1}
+                          max={100}
+                          step="any"
+                          value={servingSize}
+                          onChange={(e) => setServingSize(validateServingSizeInput(e.target.value))}
+                          className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                        />
+                        <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
+                          {/* Round 11 Phase 3 Workstream A.5 [5b/N] (#25l SP7):
+                              constrain unit dropdown to per-form allow-list in
+                              supplement mode. F&B mode preserves the wide mc.units
+                              list. */}
+                          {(mode === 'supplements' ? allowedServingUnits(suppDeliveryForm) : mc.units).map(u => <option key={u}>{u}</option>)}
+                        </select>
+                      </div>
+                      {mode === 'supplements' && (
                         <p className="text-[10px] text-gray-500 mt-1 leading-tight">
-                          {countable ? (
-                            <>
-                              Label will read <span className="font-mono">&ldquo;{suppUnitsPerServing} {unitWord}&rdquo;</span> —
-                              each {noun.singular.toLowerCase()} ≈ <span className="font-mono">{perUnitMg.toFixed(0)} mg</span>.
-                              Adjust <span className="italic">Units Per Serving</span> in the Delivery Form card above.
-                            </>
-                          ) : suppDeliveryForm === 'powder' ? (
+                          {suppDeliveryForm === 'powder' ? (
                             <>Label will read <span className="font-mono">&ldquo;1 Scoop ({servingSize}{servingUnit})&rdquo;</span>.</>
                           ) : suppDeliveryForm === 'liquid' ? (
                             <>Label will read <span className="font-mono">&ldquo;1 Dropper ({servingSize}{servingUnit})&rdquo;</span>.</>
                           ) : null}
                         </p>
-                      );
-                    })()}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-2">Package Size</label>
-                    <div className="flex gap-1">
-                      <input type="number" value={packageSize} onChange={(e) => setPackageSize(Math.max(0.1, parseFloat(e.target.value) || 300))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
-                      <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">{mc.units.map(u => <option key={u}>{u}</option>)}</select>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-gray-600">Servings/Container</label>
-                      {servingsPerContainerOverride !== null && (
-                        <button
-                          onClick={() => setServingsPerContainerOverride(null)}
-                          className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
-                          title={`Reset to auto (${autoServingsPerContainer})`}
-                        >
-                          ↻ auto
-                        </button>
                       )}
                     </div>
-                    <input
-                      type="number"
-                      min={0.1}
-                      step={0.1}
-                      value={servingsPerContainer}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setServingsPerContainerOverride(isNaN(v) || v <= 0 ? null : v);
-                      }}
-                      className={`w-full text-center rounded-lg py-2 text-lg font-bold focus:outline-none focus:border-emerald-500 border ${
-                        servingsPerContainerOverride !== null
-                          ? 'border-emerald-400 text-emerald-700 bg-white'
-                          : 'border-gray-100 bg-gray-50 text-emerald-700'
-                      }`}
-                    />
-                    <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
-                      {servingsPerContainerOverride !== null
-                        ? `Overridden. Auto would be ${autoServingsPerContainer}.`
-                        : 'Auto-calculated from package ÷ serving size. Edit to override.'}
-                    </p>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-2">Package Size</label>
+                      <div className="flex gap-1">
+                        <input type="number" value={packageSize} onChange={(e) => setPackageSize(Math.max(0.1, parseFloat(e.target.value) || 300))} className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500" />
+                        <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
+                          {(mode === 'supplements' ? allowedPackageUnits(suppDeliveryForm) : mc.units).map(u => <option key={u}>{u}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium text-gray-600">Servings/Container</label>
+                        {servingsPerContainerOverride !== null && (
+                          <button
+                            onClick={() => setServingsPerContainerOverride(null)}
+                            className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
+                            title={`Reset to auto (${autoServingsPerContainer})`}
+                          >
+                            ↻ auto
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        min={0.1}
+                        step={0.1}
+                        value={servingsPerContainer}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          setServingsPerContainerOverride(isNaN(v) || v <= 0 ? null : v);
+                        }}
+                        className={`w-full text-center rounded-lg py-2 text-lg font-bold focus:outline-none focus:border-emerald-500 border ${
+                          servingsPerContainerOverride !== null
+                            ? 'border-emerald-400 text-emerald-700 bg-white'
+                            : 'border-gray-100 bg-gray-50 text-emerald-700'
+                        }`}
+                      />
+                      <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
+                        {servingsPerContainerOverride !== null
+                          ? `Overridden. Auto would be ${autoServingsPerContainer}.`
+                          : 'Auto-calculated from package ÷ serving size. Edit to override.'}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* ═══════════════════════════════════════════════════════════
