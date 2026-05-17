@@ -84,6 +84,8 @@ import {
   reconcileCountInputs,
   allowedServingUnits,
   allowedPackageUnits,
+  assessProducibility,
+  type ProducibilityState,
 } from '@/lib/servingModel';
 import { checkCompatibility, summarizeCompatibility } from '@/lib/supplementCompatibility';
 import { analyzeNDI } from '@/lib/supplementNDI';
@@ -3113,6 +3115,53 @@ export default function FormulationWizard() {
               pill('retail', 'Retail Fit',
                    blockedRetailers > 0 ? 'warn' : cautionRetailers > 0 ? 'caution' : 'ok',
                    blockedRetailers > 0 ? `${blockedRetailers} blocked` : cautionRetailers > 0 ? `${cautionRetailers} caution` : 'All channels ready'),
+              // Round 11 Phase 3 Workstream A.5 [5d/N] — Producibility status card
+              // (#25l SP11 closure: Wizard chose Option b — 7th distinct card —
+              // over Option a — adjust existing 6 cards. Reasoning: over-fill is
+              // a manufacturing concern, not a Safety concern; semantic clarity
+              // matters more than visual-surface minimization. Also closes the
+              // "all 6 green on 0g formulation" Quality C visual issue — this
+              // card surfaces 'caution' (Pending) when formulation is not yet
+              // evaluable, so the row no longer reads all-green pre-ingredient.
+              (() => {
+                // Reconcile count inputs for totalUnits (matches Serving &
+                // Package Size card derivation in 5b sync useEffect).
+                const seedServings = servingsPerContainerOverride ?? 30;
+                const seedTotalUnits = totalUnitsOverride ?? deriveTotalUnits(seedServings, suppUnitsPerServing);
+                const reconciled = reconcileCountInputs({
+                  servings: seedServings,
+                  totalUnits: seedTotalUnits,
+                  unitsPerServing: suppUnitsPerServing,
+                  lastEdited: lastEditedCountField,
+                });
+                const prod = assessProducibility({
+                  form: suppDeliveryForm,
+                  totalMassG: totalBatchGrams,
+                  totalUnits: reconciled.totalUnits,
+                  capacityMg: capsuleCapacityMg(suppCapsuleSize),
+                });
+                // Map ProducibilityState → PillTier:
+                //   over-fill   → critical (red; impossible as specified)
+                //   approaching → warn     (orange; 90-100% utilization)
+                //   low-fill    → caution  (amber; cost-optimization advisory)
+                //   unknown     → caution  (amber; pending evaluation)
+                //   producible  → ok       (green; normal range)
+                const stateToTier: Record<ProducibilityState, PillTier> = {
+                  'over-fill':   'critical',
+                  'approaching': 'warn',
+                  'low-fill':    'caution',
+                  'unknown':     'caution',
+                  'producible':  'ok',
+                };
+                const stateToDetail: Record<ProducibilityState, string> = {
+                  'over-fill':   'Over-fill — impossible as specified',
+                  'approaching': 'Approaching over-fill',
+                  'low-fill':    'Low fill — consider smaller capsule',
+                  'unknown':     'Pending — add ingredients',
+                  'producible':  'Producible',
+                };
+                return pill('producibility', 'Producibility', stateToTier[prod.state], stateToDetail[prod.state]);
+              })(),
             ];
 
             const pillClass = (tier: PillTier) =>
