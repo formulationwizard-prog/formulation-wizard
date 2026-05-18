@@ -20,3 +20,13 @@ Read it before proposing entries. Key non-negotiables:
 
 When a directive conflicts with the rulebook, cite the rule, name the conflict, and propose compliant alternatives. Bidirectional verification is the standard, not the exception.
 <!-- END:catalog-authoring -->
+
+<!-- BEGIN:fb-roadmap-pointers -->
+# F&B Roadmap Pointers (Q4 2026+)
+
+Round 11 is Nutraceuticals-focused (August 2026 launch). F&B re-entry begins Q4 2026. The following roadmap artifacts capture strategic framing for F&B work months ahead of implementation — read before proposing work in these domains:
+
+- **[Acidified Foods pH Predictor](docs/roadmap/acidified-foods-ph-predictor.md)** — three-phase plan (F4-A foundation / F4-B predictor / F4-C workspace integration). Anchoring principle: *honest disclaimers protect the regulatory boundary; predictive accuracy improves over time; both compound.* Scientific foundation: Price et al. 2020 + Longtin et al. 2020 (peer-reviewed USDA methodology). Regulatory boundary: 21 CFR 114 acidified-foods classification requires measured equilibrium pH; predictor is screening tool only. Customer data flywheel: predicted/measured pH pairs accumulate into proprietary validation dataset.
+
+The "honest-uncertainty-as-moat" principle articulated in the pH predictor roadmap applies beyond pH prediction — future cross-domain applications (cost estimates, shelf-life, bioavailability, allergen confidence, regulatory-status prediction) can reference the same framing.
+<!-- END:fb-roadmap-pointers -->
