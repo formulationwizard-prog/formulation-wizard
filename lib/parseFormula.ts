@@ -277,11 +277,16 @@ export function rankIngredientMatch(name: string, query: string): number {
 }
 
 /**
- * Round 5 (2026-05-07) — synonym / common-name table for bulk-paste matching.
- * Maps lowercase common names to canonical catalog names. Lets a formulator
- * paste "white vinegar" or "sugar" and get the right catalog entry without
- * tripping the suffix-similarity matching path. Grow this table as customer
- * gaps surface.
+ * Round 5 (2026-05-07) — module-level synonym / common-name table for bulk-
+ * paste matching. Maps lowercase common names to canonical catalog names.
+ * Lets a formulator paste "white vinegar" or "sugar" and get the right
+ * catalog entry without tripping the suffix-similarity matching path.
+ *
+ * NOTE — As of Wave 1.5a (2026-05-17), per-entry `synonyms?: string[]` on
+ * `IndustrialIngredient` is the canonical mechanism for new entries. This
+ * module-level table is the legacy fallback for F&B-era data (sugar, salt,
+ * vinegars, etc.) until those entries are migrated. New synonyms for
+ * catalog entries should go on the entry itself, not here.
  */
 const SYNONYMS: Record<string, string> = {
   'white vinegar':       'Distilled White Vinegar (50 Grain / 5%)',
@@ -296,6 +301,62 @@ const SYNONYMS: Record<string, string> = {
   'apple cider vinegar': 'Apple Cider Vinegar (5%)',
   'acv':                 'Apple Cider Vinegar (5%)',
 };
+
+/**
+ * Normalize a consumer-facing ingredient name to a canonical form suitable
+ * for synonym matching. Established 2026-05-17 (Wave 1.5a) per
+ * docs/architecture/catalog-authoring-rulebook.md §II.8a + §VII (stacks)
+ * Option 1 (parser-side normalization).
+ *
+ * Operator paste reality: real ingredient lists from manufacturers, COAs,
+ * and operator memory show wide variation —
+ *   "Folate" / "folate" / "FOLATE" / "Folic Acid" / "folic-acid" /
+ *   "Folic Acid (synthetic)" / "Folic acid, synthetic" — all the same.
+ *
+ * This function normalizes ALL of those to a canonical key
+ * ("folate" or "folic acid") so a single small synonyms array on the
+ * catalog entry covers every realistic variant without per-variant
+ * enumeration.
+ *
+ * Normalization steps:
+ *   1. Lowercase
+ *   2. Strip parenthetical qualifiers — "(synthetic)" / "(usp)" disappear
+ *   3. Map dashes and slashes to spaces — "5-HTP" → "5 htp", "B-1/2" → "b 1 2"
+ *   4. Strip punctuation — commas, periods, colons, semicolons, etc.
+ *   5. Collapse whitespace + trim
+ *
+ * Apply to BOTH operator input AND each synonym in the entry's array.
+ * Match is then exact string equality after normalization on both sides.
+ */
+export function normalizeIngredientName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, '')         // strip parenthetical qualifiers
+    .replace(/[-/]/g, ' ')             // dashes/slashes → spaces
+    .replace(/[.,!?;:"'`]/g, '')       // strip punctuation
+    .replace(/\s+/g, ' ')              // collapse whitespace
+    .trim();
+}
+
+/**
+ * Find a catalog entry whose `synonyms` field contains the normalized
+ * query. Returns the FIRST match by db iteration order; expect the catalog
+ * to maintain unique normalized synonyms (otherwise the result is
+ * deterministic but arbitrary). Tests should catch synonym collisions.
+ */
+export function findBySynonym(query: string, db: IndustrialIngredient[]): IndustrialIngredient | null {
+  const normalizedQuery = normalizeIngredientName(query);
+  if (!normalizedQuery) return null;
+  for (const item of db) {
+    if (!item.synonyms || item.synonyms.length === 0) continue;
+    for (const syn of item.synonyms) {
+      if (normalizeIngredientName(syn) === normalizedQuery) {
+        return item;
+      }
+    }
+  }
+  return null;
+}
 
 /** Strip the trailing parens-qualifier from a catalog name. Same regex as
  *  lib/ingredientStatement.ts; kept inline here to avoid the cross-module
@@ -349,6 +410,16 @@ export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]):
   const exact = db.find(i => i.name.toLowerCase() === lower);
   if (exact) return { item: exact, tier: 1 };
 
+  // ─── Tier 1: per-entry synonyms match (Wave 1.5a, 2026-05-17) ─────
+  // Normalize both the query and each synonym via normalizeIngredientName
+  // (lowercase + strip parens/punctuation/dashes/whitespace) so a single
+  // small synonyms array on the entry covers realistic variant explosions
+  // without per-variant enumeration. Authored synonyms are a high-confidence
+  // claim by us; this match is Tier 1, on par with the catalog-name exact
+  // match. Rulebook §II.8a + §IX.40 checklist item 16 govern.
+  const synonymMatch = findBySynonym(name, db);
+  if (synonymMatch) return { item: synonymMatch, tier: 1 };
+
   // ─── Tier 1: exact match on a single-item sub-ingredient statement ─
   // ("Honey (Industrial Grade)" with subIngredients=['Honey'] → match for input "Honey")
   for (const i of db) {
@@ -358,11 +429,14 @@ export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]):
     }
   }
 
-  // ─── Tier 2: synonym table ────────────────────────────────────────
+  // ─── Tier 2: legacy module-level synonym table ────────────────────
+  // Fallback for F&B-era ingredients (sugar, salt, vinegars) where the
+  // synonym lives in the module-level SYNONYMS map rather than on the
+  // entry. New catalog work (Wave 1.5+) uses per-entry synonyms above.
   const syn = SYNONYMS[lower];
   if (syn) {
     const item = db.find(i => i.name === syn);
-    if (item) return { item, tier: 2, reason: 'common-name synonym' };
+    if (item) return { item, tier: 2, reason: 'legacy module-level synonym' };
   }
 
   // ─── Tier 2: stripped-name match ──────────────────────────────────

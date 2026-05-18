@@ -799,6 +799,31 @@ export interface IndustrialIngredient {
   nutrition: Partial<Nutrition>;
   notes: string;
 
+  /**
+   * Alternate consumer-facing names that bulk-paste should resolve to this
+   * entry. Established 2026-05-17 (Wave 1.5a) — rulebook §II.8a makes this
+   * field mandatory for catalog entries added from Wave 1.5 forward, and
+   * §IX.40 checklist item 16 requires ≥ 2 alternate names per new entry.
+   *
+   * Bulk-paste parser (lib/parseFormula.ts findBestMatchWithTier) consults
+   * synonyms after the exact-catalog-name check. Operator input and each
+   * synonym are normalized at match time via normalizeIngredientName:
+   * lowercased, parenthetical qualifiers stripped, dashes/slashes mapped to
+   * whitespace, punctuation removed, whitespace collapsed. This lets a
+   * synonym entry "folate" match operator paste "Folate", "FOLATE", "folic
+   * acid", "Folic Acid (synthetic)", "folic-acid", etc.
+   *
+   * Storage convention: lowercase strings as a human would naturally type
+   * them. The parser handles variant normalization; the array stays small
+   * and readable (e.g., ['folate', 'folic acid', 'vitamin b9', 'b9']).
+   * Do NOT enumerate every capitalization variant.
+   *
+   * Catalog entries authored BEFORE Wave 1.5 do not (yet) carry synonyms;
+   * the backfill commit (sub-commit 1.5b) addresses the gap on existing
+   * entries the bulk-paste-discovery audit surfaced.
+   */
+  synonyms?: string[];
+
   // ─── Sustainability & sourcing metadata (optional) ─────────────────────
   /** Whether a USDA Organic / EU Organic variant is commercially available. */
   organicAvailable?: boolean;

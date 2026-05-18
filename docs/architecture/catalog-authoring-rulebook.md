@@ -150,10 +150,55 @@ Example: operator says "add MitoQ (Mitoquinone Mesylate) urgently because it's t
 | Excipients | `function` (binder/disintegrant/flow agent/lubricant/etc.), `typicalUsagePct`, `compatibilityWarnings` |
 
 **Optional but valuable on every entry:**
-- `synonyms[]` (alternate names for bulk-paste fuzzy match — see §IX.43)
 - `sustainabilityNotes` (carbon, water, sourcing geography)
 - `priceHistory` (last 4 quarterly snapshots if available)
 - `versionHistory[]` (entry-level changelog)
+
+## 8a. Synonyms — REQUIRED from Wave 1.5 forward
+
+**The Rule:** Every catalog entry authored from Wave 1.5 (2026-05-17) forward MUST carry a `synonyms?: string[]` field with at least 2 alternate consumer-facing names. Pre-Wave-1.5 entries get synonyms added during the Wave 1.5b backfill commit.
+
+**Why this is mandatory (not optional):** The original "optional but valuable" framing was the structural weakness that produced the bulk-paste matchability gap surfaced 2026-05-17. Operators paste natural names ("Folate 400 mcg") that don't match formal SKU names ("Vitamin B9 (Folic Acid USP)") via substring. Without synonyms the entry is unreachable from realistic operator workflows — equivalent to not being in the catalog at all.
+
+**Schema:** `synonyms?: string[]` on `IndustrialIngredient` (types/index.ts).
+
+**Storage convention:** lowercase strings as a human would naturally type them. The bulk-paste parser handles variant normalization via `normalizeIngredientName` (lib/parseFormula.ts):
+- Lowercases input
+- Strips parenthetical qualifiers — `(synthetic)` / `(USP)` disappear
+- Maps dashes and slashes to spaces — `5-HTP` → `5 htp`, `B-1/2` → `b 1 2`
+- Strips punctuation (commas, periods, colons, etc.)
+- Collapses whitespace and trims
+
+This means the synonyms array stays small and human-readable; the parser handles the explosion of operator-typed variants. Do NOT enumerate every capitalization variant.
+
+### ✅ DO (Wave 1.5+ pattern)
+
+```typescript
+{
+  name: 'Vitamin B9 (Folic Acid USP)',
+  // ... other fields ...
+  synonyms: ['folate', 'folic acid', 'vitamin b9', 'b9'],
+}
+// Bulk-paste matches all of: "Folate", "FOLATE", "folic acid",
+// "Folic Acid (synthetic)", "Folic-Acid, USP", "Vitamin B9", "B9", etc.
+```
+
+### ❌ DON'T
+
+```typescript
+synonyms: ['Folate', 'FOLATE', 'folate', 'Folic Acid', 'folic acid', 'FOLIC ACID']
+// Capitalization variants — normalization handles this. Bloat without value.
+
+synonyms: ['vitamin b9']
+// Single synonym — violates §IX.40 item 16 (≥ 2 alternate names).
+
+synonyms: ['folate', 'folate']
+// Duplicates — synonym collisions break deterministic matching.
+```
+
+**Matching contract:** Per-entry synonyms resolve at **Tier 1** in the bulk-paste matcher (authored synonyms are a high-confidence claim by us about which natural names map here). The legacy module-level `SYNONYMS` table in lib/parseFormula.ts remains as a fallback for F&B-era data (sugar, salt, vinegars) and resolves at Tier 2.
+
+**Collision discipline:** No two entries may share a normalized synonym. Tests should assert this on every catalog change. Surface collisions as a build-time error, not runtime.
 
 ## 9. Naming Convention (with counter-examples)
 
@@ -780,9 +825,35 @@ Below 30% match: no surface (avoid false positives on niche formulations).
 | **Wave 5** | Q4 2026 | Athletic / pre-workout / recovery (~40 entries) | ⏳ Pending |
 | **Wave 6** | Q1 2027 (post-launch) | Long-tail + emerging trends + multi-jurisdiction encoding | ⏳ Post-launch |
 
-## 38. Wave 1.5 — Today's Gap Closure (NEW)
+## 38a. Pre-Authoring Catalog State Verification (NEW — added 2026-05-17 from Wave 1.5a stress-test)
+
+**The Rule:** Before drafting any catalog entry, grep `lib/data/supplements.ts` for the proposed display name AND common synonyms. If a substantially-equivalent entry exists, the work is **matchability fix** (Cat 1 — add synonyms to the existing entry, do not author a duplicate), not **new entry** (Cat 2).
+
+**Why this rule exists:** Wave 1.5 was originally framed as "15 missing catalog entries." Pre-flight verification at entry #1 revealed 8 of 15 were already in the catalog under formal SKU names that the bulk-paste parser couldn't reach from natural consumer names. Without this verification, Claude would have authored 8 duplicate entries — same ingredient represented twice, with downstream drift risk between the two versions (same shape as the legacy detectAllergens two-sources-of-truth bug). The 30-second grep check catches it; "I'll add a new entry for X" without verification is the anti-pattern.
+
+**Discipline pattern:** catalog-state verification before catalog authoring is the same discipline as code-trace verification before code authoring. Both are pre-flight checks against assumption drift.
+
+**Concrete check (every entry, every commit):**
+
+```bash
+# Before authoring "Folate (Folic Acid USP)":
+grep -i "folate\|folic acid\|vitamin b9\|b9" lib/data/supplements.ts
+# If results found → matchability fix (add synonyms to existing).
+# If nothing → new entry (proceed to §IX.40 checklist).
+```
+
+**Outcomes:**
+- **Existing entry found** → Cat 1: add `synonyms[]` to existing entry, write bulk-paste resolution tests asserting the natural names now match. Do NOT author a parallel entry.
+- **No equivalent entry** → Cat 2: proceed to §IX.40 16-item pre-commit checklist.
+
+## 38. Wave 1.5 — Today's Gap Closure
 
 **Inserted between Wave 2 Phase 1 (complete) and Wave 2 Phase 2 (in progress).** Closes operator-visible S1 gaps from 2026-05-17 verification round. Estimated ~15 entries.
+
+**Authoring sequence (per §38a discovery):**
+- **Wave 1.5a** — architectural: `synonyms?: string[]` schema field + `parsePastedFormula` synonym matching + rulebook revisions (§II.8a + §VIII.38a + §IX.40 item 16). One-time investment unlocks ~400 existing entries.
+- **Wave 1.5b** — Cat 1 backfill: add `synonyms[]` to the 8 existing entries (Folate / Methylfolate ×2 / B5 / Melatonin / Alpha-GPC / CDP-Choline / Phosphatidylcholine) with bulk-paste resolution tests.
+- **Wave 1.5c** — Cat 2 new entries: 7 truly-missing ingredients (Biotin / Caffeine Anhydrous / Caffeine Green Tea / Melatonin Time-Release / St. John's Wort / Garlic Extract / Choline Bitartrate / Magtein) through the full §IX.40 16-item checklist.
 
 ### Contents (S1-priority, blocking operator workflows)
 
@@ -826,6 +897,8 @@ If a schema change is needed mid-wave, **pause the wave**, apply the schema chan
 ## 40. Pre-Commit Checklist (every catalog entry passes before merge)
 
 ```
+□  Pre-authoring catalog state verification done (§38a grep check) —
+   confirms entry is Cat 2 (new), not Cat 1 (matchability fix on existing entry)
 □  Display name follows §II.9 convention (Common Name (Form, Supplier, Standardization))
 □  Display name does NOT include Class-3 buyer-requirement claims (vegan/non-GMO/etc.)
 □  Category matches §III.15 taxonomy
@@ -836,7 +909,10 @@ If a schema change is needed mid-wave, **pause the wave**, apply the schema chan
 □  PotencyFactor + ElementalFactor accurate (§II.10) — chemistry-derived for minerals, supplier-COA for carriers
 □  Functional-role tags dosage-substantiated at typical use (§II.12)
 □  Nutrition / bioactives consistent for same compound (§II.13)
-□  Three tests authored per §VI.29 (bulk-paste, SFP render, safety-engine)
+□  `synonyms[]` populated with ≥ 2 alternate consumer-facing names per §II.8a;
+   no normalized-form collisions with other catalog entries
+□  Three tests authored per §VI.29 (bulk-paste, SFP render, safety-engine);
+   the bulk-paste test asserts ≥ 1 synonym resolves to this entry at Tier 1
 □  Stack membership assigned (mustHave / commonCompanion / optional) for at least one §VII.34 named stack
 □  Trend source + severity tier (S1-S4) documented in commit message
 □  Companion ingredients (per §IV.22 wave-sizing rule) evaluated; added in same commit if missing
