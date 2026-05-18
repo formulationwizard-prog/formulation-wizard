@@ -68,6 +68,7 @@ import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV } from
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
 import { computePerServingScale } from '@/lib/supplementMath';
 import { validateServingSizeInput } from '@/lib/servingSize';
+import { formatMassDisplay } from '@/lib/formatMass';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
 import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, buildDisclaimers } from '@/lib/supplementClaims';
 import { selectSupplementDisclaimer } from '@/lib/supplementDisclaimer';
@@ -78,7 +79,6 @@ import {
   categorizeDeliveryForm,
   perUnitWeightSemantics,
   capsuleCapacityMg,
-  computeFillWeightPerUnit,
   utilizationBand,
   deriveTotalUnits,
   reconcileCountInputs,
@@ -736,11 +736,28 @@ export default function FormulationWizard() {
     });
     const totalUnits = reconciled.totalUnits;
 
+    // Per-serving entry semantics (locked-in supplements contract — see
+    // supplementMath.test.ts T1A/T1C). Each ingredient row IS a per-
+    // serving dose, so `totalBatchGrams` (sum of row masses) is the
+    // per-serving total. Round 11 Phase 3 post-A.5 follow-up (2026-05-
+    // 17): prior implementation derived per-unit fill as totalBatchGrams
+    // / totalUnits — treating the formulation sum as a full-batch total
+    // and under-stating per-cap fill by a factor of servings. Operator-
+    // side Formula 1-4 testing surfaced the resulting "Low fill 2%"
+    // advisories on realistic supplement formulations.
+    const perServingMg = totalBatchGrams * 1000;
+
+    // SP3 split — capacity-derived for capsule/softgel (per-unit fill =
+    // formulation actives / units-per-serving), operator-input for
+    // tablet/gummy/lozenge/chewable (die-set / mold target; any gap
+    // between actives and target is implicit filler).
     const perUnitMg = semantics === 'capacity-derived'
-      ? computeFillWeightPerUnit(totalBatchGrams, totalUnits)
+      ? (suppUnitsPerServing > 0 ? perServingMg / suppUnitsPerServing : 0)
       : suppPerUnitWeightMg;
 
-    const newServingMg = perUnitMg * suppUnitsPerServing;
+    const newServingMg = semantics === 'capacity-derived'
+      ? perServingMg
+      : suppPerUnitWeightMg * suppUnitsPerServing;
     const newPackageG = (perUnitMg * totalUnits) / 1000;
 
     // Skip sync when derived values are non-meaningful (empty formulation
@@ -3169,10 +3186,19 @@ export default function FormulationWizard() {
                   unitsPerServing: suppUnitsPerServing,
                   lastEdited: lastEditedCountField,
                 });
+                // Round 11 Phase 3 post-A.5 follow-up (2026-05-17) — Bug #9.
+                // Pass `unitsPerServing` instead of `reconciled.totalUnits`
+                // so per-unit fill weight computes correctly under the
+                // locked-in per-serving entry model (rulebook §II.11
+                // label-claim vs ingredient-mass doctrine). Operator-side
+                // Test 2b surfaced this: card showed 74% green "On target"
+                // while the status pill rendered "Low fill" (~1%) because
+                // assessProducibility was dividing per-serving total by
+                // batch-total-unit-count instead of per-serving-unit-count.
                 const prod = assessProducibility({
                   form: suppDeliveryForm,
                   totalMassG: totalBatchGrams,
-                  totalUnits: reconciled.totalUnits,
+                  totalUnits: suppUnitsPerServing,
                   capacityMg: capsuleCapacityMg(suppCapsuleSize),
                 });
                 // Map ProducibilityState → PillTier:
@@ -3995,12 +4021,26 @@ export default function FormulationWizard() {
                       : { servings: 0, totalUnits: 0 };
                     const displayServings = reconciled.servings;
                     const displayTotalUnits = reconciled.totalUnits;
-                    // Per-unit weight: capacity-derived (capsule/softgel) or
-                    // operator-input (tablet/gummy/lozenge/chewable per SP3 split).
+                    // Per-unit weight + derived mass — Round 11 Phase 3 post-A.5
+                    // follow-up (2026-05-17). Ingredient entries are per-serving
+                    // doses (locked-in supplements contract), so totalBatchGrams
+                    // is the per-serving total in grams.
+                    //
+                    // SP3 split:
+                    //  • capacity-derived (capsule/softgel): per-unit fill =
+                    //    per-serving actives ÷ units-per-serving. Total per
+                    //    serving = formulation sum.
+                    //  • operator-input (tablet/gummy/lozenge/chewable): per-unit
+                    //    weight is operator's die-set / mold target. Per-serving
+                    //    total = target × units-per-serving (any gap between
+                    //    actives and target is implicit filler).
+                    const perServingMgFromFormulation = totalBatchGrams * 1000;
                     const perUnitMg = semantics === 'capacity-derived'
-                      ? computeFillWeightPerUnit(totalBatchGrams, displayTotalUnits)
+                      ? (suppUnitsPerServing > 0 ? perServingMgFromFormulation / suppUnitsPerServing : 0)
                       : suppPerUnitWeightMg;
-                    const derivedServingMassMg = perUnitMg * suppUnitsPerServing;
+                    const derivedServingMassMg = semantics === 'capacity-derived'
+                      ? perServingMgFromFormulation
+                      : suppPerUnitWeightMg * suppUnitsPerServing;
                     const derivedPackageMassG = (perUnitMg * displayTotalUnits) / 1000;
                     return (
                       <>
@@ -4076,7 +4116,7 @@ export default function FormulationWizard() {
                             {semantics === 'capacity-derived' ? (
                               <>
                                 <div className="w-full text-center border border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-lg font-bold text-emerald-700">
-                                  {perUnitMg.toFixed(0)} mg
+                                  {formatMassDisplay(perUnitMg)}
                                 </div>
                                 <p className="text-[10px] text-gray-500 mt-1 leading-tight">
                                   Derived from formulation ÷ total {unitWord.toLowerCase()}.
@@ -4114,7 +4154,7 @@ export default function FormulationWizard() {
                           </p>
                           <p className="mt-0.5">
                             <span className="font-semibold">Serving Size (mass):</span>{' '}
-                            <span className="font-mono">{derivedServingMassMg.toFixed(0)} mg</span>
+                            <span className="font-mono">{formatMassDisplay(derivedServingMassMg)}</span>
                             <span className="text-gray-400 mx-2">·</span>
                             <span className="font-semibold">Package Size (mass):</span>{' '}
                             <span className="font-mono">{derivedPackageMassG.toFixed(2)} g</span>
@@ -4352,7 +4392,7 @@ export default function FormulationWizard() {
                         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
                           <div>
                             <div className="text-[10px] uppercase tracking-wide opacity-70">Fill Weight / unit</div>
-                            <div className="font-bold text-lg">{fillWeightMg.toFixed(0)} mg</div>
+                            <div className="font-bold text-lg">{formatMassDisplay(fillWeightMg)}</div>
                           </div>
                           <div>
                             <div className="text-[10px] uppercase tracking-wide opacity-70">Capsule capacity</div>
@@ -5560,6 +5600,7 @@ export default function FormulationWizard() {
                   const sfpDsheaDisclaimer = selectSupplementDisclaimer(sfpClaimCount);
                   const facts = buildSupplementFacts({
                     ingredients,
+                    mode,
                     servingSizeInGrams,
                     totalBatchGrams,
                     servingsPerContainer,
@@ -6098,6 +6139,7 @@ export default function FormulationWizard() {
                 // Reuse the supplement-facts data for vitamin/mineral rows
                 const facts = buildSupplementFacts({
                   ingredients,
+                  mode,
                   servingSizeInGrams,
                   totalBatchGrams,
                   servingsPerContainer,
@@ -6553,7 +6595,13 @@ export default function FormulationWizard() {
                   stays true through expiry — 21 CFR 101.36(b)(3)(iv).
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && ingredients.length > 0 && (() => {
-                const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+                // Per-serving scaling via shared helper. Round 11 Phase 3
+                // post-A.5 follow-up (2026-05-17): site #5 of the Round 11
+                // pre-flight audit's 5-replicated-locations cleanup. Prior
+                // code applied raw F&B ratio in supplements mode — produced
+                // wrong overage projections (under-stated by factor of
+                // servings). All 5 sites now route through the helper.
+                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
                 const perServingMgByName = new Map<string, number>();
                 for (const ing of ingredients) {
                   const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);

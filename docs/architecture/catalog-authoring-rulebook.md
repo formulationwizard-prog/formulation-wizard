@@ -1,0 +1,1024 @@
+# Catalog Authoring Rulebook
+
+**Status:** Living constitution for `lib/data/supplements.ts` and adjacent catalog data layers.
+**Authority:** Governs Claude's authoring proposals + the human operator's accept/reject calls.
+**Established:** 2026-05-17 (Round 11 Phase 3 post-A.5; born from operator-side Test 1–4 verification surfacing 7 catalog gaps, 4 code bugs, 1 UX gap in one session).
+**Audience:** Claude (catalog-authoring agent) primary; human operator (Wizard) secondary; downstream regulatory inspectors tertiary.
+**Review cadence:** Quarterly. Drift-watch trigger: any new catalog category, any new harm-critical field, any FDA enforcement action on an ingredient class we carry.
+
+---
+
+## How to use this document
+
+When you (Claude) propose a catalog entry, edit, or category change, **every rule below applies**. When a rule conflicts with another, follow the precedence ladder in §I.7. When you can't satisfy a rule, **stop and surface the gap** to the operator — don't paper over it with an estimate.
+
+When the human operator gives a directive that would violate a rule, **push back with the rule cited** and propose a compliant alternative. The discipline note: directives are not absolute commands; they're inputs the rulebook gates [[feedback_bidirectional_verification]].
+
+---
+
+# Part I — Foundations
+
+## 1. Mission & Non-Goals
+
+### Mission
+Be the single source of truth for dietary-supplement ingredient data backing the Formulation Wizard workspace. Every per-ingredient claim the workspace makes downstream — Supplement Facts Panel rendering, Safety / UL gate, Stability projection, NDI compliance, Cost rollup, Compatibility findings, Claims validator, Retail Fit, Producibility — pulls from this catalog. The catalog's correctness is the product's correctness.
+
+### Non-Goals
+- **Not a regulatory determination engine.** The catalog encodes what's known; the determination engine + qualified PA reviewer make the legal call.
+- **Not a clinical evidence library.** We cite primary sources; we don't reproduce monographs. The bar is "enough to make defensible workspace decisions," not "exhaustive clinical review."
+- **Not a supplier directory.** Supplier names appear on SKU-specific entries; we don't endorse, rank, or recommend.
+- **Not a marketing claim library.** Functional-role tags are dosage-substantiated [[feedback_dosage_substantiation_rule]], not aspirational.
+- **Not a recipe book.** Stacks are predictability patterns (§VII), not formulation recommendations to operators.
+
+## 2. Authorities & Citation Hierarchy
+
+Every load-bearing field on every entry must be traceable to a citation. The authority hierarchy resolves disputes:
+
+| Tier | Authority | Examples | Used for |
+|---|---|---|---|
+| 1 | **US Federal regulation** | 21 CFR 111 (cGMP), 21 CFR 101.36 (Supplement Facts), DSHEA §403(r)(6), FDA NDI database, FDA Import Alerts | Regulatory status, label requirements, banned/restricted, NDI |
+| 2 | **US Federal scientific authority** | IOM/NAM Dietary Reference Intakes (DRI), FDA Daily Value (DV) Tables, NIH ODS factsheets, USP Dietary Supplements Compendium (DSC) monographs | UL values, RDA/AI, identity testing, purity specs |
+| 3 | **International authority** | EFSA opinions, WHO/JECFA, ICH Q1A (stability), Codex Alimentarius | Stability projections, cross-jurisdiction reference |
+| 4 | **Independent third-party** | NSF International, USP Verified, Informed Sport, GOED (Omega-3) | Quality certification thresholds, oxidation limits, athlete-safe ingredients |
+| 5 | **Peer-reviewed clinical literature** | PubMed-indexed, ≥ 2 independent trials, n ≥ 30 per arm | Typical-use doses, clinical thresholds (e.g., B6 neuropathy at 50 mg) |
+| 6 | **Supplier Certificate of Analysis (COA)** | DSM, Lonza, Balchem, Indena, Schwabe specs | Potency factors, standardization, allergens (must verify against Tier 1–5 when possible) |
+| 7 | **Industry consensus** | NBJ, CRN guidance, Examine.com evidence grading, ConsumerLab | Tie-breaker only; never load-bearing alone |
+
+**Citation format on every entry:** `citation: { authority: 'IOM (NAM)', source: 'DRI 2001, Table 3-1', tier: 2 }`. Keep `source` short enough to fit a workspace UI tooltip (≤ 80 chars).
+
+**90% rule:** at least 90% of entries must cite Tier 1–4. Tier 6 alone is acceptable only for supplier-spec fields (potencyFactor, standardization) that have no public-authority equivalent.
+
+## 3. Three-Class Value Taxonomy applied to catalog fields
+
+Every rendered value classifies into one of four classes [[feedback_three_class_value_taxonomy]]. Catalog fields inherit the class semantics of their downstream consumer:
+
+| Class | Examples in catalog | Rendering primitive |
+|---|---|---|
+| **1a — Numeric, range-supported** | `ul`, `dv`, `potencyFactor`, `elementalFactor`, `costPerKg`, `density`, `stabilityHalfLife` | Numeric with ± confidence interval |
+| **1b — State / categorical** | `category`, `regulatoryStatus`, `tier (1/2/3 supplier licensing)`, `deliveryForm`, `confidenceLevel` | Enum chip / pill |
+| **2 — Reference** | `citation.source`, `supplierName`, `pubMedIds` | Hyperlink / external pointer |
+| **3 — Buyer requirements** | `isVegan`, `isHalal`, `isKosher`, `isOrganic`, `isAllergenFree (FALCPA)` | Boolean badge with COA-verification status |
+
+**Class drives confidence rendering.** Never paint a Class-1a value without its range. Never paint a Class-3 value without its COA-verification flag.
+
+## 4. Confidence Levels
+
+Five levels, in increasing certainty:
+
+| Level | When to use | UI rendering |
+|---|---|---|
+| **Verified-Lab** | Internal or third-party lab analysis run against this specific SKU within the last 12 months | Green check, no ± |
+| **Verified-Supplier-COA** | Current supplier COA cited within last 12 months; supplier has cGMP audit | Green check, supplier name |
+| **Estimated** | Computed from Tier 1–4 authority for a generic form; no SKU-specific data | Amber ~ symbol, ± range |
+| **Inferred** | Computed from chemistry / cross-reference / industry consensus | Amber ~ symbol, wider ± range |
+| **Undocumented** | No data; field is blank or default | Red ⚠ icon, "Not yet investigated" |
+
+**Default for harm-critical fields = Undocumented.** Never default to a "safe-looking" zero or null when the meaning would be "no concerns documented." See §I.5.
+
+**Required UI consequence:** the workspace's Determination Engine and Safety card both consume `confidenceLevel`. An entry with Undocumented allergens contributes to a "spec coverage <70%" warning [[project_honest_estimate_reframe]].
+
+## 5. Harm-Critical Floor (NEVER OVERRIDE)
+
+Four fields where an empty/null/missing value MUST be interpreted as **UNDOCUMENTED, not VERIFIED-SAFE** [[feedback_harm_critical_fields_default_undocumented]]:
+
+| Field | Meaning of empty | Required action |
+|---|---|---|
+| `allergens` | Not yet investigated — operator must verify via COA | Workspace blocks "no major allergens" rendering until either (a) populated with a list or (b) explicitly marked `allergensInvestigated: true, allergensFound: []` |
+| `drugInteractions` | Not yet investigated — could carry serious risk | Safety card renders Inferred-with-caveat; no green check |
+| `regulatoryStatus.US` | Cannot infer DSHEA-grandfathered status — likely NDI or novel | Determination Engine routes to PA verification queue |
+| `ndiStatus` | Pre-1994 status unknown — must investigate FDA NDI database | NDI Compliance Check renders amber-warn, not green |
+
+**This is non-negotiable.** A single "VERIFIED-SAFE" rendering on an UNDOCUMENTED field is a silent-failure pathway to harm. The catalog's job is to never let that happen.
+
+## 6. World-Class Quality Benchmarks (measurable bar)
+
+| Benchmark | Measurement | Target |
+|---|---|---|
+| **USP DSC parity** | % of entries whose `name`, `category`, `potencyFactor`, `elementalFactor`, `identitySpec` match a published USP DSC monograph (where one exists) | ≥ 95% match (allowed deviation: SKU-specific potency-factor adjustments) |
+| **NSF cross-check** | % of athletic / sport-relevant entries that cross-check against NSF Certified for Sport ingredient list | 100% (no ingredient flagged by NSF as banned/restricted may be present without explicit `bannedForAthletic: true` flag) |
+| **Examine.com evidence-grade parity** | % of functional-role-tagged entries whose tagged role matches Examine's evidence grade (B or higher) for that effect at typical-use dose | ≥ 80% (rest go to PA queue for evidence-review) |
+| **Tier-1–4 citation rate** | % of entries citing US Federal regulation, US Federal scientific authority, international authority, or independent third-party | ≥ 90% |
+| **Operator bulk-paste resolution** | % of ingredients in the top-100 most-pasted competitor labels (per quarterly competitor methodology, §IV.21) that resolve via bulk-paste | ≥ 95% by August 2026 |
+| **Test coverage** | % of entries with at least one bulk-paste resolution test + one SFP rendering test in `lib/__tests__/` | 100% (gating: §VI) |
+
+These are the ground-truth quality metrics. They are checked on every catalog PR via a CI report (to be built — currently manual). "Comprehensive" is not enough; "passes the bar" is what matters.
+
+## 7. Conflict Resolution Hierarchy
+
+When two rules clash, resolve in this order:
+
+1. **Harm-Critical Floor (§I.5)** — never overridden. If a rule says "fill in allergens to enable claim X," but COA hasn't arrived, the answer is "no claim X, regardless of business pressure."
+2. **Authority Hierarchy (§I.2)** — higher-tier authority wins. USP DSC monograph beats supplier COA. Supplier COA beats consensus.
+3. **Operator-blocking severity (§IV.20, S1 > S2 > S3 > S4)** — when two valid additions compete for priority, prioritize the one blocking the most operator workflows.
+4. **Trend signals (§IV.19)** — last tie-breaker. Trending NEVER overrides harm-critical or authority. Trending DOES move priority within the same authority tier.
+5. **Operator preference / brand fit** — last-mile customization. Within compliance.
+
+Example: operator says "add MitoQ (Mitoquinone Mesylate) urgently because it's trending on TikTok."
+- Tier 1: harm-critical? MitoQ has limited human-safety data above 80 mg/day → caution flag. No outright ban.
+- Tier 2: authority? Tier-5 evidence (small clinical studies). Tier-2 silent. Tier-3 silent.
+- Tier 3: operator-blocking? Not in top-100 paste-list — S3 trend signal, not S1.
+- Tier 4: trending? Yes, social media surging.
+- Resolution: **add with Confidence-Inferred + PA-verification queue entry for pre-launch evidence review**. Don't commit as Verified-anything. Don't tag with functional roles until evidence improves.
+
+---
+
+# Part II — Entry Schema
+
+## 8. Required vs Optional Fields (per category)
+
+**Universal required (every entry):**
+- `name` (display name, see §II.9)
+- `category` (one of the §III.15 taxonomy)
+- `tier` (Class 1b — see §III.16: value / premium / specialty)
+- `confidenceLevel` (§I.4)
+- `citation` (at least one, §I.2)
+- `regulatoryStatus.US` (Class 1b enum)
+- `lastReviewedDate` + `reviewedBy`
+
+**Required per-category (additional):**
+
+| Category | Additional required |
+|---|---|
+| Vitamins | `dv` (Daily Value), `unit` (mg / mcg / IU), `dvKeyword` (lowercase phrase for findDVEntry — see §II.9 naming + §IX.41 anti-pattern), `potencyFactor` for carrier-loaded SKUs, `ul` if Tier-1 authority publishes one |
+| Minerals | `elementalFactor` (% elemental mass), `dv`, `unit`, `dvKeyword`, `ul`, `formNotes` (chelate vs salt vs oxide implications) |
+| Amino Acids | `optimalDose` range, `bioavailabilityNotes`, `commonPairings` |
+| Herbal Extracts | `latinName` (genus species), `partUsed` (root/leaf/seed/etc.), `standardizationMarker` ("X% Y-compound"), `extractionMethod` (CO₂, water, ethanol, etc.), `interactionFlags`, `pregnancyContraindicated`, `latinNameVerified` (boolean) |
+| Mushroom Extracts | Same as Herbal + `betaGlucanContent`, `mushroomFruitingBodyVsMycelium` |
+| Probiotics | `strainId` (genus + species + strain code, e.g., "Lactobacillus rhamnosus GG"), `cfuPerGram`, `viableThroughExpiry`, `licensingTier` (1/2/3 per [[reference_probiotic_supplier_licensing_tiers]]), `requiresColdChain` |
+| Prebiotics | `fiberType` (inulin, FOS, GOS, etc.), `degreeOfPolymerization`, `tolerableDoseRange` (GI tolerance) |
+| Specialty / Antioxidants | `mechanism` (one-liner), `evidenceGrade` (A/B/C/D per Examine.com or NIH ODS) |
+| Excipients | `function` (binder/disintegrant/flow agent/lubricant/etc.), `typicalUsagePct`, `compatibilityWarnings` |
+
+**Optional but valuable on every entry:**
+- `synonyms[]` (alternate names for bulk-paste fuzzy match — see §IX.43)
+- `sustainabilityNotes` (carbon, water, sourcing geography)
+- `priceHistory` (last 4 quarterly snapshots if available)
+- `versionHistory[]` (entry-level changelog)
+
+## 9. Naming Convention (with counter-examples)
+
+**The Rule:** Display name = `Common Name (Form, Supplier, Standardization)` where each parenthetical clause encodes a verifiable structured-field value.
+
+**Why:** SKU display names must match underlying field data [[feedback_sku_name_matches_field_data]]. Operators read names and infer characteristics; if the name lies, the inference is wrong, and harm follows.
+
+### ✅ DO
+
+```
+Calcium Citrate (USP, Pharmaceutical-Grade)              → category=Minerals, certification=USP-verified
+Vitamin B12 (Cyanocobalamin 1% on Mannitol)              → potencyFactor=0.01, carrier=Mannitol
+Iron Bisglycinate (Ferrochel, Albion — 20% Fe)           → supplier=Albion, brand=Ferrochel, elementalFactor=0.20
+Ashwagandha (KSM-66, Ixoreal, 5% Withanolides)           → supplier=Ixoreal, brand=KSM-66, standardization=5% withanolides
+Vitamin D3 Vegan (Lichen-Sourced)                        → source=lichen, vegan=true via COA
+```
+
+### ❌ DON'T
+
+```
+Calcium Citrate (Vegan, Non-GMO, Allergen-Free)
+  → "Vegan/Non-GMO/Allergen-Free" are Class-3 buyer requirements; they belong in
+     structured fields (`isVegan`, `isNonGmo`, `allergens: []`), NOT the display
+     name. Display-name claims that aren't backed by COA-verified structured fields
+     are a silent-failure pathway.
+
+Vitamin C 1000 mg
+  → No supplier, no form (ascorbic acid? sodium ascorbate?), no quality grade.
+     Operator can't audit it. If we don't have the data, we don't have the entry.
+
+Magnesium "Best Form"
+  → Marketing copy in display name. Forbidden.
+
+Super Premium Probiotic Blend
+  → Marketing copy + opacity (which strains? at what CFU?). Forbidden. List
+     each strain as a separate entry; let stacks (§VII) reference the blend.
+
+Turmeric (95% Curcuminoids, Standardized, Organic, Vegan, Non-GMO, Gluten-Free, Soy-Free)
+  → Display-name buyer-requirement creep. The 95% standardization is fine
+     (it's a Tier-6 supplier spec); the rest belong in structured fields.
+```
+
+## 10. PotencyFactor + ElementalFactor
+
+These two fields are the most-mishandled in current catalog work. Get them right:
+
+### PotencyFactor (carrier-loaded SKUs)
+- **What:** Fraction of ingredient mass that IS the canonical active. Default 1.0.
+- **When non-1.0:** Beadlets ("Vitamin A Palmitate 500,000 IU/g" ≈ 0.15), triturates ("Vitamin B12 Cyanocobalamin 1% on Mannitol" = 0.01), spray-dried (varies), microencapsulated (varies).
+- **How to derive:** Supplier COA → `(active mass per gram) / 1,000,000 mcg` for IU-based vitamins; explicit % for non-IU. Verify against a second supplier COA if possible.
+- **Common errors caught by this rule:** Vitamin A beadlet entered as "3500 mcg of pure retinol" — actually 525 mcg active. Vitamin B12 triturate entered as "2.4 mcg active" — actually 0.024 mcg active.
+
+### ElementalFactor (mineral salts and chelates)
+- **What:** Fraction of ingredient mass that is the **elemental mineral**. Tied to chemistry, not supplier.
+- **When non-1.0:** Always for mineral salts and chelates. Values:
+
+| Form | Mineral | ElementalFactor |
+|---|---|---|
+| Calcium carbonate | Ca | 0.40 |
+| Calcium citrate | Ca | 0.21 |
+| Calcium glycinate | Ca | 0.18 |
+| Iron sulfate (ferrous) | Fe | 0.20 |
+| Iron bisglycinate (Ferrochel) | Fe | 0.20 |
+| Iron fumarate (ferrous) | Fe | 0.33 |
+| Magnesium oxide | Mg | 0.60 |
+| Magnesium citrate | Mg | 0.16 |
+| Magnesium glycinate | Mg | 0.14 |
+| Zinc picolinate | Zn | 0.20 |
+| Zinc gluconate | Zn | 0.14 |
+| Zinc bisglycinate | Zn | 0.20 |
+| Selenium L-selenomethionine | Se | 0.40 |
+| Iodine (Potassium iodide) | I | 0.76 |
+| Copper gluconate | Cu | 0.14 |
+| Manganese bisglycinate | Mn | 0.32 |
+| Chromium picolinate | Cr | 0.12 |
+| Molybdenum glycinate | Mo | 0.10 |
+
+These are chemistry-derived (atomic weight ratios). No supplier variation. Use these constants; do not estimate.
+
+## 11. Label-Claim vs Ingredient-Mass Doctrine
+
+**The Architectural Rule:** Operator entries represent **label-claim (active mass) by industry convention**. Catalog entries STORE ingredient mass. The system back-computes ingredient mass via `potencyFactor` (for carrier-loaded SKUs) and `elementalFactor` (for mineral salts) at the bulk-paste boundary.
+
+**Why this matters (Bug #13 surfaced 2026-05-17):**
+- Operator pastes "Vitamin B12 2.4 mcg" intending **2.4 mcg of B12 active** (industry-standard label claim).
+- If parser matches to "Vitamin B12 (Cyanocobalamin 1% on Mannitol)" and treats 2.4 mcg as **ingredient mass**, the active is 0.024 mcg — 100× under-stated.
+- Industry convention: label claims are always active mass. The system must honor this.
+
+### Implementation contract
+
+At the bulk-paste resolution boundary in `lib/parseFormula.ts`:
+
+```typescript
+// Pseudocode — actual implementation belongs in bulk-paste matcher
+const labelClaimMass = parsedQty;  // operator's entered value = active mass
+const sku = matchSkuByName(parsedName);
+const ingredientMassToFormulate =
+  labelClaimMass
+    / (sku.potencyFactor ?? 1)
+    / (sku.elementalFactor ?? 1);
+const rowQty = ingredientMassToFormulate;  // what goes into the formulation row
+const rowDisplayLabelClaim = labelClaimMass;  // what the SFP / safety / etc. uses
+```
+
+Downstream surfaces consume `rowDisplayLabelClaim` (== label-claim active mass) directly. The "raw ingredient mass to formulate at" is what the Batch Sheet uses for sourcing.
+
+### ✅ DO
+
+Encode `potencyFactor` and `elementalFactor` on every carrier-loaded or salt-form SKU. Make bulk-paste apply the inverse automatically.
+
+### ❌ DON'T
+
+- Encode `potencyFactor: 1.0` on a 1% triturate and ask operators to enter "240 mcg" to get 2.4 mcg active. (This is the current pre-fix behavior — the operator's mental model is broken.)
+- Mix the two representations across surfaces. The SFP and Safety card must agree on which one is which.
+
+## 12. Functional-Role Tags
+
+**The Rule:** Every functional-role tag must be defensible at typical-use dose, not extract-grade equivalents [[feedback_dosage_substantiation_rule]].
+
+### ✅ DO
+
+```
+Ashwagandha (KSM-66, 5% Withanolides):
+  functionalTags: ['adaptogenic', 'cortisol-modulating', 'stress-support']
+  evidenceNote: 'Adaptogenic + cortisol-modulating: clinical at 600 mg/day
+                 of KSM-66 standardized extract (Lopresti 2019). Stress-support
+                 alignment with traditional Ayurvedic use.'
+```
+
+### ❌ DON'T
+
+```
+Coconut Sugar:
+  functionalTags: ['prebiotic-fiber']
+  → WRONG. Coconut sugar is ~2-5% inulin, ~95% sucrose. At typical use
+     (1-2 tsp = 4-8 g), inulin delivery is <0.5 g — sub-therapeutic for
+     prebiotic effect. Tag is not dosage-substantiated.
+     [[feedback_coconut_sugar_not_inulin]]
+
+Matcha:
+  functionalTags: ['nootropic']
+  → WRONG at 1-2 g typical serving. L-theanine + caffeine effect is real
+     but matcha's L-theanine content (~10-25 mg/g) puts a 1-2 g serving
+     below the 100-200 mg L-theanine clinically tested for nootropic effect.
+     Tag is overstated.
+```
+
+### Tag standards
+Every functional tag must come with:
+- A typical-use-dose threshold ("≥ X mg/day for effect")
+- An evidence-grade pointer (Examine.com, NIH ODS, Cochrane Review)
+- A clinical-trial citation (≥ 1 trial, ≥ 30 subjects per arm) OR Tier-1/2 authority statement
+
+If the tag fails any of these at typical use, **don't tag it**. The catalog is not a marketing surface.
+
+## 13. Nutrition & Bioactives Consistency
+
+**The Rule:** Same-compound values must match exactly across both nutrition and bioactives fields [[feedback_nutrition_bioactives_consistency]].
+
+Example: Vitamin C in an Acerola Cherry extract entry. If `nutrition.vitaminC` says 17%, then `bioactives.vitaminCContent` must say 17%. Discrepancy = silent inconsistency = downstream feature breakage.
+
+During enrichment passes, **correct the wrong existing value** — don't preserve historical mistakes to "avoid breaking history."
+
+## 14. Multi-Jurisdiction Regulatory Schema
+
+**The Rule:** `regulatoryStatus` is a record keyed by jurisdiction, not a single string. Even if August 2026 is US-only, the schema accommodates Canada / EU / UK / AU from day one.
+
+### Schema
+
+```typescript
+regulatoryStatus: {
+  US: 'dshea-grandfathered' | 'ndi-notified' | 'ndi-not-yet-notified' | 'novel-no-pathway' | 'banned' | 'gras' | 'restricted';
+  CA?: 'nhpid-approved' | 'nhpid-not-listed' | 'rx-only' | 'banned';
+  EU?: 'novel-food-authorized' | 'novel-food-not-authorized' | 'traditional-thmp' | 'banned';
+  UK?: 'thr-traditional' | 'unauthorized';
+  AU?: 'tga-listed' | 'tga-registered' | 'banned';
+}
+```
+
+**Defer per-entry encoding** of CA/EU/UK/AU until a target market beyond US is named — but the type definition and codepaths accommodate it now. The workspace shows US status by default; "Target Market" selector unlocks others when populated.
+
+---
+
+# Part III — Categorization Rules
+
+## 15. Category Taxonomy
+
+Current 14 categories (frozen unless §III.17 split applies):
+
+```
+Vitamins              Minerals             Amino Acids
+Herbal Extracts       Mushroom Extracts    Botanicals
+Probiotics            Prebiotics           Enzymes
+Specialty Compounds   Specialty            Antioxidants
+Omega-3s              Fatty Acids          Excipients
+```
+
+**Naming consistency check:** "Specialty Compounds" and "Specialty" are currently both present (legacy). Treat as synonyms until a deliberate cleanup pass; new entries default to "Specialty Compounds."
+
+**Off-list categories surface unordered, NOT invisible** [[feedback_category_names_must_match_modes_list]]. The consumer of `category` in `lib/modes.ts` is additive — typos render the entry, just below grouped categories. Cleanup is vocabulary discipline, not bug-fixing. Always verify consumer function before treating mismatch as bug [[feedback_verify_consumer_function_before_mismatch_is_bug]].
+
+## 16. Multi-Tier Strategy (Value vs Premium SKU pairing)
+
+`lib/data/supplements.ts` has a two-wave ingestion seam [[project_supplements_two_wave_ingestion]] — value-tier entries (commodity-priced, generic forms) and premium-tier entries (branded SKUs, third-party verified, supplier-specific). Systematic SKU duplication is **intentional commercial architecture**, not a bug.
+
+### When to add both tiers
+For top-100-paste nutrients (S1 per §IV.20), add **both** value and premium entries. Operator pastes "Vitamin C 500 mg" → value-tier match (Ascorbic Acid USP, generic). Operator pastes "Vitamin C (Quali-C, DSM) 500 mg" → premium-tier match.
+
+### When value-only is enough
+- Niche / specialty ingredients with no premium-branded alternative
+- Excipients (always commodity)
+
+### When premium-only is enough
+- Strictly licensed strains (Tier-3 [[reference_probiotic_supplier_licensing_tiers]]) where no commodity exists
+- Branded extracts with proprietary standardization (KSM-66 Ashwagandha, EGb 761 Ginkgo, BCM-95 Curcumin)
+
+## 17. Splitting Categories
+
+**When to split (the Prebiotics-from-Probiotics pattern [[project_prebiotic_misfile]]):**
+- ≥ 4 entries exist in a category that don't share the category's defining property
+- ≥ 1 downstream consumer would benefit from the distinction
+- Splitting is reversible (entries can move back)
+
+**How to split:**
+1. Propose the split in a memory note [[project_prebiotic_misfile]] style
+2. Identify mis-filed entries (by name + structured property)
+3. Add new category to §III.15 taxonomy
+4. Update mis-filed entries; preserve names exactly
+5. Backfill tests for both old and new categories
+6. Commit as a single atomic change
+
+## 18. Enzyme / Adaptogen / Nootropic Edge Cases
+
+[[project_enzyme_categorization_review]] notes 10 enzymes tagged Antioxidants/Specialty. The pattern: an enzyme is also an antioxidant (SOD = both); category disambiguation is hard.
+
+**The Rule:** Primary functional mechanism wins category assignment. Secondary effects become tags, not categories.
+- SOD (Superoxide Dismutase) → primary mechanism is catalytic enzyme function → category=**Enzymes**, tags=['antioxidant']
+- Glutathione → primary mechanism is antioxidant + cofactor → category=**Antioxidants**, tags=['precursor', 'detoxification-support']
+
+Defer category re-assignment for the existing 10 enzymes to post-Wave-5 [[project_enzyme_categorization_review]] (preserves architectural-refactor-after-data-layer-stabilizes discipline [[feedback_refactors_wait_for_stable_data_layer]]).
+
+---
+
+# Part IV — Trends, Predictability, and Cost-of-Omission
+
+## 19. Trend Inputs + Refresh Cadence
+
+**Monthly trend sweep** (Claude proposes; operator confirms direction):
+
+| Source | What it tells us | Lag |
+|---|---|---|
+| **Innova Market Insights** | Global supplement product launches by ingredient | 2-3 months |
+| **Nutrition Business Journal (NBJ)** | US supplement category growth | 6-12 months |
+| **Mintel Reports** | Consumer-driven trend forecasting | 3-6 months |
+| **SPINS retail data** | US natural-channel POS by SKU | 1-2 months |
+| **Google Trends** | Consumer search interest | Real-time |
+| **Reddit `r/Supplements`, `r/Nootropics`** | Enthusiast formulator discussion | Real-time, biased toward novelty |
+| **TikTok health hashtags** | Mass-consumer awareness (#guthealth, #cortisol, #adaptogen) | Real-time, high noise |
+| **Examine.com search velocity** | Evidence-curious consumer interest | Real-time |
+| **FDA Warning Letter activity** | Negative trend signal (ingredient flagged for compliance issue) | Real-time |
+| **NSF Certified for Sport additions** | Athletic-tier supplier signal | Quarterly |
+
+**Refresh cadence:**
+- Real-time sources: **monthly** sweep at start of month
+- Lagging sources (NBJ, Mintel): **quarterly**
+- FDA Warning Letter activity: **continuous** (any time PA review touches the catalog)
+
+**Output of each sweep:** a list of `proposedAdditions[]`, `proposedDeprecations[]`, `proposedReclassifications[]`. Each entry tagged with **trend source(s)** + **operator-blocking severity (§IV.20)** + **confidence level (§I.4)**.
+
+**Discipline note:** trending NEVER overrides §I.7 conflict-resolution hierarchy. A trending compound with Undocumented harm-critical fields stays in the PA queue, not the catalog.
+
+## 20. Cost-of-Omission Framework
+
+**The Rule:** Catalog gaps are weighted by **operator-blocking severity**, not market trend alone. This is what determines priority order in any wave.
+
+### Severity tiers
+
+| Tier | Definition | Action |
+|---|---|---|
+| **S1** | Ingredient appears in the top-100 most-pasted competitor labels (per §IV.21 quarterly competitor methodology). Catalog gap = active workflow block. | **Immediate add** in next mini-wave; do not defer past 14 days. |
+| **S2** | Ingredient appears as a must-have in ≥ 1 §VII predictability stack. Catalog gap = workspace can't recommend a complete formulation. | **Add in the next planned wave.** |
+| **S3** | Trending per §IV.19 but not yet operator-pasted. Catalog gap = future workflow risk. | **PA verification queue first**, then add when evidence + regulatory clear. |
+| **S4** | Long-tail / specialty interest. Niche operator request. | **Add only on explicit operator request** with named formulation context. |
+
+### Today's S1 catalog gaps (from 2026-05-17 operator-side test surface)
+
+- Folate / Methylfolate / 5-MTHF (Vitamin B9)
+- Biotin (Vitamin B7)
+- Pantothenic Acid (Vitamin B5)
+- Caffeine Anhydrous
+- Melatonin
+- St. John's Wort (Hypericum perforatum)
+- Garlic Extract (concentrated, allicin-standardized)
+- 5 Choline forms [[project_choline_gap_critical]]: Bitartrate, Alpha-GPC, CDP-Choline, Phosphatidylcholine, L-threonate
+
+These get **Wave 1.5** (§VIII.38). No deferral.
+
+## 21. Competitor Reverse-Engineering Methodology
+
+**The closed-loop test for "trending + predictability":** if we ran every Sprouts top-100 multivitamin through the workspace today, what % would bulk-paste resolve cleanly? Target: ≥ 95% by August 2026.
+
+### Quarterly methodology
+
+1. **Sample frame:** for each major category (multivitamin, sleep, focus, pre-workout, women's hormonal, men's prostate, joint, immune, gut, longevity), pull the top-100 SKUs by:
+   - Sprouts e-commerce best-sellers
+   - Whole Foods best-sellers
+   - Amazon Best Sellers (sub-category specific)
+   - GNC top sellers
+   - Vitacost top sellers
+2. **Tabulate:** for each SKU's Supplement Facts panel, extract every active ingredient. Aggregate frequency-of-appearance per category.
+3. **Cross-reference:** against current `lib/data/supplements.ts`. Identify gaps where ingredient appears in ≥ 20% of category SKUs but is absent from catalog.
+4. **Score:** every gap is S1 (catalog-blocking). Add to next wave.
+5. **Resolution test:** simulate the top-100 paste-list through bulk-paste resolution. Compute % cleanly resolved (no unmatched rows).
+
+**Cadence:** **Quarterly** (every 90 days). Output committed to `docs/catalog/competitor-reverse-engineering-YYYY-Q.md`.
+
+### Why this matters
+Without this methodology, the catalog grows by intuition and demand-only feedback (operator asks for X, we add X). The operator only asks once they've tried to use it — that's S1 detection by failure. Quarterly reverse-engineering proactively closes S1 gaps before they bite an operator.
+
+## 22. Wave Sizing Rule — predictable companions in same commit
+
+**The Rule:** When adding 1 ingredient, also evaluate its top-3 most predictable companions in §VII stacks. If any are also missing from the catalog, **add them in the same commit**.
+
+### Example
+Operator requests "add NMN (Nicotinamide Mononucleotide)." NMN companions in the longevity stack:
+- Resveratrol (top-1 NMN companion in 80% of NMN products)
+- Trimethylglycine / TMG (methylation-support companion)
+- Spermidine (autophagy companion)
+
+Are any of these missing from the catalog? If yes, add together. Commit message: `feat(catalog): NMN + longevity-stack companions (Resveratrol, TMG)`.
+
+### Anti-pattern: one-ingredient-per-commit
+Don't add NMN alone if its companions are also missing. The next operator will paste an NMN-based longevity stack and hit the same UX failure mode we just patched.
+
+## 23. Saturation Test — when to STOP adding SKU variants
+
+**The Rule:** Before adding a 4th SKU variant of one nutrient, justify the differentiation.
+
+### Valid differentiation reasons (any one is sufficient)
+- **Form**: ascorbic acid vs sodium ascorbate vs calcium ascorbate vs ester-C — distinct chemistry, distinct dose-tolerability profiles
+- **Supplier-tier**: commodity (CN) vs pharma-grade (DSM) — distinct purity / cost-tier
+- **Certification**: USP-verified vs NSF Certified for Sport vs organic — distinct retail-channel fit
+- **Standardization**: 80% silymarin vs 65% silymarin (milk thistle) — distinct potency
+- **Carrier**: pure vs 1% triturate vs beadlet — distinct formulation-handling
+
+### Invalid differentiation reasons (saturation triggered)
+- **Supplier rebrand**: same SKU, two suppliers selling identical specs — pick one canonical entry
+- **Country of origin**: same chemistry, China vs India — handle via `sourcingNotes`, not new entry
+- **Buyer-requirement variations**: same SKU with vs without "Vegan" claim — handle via Class-3 boolean fields, not new entry
+
+When saturation triggers, **propose deprecation of the weakest variant** rather than adding a new one.
+
+---
+
+# Part V — Verification Gates
+
+## 24. PA-Verification Queue
+
+[[reference_pa_verification_queue_folder]] — `docs/pa-verification/` holds items requiring Process Authority verification before shipping.
+
+**When an entry goes to PA queue (not directly to catalog):**
+- Regulatory status uncertain (post-1994 ingredient without confirmed NDI notification)
+- Functional-role tagging is evidence-supported but at borderline dose for typical use
+- Harm-critical fields require expert review (e.g., new compound with limited drug-interaction data)
+- Tier-3 product-exclusive licensing in question
+
+**Queue entry format:**
+```markdown
+# YYYY-MM-DD - <ingredient name>
+**Proposed entry:** <draft of catalog entry>
+**Fields PA must verify:**
+- regulatoryStatus.US: <proposed> — verify against FDA NDI database
+- functionalTags: <proposed> — verify evidence-grade at typical-use dose
+- ul: <proposed or unknown>
+**Source citations:** <Tier 1-5 citations>
+**Drain criteria:** PA sign-off recorded in file; entry then committed to catalog with `confidenceLevel: Verified-Supplier-COA` or higher.
+```
+
+## 25. Supplier-Spec Verification Queue
+
+[[project_phase_2_verification_queue]] — for entries where supplier spec data needs cross-verification.
+
+**PENDING-suffix pattern:** entry name carries " PENDING" in the display name until verified. Workspace renders entries with PENDING suffix in amber-warn, blocking commercial use.
+
+**Current PENDING items:** Iron Bisglycinate Fe%, L. acidophilus NCFM CFU, Calcium Carbonate Limestone Commodity sourcing.
+
+**Discipline note:** persistent memory refs use names, not line numbers [[feedback_persistent_refs_use_names_not_line_numbers]]. Track PENDING items by entry name + PENDING suffix, not by file line.
+
+## 26. Strain/SKU Licensing Verification
+
+[[project_licensing_verification_queue]] + [[reference_probiotic_supplier_licensing_tiers]] — strains we can't add without B2B licensing confirmed.
+
+### Three-tier framework
+
+| Tier | Definition | Catalog implication |
+|---|---|---|
+| **1 — Open commercial** | Generic strain, multiple suppliers, no licensing constraint | Add freely |
+| **2 — Mixed model** | Branded strain available via multiple supplier licenses | Add with supplier specified; verify license is current |
+| **3 — Product-exclusive** | Licensed to a single brand owner; cannot be used in competing products | Block until B2B licensing confirmed; PENDING-suffix while pending |
+
+Tier-3 examples: Yakult Honsha strains, Danone strains, Meiji strains, Snow Brand strains. Don't add without confirmed licensing path.
+
+## 27. Bidirectional Verification on Directives
+
+[[feedback_bidirectional_verification]] — agent pushback on directives is the verification standard working. When the operator gives a directive that conflicts with this rulebook, Claude:
+
+1. **States the rule clearly** ("Rulebook §I.5 Harm-Critical Floor prohibits committing this entry with empty allergens.")
+2. **Names the conflict** ("Operator directive 'ship today' conflicts with rule 'PA verification before commercial.'")
+3. **Proposes alternatives** ("Options: (a) add as PENDING with allergen-investigation file in supplier-spec queue, (b) wait for supplier COA, (c) document explicit override with operator + Wizard sign-off.")
+
+This is not insubordination; it's the verification standard. The discipline note: directives are inputs the rulebook gates.
+
+## 28. Review & Decay Cadence
+
+**The Rule:** Catalogs rot. Every entry carries `lastReviewedDate` + `reviewedBy`. Stale entries surface in workspace UI with amber-warn.
+
+### Review tiers
+
+| Field class | Cadence | Trigger |
+|---|---|---|
+| Harm-critical fields (allergens, drugInteractions, ndiStatus, regulatoryStatus) | **Quarterly** | Calendar; any FDA action on the ingredient class |
+| Typical-use doses, evidence grades, functional tags | **Annually** | Calendar; new Examine.com / NIH ODS / Cochrane update |
+| Cost / supplier specs / potency factors | **Annually** | Calendar; on supplier COA update |
+| Stability halflives, oxidation profiles | **Annually** | Calendar; on new ICH Q1A literature |
+| Display name, category | **On-trigger only** | When schema change forces |
+
+### Trigger events (immediate review regardless of calendar)
+- FDA Warning Letter on the ingredient class
+- FDA Import Alert addition
+- USP DSC monograph revision
+- Supplier announces SKU discontinuation or reformulation
+- Operator surfaces a discrepancy via workspace UI
+
+### Stale-entry rendering
+Workspace shows amber-warn on entries past their cadence. Operator can use; the warning is "this data may have drifted; verify against current supplier COA before commercial release."
+
+---
+
+# Part VI — Test Discipline
+
+## 29. Pre-Commit Tests per Entry
+
+**The Rule:** A catalog entry can't merge without at least three tests in `lib/__tests__/`:
+
+1. **Bulk-paste resolution test** — paste-text (`"<ingredient name> <qty> <unit>"`) matches the entry; resolution returns the right SKU; no false positives or negatives.
+2. **SFP rendering test** — entry → DV%, display name, group classification per `findDVEntry`.
+3. **Safety-engine test** — typical-use dose triggers expected tier (ok / caution / warning / critical / banned / interaction).
+
+### Why
+We discovered Folate / Biotin / Pantothenic Acid missing **only when an operator pasted a multivitamin** in Test 1 of the 2026-05-17 verification round. The test gate would have caught this at the time the SFP rendering of `findDVEntry('Folate')` test was authored — there'd be no DV entry to test against, so the test would have failed during catalog authoring, not during operator use.
+
+### Test file convention
+- One test file per category: `lib/__tests__/supplement-catalog-{category}.test.ts`
+- Tests grouped by entry; each entry's three required tests are co-located
+- Use existing `lib/__tests__/supplement-safety-keyword-boundaries.test.ts` as template
+
+## 30. Bulk-Paste Resolution Tests
+
+Per-entry test shape:
+
+```typescript
+it('"Folate 400 mcg" resolves to Folate entry with DV % calculated', () => {
+  const result = parsePastedFormula('Folate 400 mcg', SUPPLEMENT_DB);
+  expect(result[0].matched).toBeDefined();
+  expect(result[0].matched?.name).toBe('Folate (as Folic Acid USP)');
+  expect(result[0].parsedQty).toBe(400);
+  expect(result[0].parsedUnit).toBe('mcg');
+});
+
+it('"Methylfolate 800 mcg" resolves to methylated folate entry (active form)', () => {
+  const result = parsePastedFormula('Methylfolate 800 mcg', SUPPLEMENT_DB);
+  expect(result[0].matched?.name).toBe('5-MTHF Methylfolate (Quatrefolic, Gnosis)');
+});
+
+it('"folic acid 400mcg" (lowercase + spacing) resolves', () => {
+  const result = parsePastedFormula('folic acid 400mcg', SUPPLEMENT_DB);
+  expect(result[0].matched?.name).toBe('Folate (as Folic Acid USP)');
+});
+
+it('"Folate 400 mcg DFE" resolves with DFE annotation preserved', () => {
+  const result = parsePastedFormula('Folate 400 mcg DFE', SUPPLEMENT_DB);
+  expect(result[0].matched).toBeDefined();
+  expect(result[0].annotations).toContain('DFE');
+});
+```
+
+## 31. SFP Rendering Tests
+
+```typescript
+it('Folate renders in SFP at entered value with 100% DV', () => {
+  const facts = buildSupplementFacts({
+    ingredients: [{ name: 'Folate (as Folic Acid USP)', qty: 400, unit: 'mcg', ... }],
+    mode: 'supplements',
+    servingSizeInGrams: 0.0004,
+    totalBatchGrams: 0.0004,
+    ...
+  });
+  const folate = facts.vitaminMineralRows.find(r => r.displayName.includes('Folate'));
+  expect(folate?.amount).toBe(400);
+  expect(folate?.unit).toBe('mcg');
+  expect(folate?.percentDV).toBe(100);
+});
+```
+
+## 32. Safety-Engine Coverage Tests
+
+```typescript
+it('Folate at 1500 mcg fires safety warning (above 1000 mcg UL)', () => {
+  const findings = checkSupplementSafety(
+    [{ name: 'Folate (as Folic Acid USP)', qty: 1500, unit: 'mcg', ... }],
+    new Map([['Folate (as Folic Acid USP)', 1.5]]) // 1500 mcg in mg
+  );
+  const folate = findings.find(f => f.limitName === 'Folic Acid (synthetic)');
+  expect(folate?.tier).toBe('warning');  // 1500 / 1000 = 150% UL
+});
+```
+
+---
+
+# Part VII — Stacks as First-Class Data Entities
+
+## 33. Stack Schema
+
+**The Rule:** A "predictability stack" is not just a discovery pattern — it's a NAMED ENTITY in `lib/data/stacks.ts`. The workspace consumes stack data to recommend missing companions when an operator pastes a partial formulation.
+
+### Schema (`lib/data/stacks.ts`)
+
+```typescript
+export interface Stack {
+  id: string;                    // STACK.MULTIVITAMIN_CORE
+  displayName: string;           // "Daily Multivitamin Core"
+  category: 'foundational' | 'targeted' | 'specialty';
+  description: string;           // One-paragraph clinical context
+  mustHave: StackMember[];       // Recommended in ≥ 95% of category SKUs
+  commonCompanion: StackMember[]; // Recommended in 50-95%
+  optional: StackMember[];       // < 50% but operator-relevant
+  dosageProfile: DosageProfile;
+  citations: Citation[];
+}
+
+export interface StackMember {
+  ingredientName: string;        // Matches catalog entry name
+  typicalDoseRange: { min: number; max: number; unit: string };
+  rationale: string;             // Why this ingredient in this stack
+}
+
+export interface DosageProfile {
+  intendedAudience: 'general' | 'pregnancy' | 'pediatric' | 'athletic' | 'menopausal' | 'senior';
+  totalServingMassMg: { min: number; max: number };
+  unitsPerServing: number;
+  deliveryForm: SupplementDeliveryForm[];
+}
+```
+
+## 34. Named Standard Stacks (initial set)
+
+| Stack ID | Display | mustHave (examples) | commonCompanion |
+|---|---|---|---|
+| `STACK.MULTIVITAMIN_CORE` | Daily Multivitamin Core | A, C, D, E, K, B-complex (B1-B12), Folate, Biotin, Pantothenic Acid, Ca, Mg, Zn, Se, Cu, Mn, Cr, Mo, I | Iron, Iodine, Boron, Choline |
+| `STACK.PRENATAL_CORE` | Prenatal Multi Core | Folate 800-1000 mcg, Iron, Iodine, Choline, DHA, Vitamin D | Vit K2, Magnesium, Calcium, B12, B6 |
+| `STACK.SLEEP` | Sleep Support | Melatonin, Magnesium Glycinate, L-Theanine | GABA, Glycine, Apigenin, Tart Cherry |
+| `STACK.FOCUS` | Focus / Nootropic | Caffeine, L-Theanine, Lion's Mane | Bacopa, Rhodiola, Citicoline, B-complex |
+| `STACK.PRE_WORKOUT` | Pre-Workout | Caffeine, Beta-Alanine, Creatine, Citrulline Malate | L-Tyrosine, Betaine, Taurine, B-vitamins |
+| `STACK.RECOVERY_BCAA` | Post-Workout / Recovery | BCAAs (2:1:1), Glutamine, Electrolytes | Tart Cherry, HMB, Magnesium |
+| `STACK.WOMENS_HORMONAL` | Women's Hormonal Balance | Iron, Folate, B6, B12, Calcium, D, Mg | Vitex (Chasteberry), DIM, EPO, Black Cohosh (cycle-stage dependent) |
+| `STACK.MENS_PROSTATE` | Men's Prostate | Saw Palmetto, Zinc, Lycopene, Selenium | Pygeum, Stinging Nettle, Vitamin D, Pumpkin Seed |
+| `STACK.JOINT` | Joint Support | Glucosamine, Chondroitin, MSM, Curcumin | Boswellia, Collagen Type II, Hyaluronic Acid, Omega-3 |
+| `STACK.IMMUNE` | Immune Support | Vitamin C, Vitamin D, Zinc, Elderberry, Echinacea | Quercetin, NAC, Selenium, Beta-Glucan, Andrographis |
+| `STACK.GUT` | Gut / Digestive Health | Probiotic Multi-Strain, Prebiotic Fiber, Digestive Enzymes | L-Glutamine, DGL, Slippery Elm, Bone Broth Protein |
+| `STACK.LONGEVITY` | Longevity / NAD+ | NMN, Resveratrol, TMG, Quercetin | Fisetin, Spermidine, CoQ10/PQQ, Rapamycin (Rx-bridge) |
+| `STACK.METABOLIC` | Metabolic / Blood Sugar | Berberine, Chromium, Cinnamon, Alpha-Lipoic Acid | Gymnema Sylvestre, Bitter Melon, Magnesium, B-vitamins |
+| `STACK.LIVER_DETOX` | Liver Support | Milk Thistle, NAC, Glutathione, B-complex | Choline, Artichoke, Dandelion Root, Selenium |
+| `STACK.STRESS_ADAPTOGEN` | Stress / Adaptogen | Ashwagandha (KSM-66), Rhodiola, Phosphatidylserine | L-Theanine, Magnesium, B-vitamins, Holy Basil |
+| `STACK.HEART_CV` | Cardiovascular | Omega-3 (EPA/DHA), CoQ10, Magnesium, Vitamin K2 | Garlic, Hawthorn, L-Carnitine, Niacin (low-dose) |
+| `STACK.BONE` | Bone Health | Calcium, Vitamin D3, Vitamin K2 MK-7, Magnesium | Boron, Strontium, Silica, Vitamin C |
+| `STACK.SKIN_HAIR_NAILS` | Beauty | Biotin, Collagen Peptides, Vitamin C, Hyaluronic Acid | Silica, Zinc, Vitamin E, Astaxanthin, Bamboo Extract |
+| `STACK.EYE_HEALTH` | Eye / Vision | Lutein, Zeaxanthin, Bilberry, Vitamin A | Astaxanthin, Omega-3, Zinc, Vitamin C/E |
+| `STACK.MOOD` | Mood Support | 5-HTP, B-complex, Magnesium, Omega-3 | St. John's Wort, SAMe, L-Tyrosine, Saffron Extract |
+
+## 35. Recommendation Engine Integration
+
+When operator pastes a partial formulation, workspace runs:
+
+```typescript
+// Pseudocode
+const stacksMatched = detectStacksFromFormulation(currentIngredients);
+for (const stack of stacksMatched) {
+  const missing = stack.mustHave.filter(m =>
+    !currentIngredients.some(ing => ing.name.toLowerCase().includes(m.ingredientName.toLowerCase()))
+  );
+  if (missing.length > 0 && missing.length / stack.mustHave.length < 0.3) {
+    // Operator has ≥ 70% of the stack — recommend the rest
+    surface(`This looks like ${stack.displayName}. You're missing ${missing.length} typical companion(s): ${missing.map(m => m.ingredientName).join(', ')}.`);
+  }
+}
+```
+
+### Stack-completion rendering
+Above 70% match: amber-info chip "**Looks like a [stack] formulation — 4 more typical companions available**."
+Below 30% match: no surface (avoid false positives on niche formulations).
+
+## 36. Stack Evolution Rules
+
+- **Add a stack** when ≥ 3 operators paste similar formulations OR when a category (sleep, focus, etc.) clearly maps to industry-standard categorization.
+- **Modify a stack** when a stack's mustHave drifts (e.g., methylfolate is replacing folic acid in mustHave; track via versionHistory).
+- **Deprecate a stack** rarely — stacks have long lives. Mostly we evolve them.
+
+---
+
+# Part VIII — Wave Plan
+
+## 37. The 6-Wave Sequence
+
+[[project_august_2026_mvp]] — 525-entry target by August 2026.
+
+| Wave | Target completion | Scope | Status |
+|---|---|---|---|
+| **Wave 1** | (complete) | Value-tier foundations: vitamins, minerals, common forms | ✅ Complete (lines 19-115 in supplements.ts) |
+| **Wave 2 Phase 1** | (complete) | Premium-tier vitamins + minerals, branded SKUs | ✅ Complete (lines 117-349) |
+| **Wave 2 Phase 2** | Q3 2026 | Choline category (5 forms) [[project_choline_gap_critical]], Prebiotic split [[project_prebiotic_misfile]], Iron/Calcium PENDING resolution | 🔄 In progress |
+| **Wave 3a** | Q3 2026 | Women's hormonal, men's prostate, herbal extracts depth (~50 entries) | 🔄 Partial |
+| **Wave 3b** | Q3 2026 | Mushroom extracts depth, adaptogens depth (~30 entries) | ⏳ Pending |
+| **Wave 4** | Q4 2026 | Specialty / nootropic / longevity (~50 entries); SCHEMA-LOCK enforced before this wave | ⏳ Pending |
+| **Wave 5** | Q4 2026 | Athletic / pre-workout / recovery (~40 entries) | ⏳ Pending |
+| **Wave 6** | Q1 2027 (post-launch) | Long-tail + emerging trends + multi-jurisdiction encoding | ⏳ Post-launch |
+
+## 38. Wave 1.5 — Today's Gap Closure (NEW)
+
+**Inserted between Wave 2 Phase 1 (complete) and Wave 2 Phase 2 (in progress).** Closes operator-visible S1 gaps from 2026-05-17 verification round. Estimated ~15 entries.
+
+### Contents (S1-priority, blocking operator workflows)
+
+| Ingredient | Category | Stack(s) |
+|---|---|---|
+| Folate (Folic Acid USP) — generic value-tier | Vitamins | MV core, Prenatal |
+| 5-MTHF / Methylfolate (Quatrefolic, Gnosis) — premium-tier | Vitamins | MV core, Prenatal |
+| Biotin (Vitamin B7) — value-tier | Vitamins | MV core, Beauty |
+| Pantothenic Acid (Vitamin B5) — value-tier | Vitamins | MV core |
+| Caffeine Anhydrous (USP) | Specialty Compounds | Pre-Workout, Focus |
+| Caffeine from Green Tea Extract (50% caffeine, decaffeinated alt) | Specialty Compounds | Focus, premium pre-workout |
+| Melatonin (USP, Crystalline) — value-tier | Specialty Compounds | Sleep |
+| Melatonin (Time-Release) — premium-tier | Specialty Compounds | Sleep |
+| St. John's Wort (Hypericum perforatum, 0.3% hypericin) | Herbal Extracts | Mood |
+| Garlic Extract (allicin-standardized, 1.3% allicin) | Botanicals | Heart-CV, Immune |
+| Choline Bitartrate (40% choline) | Specialty Compounds | MV core, Liver-Detox |
+| Alpha-GPC (50% L-α-GPC) | Specialty Compounds | Focus, Athletic |
+| CDP-Choline / Citicoline (Cognizin, Kyowa Hakko) — premium | Specialty Compounds | Focus |
+| Phosphatidylcholine (Lecithin-derived, 35% PC) | Specialty Compounds | Liver-Detox, Cognitive |
+| L-Threonate / Magtein (Magnesium L-Threonate) — also a Mg salt | Minerals | Cognitive, Sleep-premium |
+
+### Wave 1.5 Definition of Done
+- All 15 entries authored per Part II schema
+- All carry minimum-three tests per §VI.29
+- DV table updated for B5, B7, B9 entries (3 new keyword sets)
+- Safety table updated for caffeine, melatonin where not already present (already in `lib/supplementSafetyLimits.ts` — verify)
+- Stack assignments added to `lib/data/stacks.ts`
+- Re-run Test 1 (Daily Reset MV v2) — confirm 22-of-22 ingredients resolve, SFP rendering correct
+- Commit + memory pointer to this rulebook
+
+## 39. Schema-Lock Discipline Before Wave 4
+
+**The Rule:** No schema changes (field additions, type modifications, breaking renames) after Wave 4 starts. Wave 4 entries depend on stable type definitions for the next ~80 entries.
+
+If a schema change is needed mid-wave, **pause the wave**, apply the schema change as its own commit + migration script, and resume. Don't let schema drift contaminate authored entries.
+
+---
+
+# Part IX — Operating Rules
+
+## 40. Pre-Commit Checklist (every catalog entry passes before merge)
+
+```
+□  Display name follows §II.9 convention (Common Name (Form, Supplier, Standardization))
+□  Display name does NOT include Class-3 buyer-requirement claims (vegan/non-GMO/etc.)
+□  Category matches §III.15 taxonomy
+□  Tier (value/premium/specialty) assigned
+□  Confidence Level assigned (Verified-Lab / Verified-Supplier-COA / Estimated / Inferred / Undocumented)
+□  ≥ 1 Tier-1–4 citation (per §I.2)
+□  Harm-critical fields (allergens, drugInteractions, ndiStatus, regulatoryStatus.US) populated OR explicitly Undocumented
+□  PotencyFactor + ElementalFactor accurate (§II.10) — chemistry-derived for minerals, supplier-COA for carriers
+□  Functional-role tags dosage-substantiated at typical use (§II.12)
+□  Nutrition / bioactives consistent for same compound (§II.13)
+□  Three tests authored per §VI.29 (bulk-paste, SFP render, safety-engine)
+□  Stack membership assigned (mustHave / commonCompanion / optional) for at least one §VII.34 named stack
+□  Trend source + severity tier (S1-S4) documented in commit message
+□  Companion ingredients (per §IV.22 wave-sizing rule) evaluated; added in same commit if missing
+□  Memory note created if entry surfaces a new pattern, anti-pattern, or refactor ticket
+```
+
+## 41. Anti-Patterns (don't do these)
+
+### ❌ AP-01: Display name carries claims that aren't in structured fields
+Already covered in §II.9 counter-examples. Repeated here because it's the highest-impact anti-pattern by harm potential.
+
+### ❌ AP-02: Empty harm-critical field rendered as "no concerns"
+The catalog must surface UNDOCUMENTED, never auto-render to VERIFIED-SAFE. See §I.5.
+
+### ❌ AP-03: Adding an ingredient without its predictability companions
+Operator pastes a typical formulation; ingredient X resolves; common companion Y was never added. Operator experiences a partial workflow break. See §IV.22.
+
+### ❌ AP-04: Function-role tagging without dosage substantiation
+"Coconut sugar — prebiotic-fiber" at typical use is sub-therapeutic. Tagging it misleads operators. See §II.12.
+
+### ❌ AP-05: SKU display name implying compliance/regulatory characteristics
+"Calcium Citrate (Vegan, Non-GMO, Allergen-Free)" — these are structured-field claims, not naming claims. See §II.9.
+
+### ❌ AP-06: Hardcoded values that should derive from data
+[[project_refactor_ticket_categories_from_data]] — categories hardcoded in `lib/modes.ts` should derive from the data layer. Quick-patches per wave are acceptable; refactor when Wave 5 lands.
+
+### ❌ AP-07: One-ingredient-per-commit when companions are missing
+See §IV.22.
+
+### ❌ AP-08: Reordering DV_TABLE / SUPPLEMENT_SAFETY_LIMITS / catalog entries to "fix" a matching bug
+The fix is the matching algorithm (word-boundary regex, see Round 11 keyword-collision work), not the ordering. Ordering-dependent matching is fragile.
+
+### ❌ AP-09: Marketing copy in `hazard`, `mitigation`, or `evidenceNote` fields
+Keep these tight, clinical, citation-backed. No "this powerful adaptogen supports..." language. The catalog is not a sales surface.
+
+### ❌ AP-10: Skipping the PA-verification queue under business pressure
+Conflict-resolution §I.7 hierarchy is non-negotiable. PA review exists because the downside of skipping it is product harm + regulatory action.
+
+## 42. Refactor Triggers
+
+[[feedback_refactors_wait_for_stable_data_layer]] — architectural refactors wait until data layer stabilizes. Quick-patches OK; explicit refactor-tickets for the interim.
+
+**Triggers to revisit:**
+- A category has > 50 entries → consider splitting (e.g., split Herbal Extracts into "Adaptogens", "Calming Herbs", "Antimicrobials")
+- A schema field is touched by > 5 commits in a quarter → consider promoting to its own type/file
+- A test file exceeds 1000 lines → consider splitting per-entry-group
+- An anti-pattern is repeated > 3 times → consider promoting to a lint rule
+
+## 43. Memory Discipline
+
+[[feedback_persistent_refs_use_names_not_line_numbers]] — line numbers drift; names persist. When writing a memory note about a catalog item, reference by **entry name**, never by file line.
+
+Memory notes for catalog work focus on:
+- **Patterns** (the prebiotic-misfile pattern)
+- **Anti-patterns** (the coconut-sugar tagging anti-pattern)
+- **Tickets** (deferred refactors, decisions, PA-verification items)
+- **Constraints** (Tier-3 strain licensing, supplier-spec PENDING queue)
+
+Do NOT write memory for: catalog data itself (it's in supplements.ts), citations (they're in the entry), test cases (they're in __tests__).
+
+## 44. Brand-Voice Consistency
+
+[[project_parallel_brand_workstream]] — the Wizard maintains a brand-voice workstream. Catalog entry copy (display names, hazard/mitigation text, evidence notes) influences brand voice.
+
+**Voice rules for catalog copy:**
+- **Clinical-precise:** "Chronic excess causes peripheral neuropathy" not "Could potentially cause some issues."
+- **Citation-backed:** every claim ends with or implies a citation.
+- **Non-marketing:** no "powerful," "amazing," "natural," "synergistic" — these are marketing words, not data.
+- **Operator-respect:** assume the operator is a qualified formulator; don't over-explain basic chemistry.
+- **No anthropomorphism:** "This supplement supports..." → "Clinical evidence at X mg/day supports..."
+
+When in doubt, defer to the brand-voice docs in `docs/brand/`.
+
+---
+
+# Part X — Appendices
+
+## A. Common Functional-Role Tags + Dosage Thresholds
+
+| Tag | Threshold for tagging | Example ingredients |
+|---|---|---|
+| `adaptogenic` | ≥ 200 mg standardized extract; cortisol/HPA-axis effect documented | Ashwagandha (KSM-66 600 mg), Rhodiola (3% rosavins, 200 mg) |
+| `nootropic` | Clinical cognitive effect at typical dose | L-Theanine (200 mg), Lion's Mane (1 g standardized) |
+| `cortisol-modulating` | RCT-demonstrated cortisol effect | Ashwagandha (≥ 300 mg/day, 8 wks) |
+| `gaba-ergic` | Demonstrated GABA-A or GABA-B agonism | Magnolia bark, Lemon Balm |
+| `serotonergic` | Pre-cursor or modulator of serotonin | 5-HTP (50-100 mg), L-Tryptophan (500 mg) |
+| `prebiotic-fiber` | ≥ 3 g fermentable fiber per serving | Inulin, FOS, GOS, Acacia Gum, Psyllium |
+| `probiotic` | ≥ 1 billion CFU at expiry of clinically-studied strain | Lactobacillus rhamnosus GG, Bifidobacterium infantis |
+| `antioxidant` | Documented ORAC > 1000 or specific ROS-scavenging mechanism | Vitamin C, Glutathione, Astaxanthin, SOD |
+| `chelator` | Demonstrated metal-binding affinity at supplemental doses | EDTA, NAC, Chlorella, Cilantro Extract |
+| `methylation-support` | Cofactor or substrate in methylation pathway | Methylfolate, Methylcobalamin, TMG, SAMe |
+| `mitochondrial-support` | Documented ATP / Complex-I-IV effect at supplemental dose | CoQ10 (100 mg), PQQ (10-20 mg), L-Carnitine (500 mg) |
+| `joint-support` | Connective-tissue or anti-inflammatory effect at typical dose | Glucosamine (1500 mg), Curcumin (BCM-95, 500 mg) |
+| `bone-support` | Bone-mineral-density effect at typical dose | Vitamin K2 MK-7 (90 mcg), Boron, Strontium |
+| `immune-support` | Demonstrated effect on URTI severity/duration or NK-cell activity | Vitamin C, Zinc, Elderberry (300 mg standardized), Beta-Glucan |
+| `cardiovascular-support` | Effect on lipids, BP, endothelial function, or platelet | Omega-3 (EPA+DHA 1 g/day), CoQ10, Berberine |
+| `hormonal-balance` | Hormone-pathway effect; female- or male-specific noted | Vitex / Chasteberry, DIM, Saw Palmetto, Maca |
+| `stress-support` | Self-rated stress reduction in clinical trials | Ashwagandha, L-Theanine, Holy Basil, Magnolia |
+| `sleep-support` | Sleep-onset, duration, or quality effect | Melatonin (0.3-5 mg), Magnesium Glycinate, Apigenin |
+| `cognitive-support` | Memory, focus, processing-speed effects | Bacopa (300 mg, 12+ wks), Phosphatidylserine (100 mg) |
+
+## B. Known-Licensed Strains (Tier 3 — block until licensing confirmed)
+
+| Strain | Licensor | Status |
+|---|---|---|
+| Lactobacillus casei Shirota | Yakult Honsha | Tier 3 — product-exclusive |
+| Bifidobacterium animalis subsp. lactis DN-173 010 | Danone | Tier 3 |
+| Lactobacillus casei Shirota (LcS) | Yakult | Tier 3 |
+| Lactobacillus rhamnosus HN001 | Fonterra (formerly Howaru) | Tier 2 — licensed multi-supplier |
+| Lactobacillus rhamnosus GG (ATCC 53103) | Valio + DuPont (cross-licensed) | Tier 2 |
+| Lactobacillus reuteri DSM 17938 | BioGaia | Tier 3 |
+| L. plantarum 299v | Probi | Tier 2 |
+| Bifidobacterium longum BB536 | Morinaga | Tier 2 |
+| L. paracasei F19 | Probi | Pending — licensing TBD |
+
+[[project_licensing_verification_queue]] — verify before adding.
+
+## C. Allergen Mapping (FALCPA Big 9 + Mustard)
+
+[[feedback_no_deletions]] retained. Big 9 FALCPA allergens (effective Jan 1, 2023) + Mustard (Canada/EU-relevant, Tier-separated):
+
+| Allergen | FALCPA-mandatory | Notes |
+|---|---|---|
+| Milk | Yes | Casein, whey — present in some probiotic carriers |
+| Eggs | Yes | Lysozyme (rare in supplements) |
+| Fish | Yes | Fish oil, fish-derived collagen, fish gelatin |
+| Crustacean shellfish | Yes | Glucosamine HCl from crustacean (chitin extraction) |
+| Tree nuts | Yes | Almond, walnut, coconut (FDA classifies as tree nut), Brazil nut |
+| Peanuts | Yes | Rare in supplements, but check excipient sourcing |
+| Wheat | Yes | Gluten in maltodextrin (potential cross-contam) |
+| Soy | Yes | Soy lecithin, soy isoflavones, soy protein isolate, soy-derived vitamin E |
+| Sesame | Yes (Jan 2023 addition) | Rare in supplements; check oil-based excipients |
+| Mustard | No (Tier-separated) | Required Canada (NHPID), EU; flag for multi-jurisdiction |
+
+**Cross-contamination tier:** explicitly distinguish `contains` vs `mayContain` (facility cross-contam). Operator MUST verify against supplier COA before commercial release [[feedback_harm_critical_fields_default_undocumented]].
+
+## D. Regulatory Status Decision Tree (US, August 2026 target)
+
+```
+Is the ingredient marketed as a dietary supplement in the US BEFORE October 15, 1994?
+├── YES → status: 'dshea-grandfathered'
+│         (citation: DSHEA §8 / 21 CFR 190.6 grandfather clause)
+│
+└── NO → Has the ingredient been the subject of an FDA-accepted NDI Notification?
+         ├── YES → status: 'ndi-notified'
+         │         (cite the NDI submission #; verify in FDA NDI database)
+         │
+         └── NO → Is the ingredient GRAS for a relevant food use?
+                  ├── YES → status: 'gras'
+                  │         (cite GRAS Notice # or FDA self-affirmed GRAS dossier)
+                  │
+                  └── NO → status: 'ndi-not-yet-notified' OR 'novel-no-pathway'
+                            • If pre-market notification is viable: PA queue
+                            • If not (banned compound, e.g.): status: 'banned'
+                            • Default: BLOCK from commercial supplement use
+```
+
+## E. Catalog Version + Hash (Audit Trail)
+
+Each catalog commit produces a content-addressable hash on `lib/data/supplements.ts`. Format:
+
+```
+Catalog version: catalog.v.YYYY.QQ.NN
+SHA-256 of supplements.ts: <64-char hex>
+Generated: <ISO timestamp>
+Authored-by: <Claude session ID or human handle>
+Reviewed-by: <Wizard signoff or self-review>
+```
+
+Stored in `docs/catalog/versions.log`. PA-verification queue items reference catalog version they apply to. Regulatory inspectors can verify which catalog version was active on which date.
+
+---
+
+# Closing notes
+
+This rulebook is a living document. It WILL be amended as the catalog grows and as the workspace surfaces new failure modes. The discipline:
+
+- **Amend by Pull Request, not in-place edit.** Every rulebook change is reviewable and reversible.
+- **Cite the surfacing event** for new rules (which operator test, which audit finding, which PA review prompted this addition).
+- **Update memory pointers** when sections move or rules supersede.
+- **Test the rulebook** — every quarterly competitor-reverse-engineering pass tests whether catalog discipline holds. If we're falling below the 95% bulk-paste resolution target, the rulebook is failing to enforce.
+
+The catalog's job is to never let a silent failure ship to an operator. This rulebook is how we enforce that job.
+
+**End of rulebook v1.**

@@ -31,6 +31,7 @@
 //   (retinol teratogenicity, iron pediatric toxicity, etc.).
 // ============================================================
 import type { Ingredient } from '../types';
+import { keywordMatch as sharedKeywordMatch } from './keywordMatch';
 
 // ============================================================
 // UPPER INTAKE LIMITS (ULs)
@@ -608,6 +609,18 @@ function convertMgToUnit(mg: number, unit: 'mg' | 'mcg' | 'IU' | 'g'): number {
 }
 
 /**
+ * Word-boundary keyword match — delegates to the shared util at
+ * lib/keywordMatch.ts. Imported alias `sharedKeywordMatch` is used
+ * directly via re-export below; this local binding preserves
+ * existing call sites in this file without changing them.
+ *
+ * The shared util adds end-anchor enforcement for digit-suffixed
+ * keywords (preventing the "vitamin b1" → "vitamin b12" DV-table
+ * collision discovered 2026-05-17) on top of word-start anchoring.
+ */
+const keywordMatch = sharedKeywordMatch;
+
+/**
  * Match an ingredient name to the tightest applicable UL limit.
  * Scans keywords longest-first to prefer specific matches (e.g., "magnesium oxide"
  * matches the magnesium entry, not a shorter generic one).
@@ -621,7 +634,7 @@ function matchLimit(ingredientName: string): SupplementSafetyLimit | null {
   }
   allKeywords.sort((a, b) => b.keyword.length - a.keyword.length);
   for (const { limit, keyword } of allKeywords) {
-    if (n.includes(keyword)) return limit;
+    if (keywordMatch(n, keyword)) return limit;
   }
   return null;
 }
@@ -632,7 +645,7 @@ function matchLimit(ingredientName: string): SupplementSafetyLimit | null {
 function matchBanned(ingredientName: string): BannedIngredient | null {
   const n = ingredientName.toLowerCase();
   for (const b of BANNED_OR_RESTRICTED) {
-    if (b.keywords.some(k => n.includes(k))) return b;
+    if (b.keywords.some(k => keywordMatch(n, k))) return b;
   }
   return null;
 }
@@ -643,7 +656,7 @@ function matchBanned(ingredientName: string): BannedIngredient | null {
 function matchInteraction(ingredientName: string): InteractionWarning | null {
   const n = ingredientName.toLowerCase();
   for (const w of INTERACTION_WARNINGS) {
-    if (w.keywords.some(k => n.includes(k))) return w;
+    if (w.keywords.some(k => keywordMatch(n, k))) return w;
   }
   return null;
 }
@@ -734,7 +747,7 @@ export function checkSupplementSafety(
         { match: 'licorice', name: 'Licorice Root', reason: 'Associated with preterm labor and increased cortisol exposure to fetus at chronic supplemental doses. Avoid.' },
       ];
       for (const herb of pregnancyHerbs) {
-        if (n.includes(herb.match)) {
+        if (keywordMatch(n, herb.match)) {
           findings.push({
             tier: 'critical',
             ingredientName: ing.name,

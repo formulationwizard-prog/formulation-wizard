@@ -20,7 +20,10 @@
 // Excipients are anything in the 'Excipients' category.
 // ============================================================
 import type { Ingredient } from '../types';
+import type { ModeId } from './modes';
 import { UNIT_TO_GRAMS } from './utils';
+import { computePerServingScale } from './supplementMath';
+import { keywordMatch } from './keywordMatch';
 
 // ============================================================
 // REFERENCE DAILY VALUES (21 CFR 101.36 Table 1, adults & kids 4+)
@@ -151,13 +154,26 @@ export function isExcipient(categoryOrName: string | undefined): boolean {
 // ============================================================
 
 /**
- * Find the first DV entry whose keyword appears in the ingredient name.
- * More specific entries should appear earlier in DV_TABLE.
+ * Find the first DV entry whose keyword matches the ingredient name at
+ * a word boundary.
+ *
+ * Round 11 Phase 3 post-A.5 follow-up (2026-05-17): prior implementation
+ * used String.prototype.includes() substring matching, which caused
+ * "Vitamin B1" (Thiamin keyword) to substring-match "Vitamin B12 (Cyano-
+ * cobalamin 1% on Mannitol)" and steal the B12 row in the SFP. Switched
+ * to keywordMatch() (lib/keywordMatch.ts) which requires word-start
+ * boundary always + word-end boundary for digit-suffixed or ≤3-char
+ * keywords — solves the B1→B12 collision while preserving legitimate
+ * prefix matches like "pyridox" → "pyridoxal-5-phosphate".
+ *
+ * More specific entries should appear earlier in DV_TABLE for cases
+ * where a name is ambiguous (e.g., "Vitamin B Complex" — order-
+ * dependent fallback).
  */
 export function findDVEntry(name: string): DVEntry | null {
   const n = name.toLowerCase();
   for (const e of DV_TABLE) {
-    if (e.keywords.some(k => n.includes(k))) return e;
+    if (e.keywords.some(k => keywordMatch(n, k))) return e;
   }
   return null;
 }
@@ -226,6 +242,11 @@ function ingredientGrams(ing: Ingredient): number {
  */
 export function buildSupplementFacts(params: {
   ingredients: Ingredient[];
+  /** Active vertical / mode. Drives per-serving scaling: in 'supplements'
+   *  mode, ingredient amounts are entered as per-serving doses and pass
+   *  through verbatim (identity scale). In any other mode, amounts are
+   *  treated as batch totals and scaled by servingSize/totalBatch. */
+  mode?: ModeId;
   servingSizeInGrams: number;
   totalBatchGrams: number;
   servingsPerContainer: number | string;
@@ -233,10 +254,22 @@ export function buildSupplementFacts(params: {
   caloriesPerServing: number;
   macroPerServing: { totalFat: number; totalCarbs: number; protein: number; sodium: number; totalSugars: number };
 }): SupplementFactsData {
-  const { ingredients, servingSizeInGrams, totalBatchGrams, servingsPerContainer, servingSizeLabel,
+  const { ingredients, mode, servingSizeInGrams, totalBatchGrams, servingsPerContainer, servingSizeLabel,
           caloriesPerServing, macroPerServing } = params;
 
-  const scale = totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0;
+  // Per-serving scaling — routes through the shared helper so the SFP
+  // matches the Safety / Determination / NDI / Claims / Stability surfaces.
+  // Round 11 Phase 3 post-A.5 follow-up (2026-05-17): prior implementation
+  // applied the F&B ratio `servingSizeInGrams / totalBatchGrams` regardless
+  // of mode, contradicting the locked-in supplements contract that entered
+  // amounts ARE per-serving doses (see supplementMath.test.ts T1A-01 / T1C-01).
+  // The mismatch surfaced when operator-side Formula 1+2 testing produced
+  // a ~30× per-serving discrepancy between the Safety card (correct) and
+  // SFP (wrong). Defaults to identity scale when mode is omitted — preserves
+  // backwards compatibility for callers that don't yet thread mode through.
+  const scale = mode
+    ? computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams })
+    : (totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0);
   const vitaminMineralRows: SupplementFactRow[] = [];
   const otherActivesRows: SupplementFactRow[] = [];
   const excipientList: { name: string; grams: number }[] = [];
