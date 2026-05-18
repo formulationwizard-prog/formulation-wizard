@@ -156,7 +156,7 @@ Example: operator says "add MitoQ (Mitoquinone Mesylate) urgently because it's t
 
 ## 8a. Synonyms — REQUIRED from Wave 1.5 forward
 
-**The Rule:** Every catalog entry authored from Wave 1.5 (2026-05-17) forward MUST carry a `synonyms?: string[]` field with at least 2 alternate consumer-facing names. Pre-Wave-1.5 entries get synonyms added during the Wave 1.5b backfill commit.
+**The Rule:** Every catalog entry authored from Wave 1.5 (2026-05-17) forward MUST carry a `synonyms?: string[]` field with at least 2 names that operators realistically type. For most ingredients this means primary consumer name + 1+ alternate consumer names. For **single-canonical-name compounds** (e.g., Melatonin — operators almost universally type "melatonin") the second slot may be filled by the IUPAC / chemical name (e.g., "n-acetyl-5-methoxytryptamine"); note the rationale in the entry's `notes` field. Pre-Wave-1.5 entries get synonyms added during the Wave 1.5b backfill commit.
 
 **Why this is mandatory (not optional):** The original "optional but valuable" framing was the structural weakness that produced the bulk-paste matchability gap surfaced 2026-05-17. Operators paste natural names ("Folate 400 mcg") that don't match formal SKU names ("Vitamin B9 (Folic Acid USP)") via substring. Without synonyms the entry is unreachable from realistic operator workflows — equivalent to not being in the catalog at all.
 
@@ -836,11 +836,23 @@ Below 30% match: no surface (avoid false positives on niche formulations).
 **Concrete check (every entry, every commit):**
 
 ```bash
-# Before authoring "Folate (Folic Acid USP)":
-grep -i "folate\|folic acid\|vitamin b9\|b9" lib/data/supplements.ts
-# If results found → matchability fix (add synonyms to existing).
-# If nothing → new entry (proceed to §IX.40 checklist).
+# Multi-keyword grep — common name + formal name + class designator
+# + any obvious chemical/branded variants. Single-keyword grep misses
+# entries hidden behind formal SKU naming (e.g., "Vitamin B9 (Folic
+# Acid USP)" won't surface on grep "folate").
+grep -i "folate\|folic acid\|vitamin b9\|methylfolate\|metafolin\|quatrefolic" lib/data/supplements.ts
+
+# If results found → matchability fix (Cat 1: add synonyms to existing).
+# If nothing → new entry (Cat 2: proceed to §IX.40 17-item checklist).
 ```
+
+**Pattern for the grep query** — at minimum include:
+1. The primary consumer name (e.g., `folate`)
+2. The likely formal-SKU pattern (e.g., `folic acid`, `vitamin b9`)
+3. Active-form / branded variants (e.g., `methylfolate`, `metafolin`, `quatrefolic`)
+4. Class designator if applicable (e.g., `b-complex`, `mineral chelate`)
+
+Wave 1.5a stress-test surfaced the lesson: single-keyword grep ("folate") wouldn't have caught the existing "Vitamin B9 (Folic Acid USP)" entry. Multi-keyword grep is the discipline.
 
 **Outcomes:**
 - **Existing entry found** → Cat 1: add `synonyms[]` to existing entry, write bulk-paste resolution tests asserting the natural names now match. Do NOT author a parallel entry.
