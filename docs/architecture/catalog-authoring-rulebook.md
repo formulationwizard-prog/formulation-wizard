@@ -200,6 +200,57 @@ synonyms: ['folate', 'folate']
 
 **Collision discipline:** No two entries may share a normalized synonym. Tests should assert this on every catalog change. Surface collisions as a build-time error, not runtime.
 
+### Wave 1.5e refinement — harm-critical-sibling synonym discipline (2026-05-18)
+
+The Wave 1.5e browser verification surfaced a distinct synonym-layer failure mode that the Tier 1 / Tier 2 / collision-detection layers above do not catch:
+
+**Failure mode:** when ONE entry in a family of variants claims the **bare technical name** of the substance as a synonym (e.g., `'phosphatidylcholine'` on PC 35% Soy), and OTHER variants exist in the catalog (e.g., PC 30% Soy, PC 30% Sunflower) with materially different harm profiles, the bare-name synonym match preempts the cross-entry semantic check. Sibling variants become invisible to bare-name operator paste. Worked example: pre-1.5e bare `Phosphatidylcholine` paste silently resolved to PC 35% Soy (Soybeans allergen); PC 30% Sunflower (allergen-free) was invisible — operators targeting allergen-free products silently committed Soy and got an undeclared Big-9 allergen on the finished product label.
+
+**The Rule:** when proposing a synonym for an entry that is a member of a substance family with multiple variants (different sources, concentrations, branded forms, or formulations), the author MUST:
+
+1. Grep the catalog for all entries in the same substance family (multi-keyword grep per §38a)
+2. For each variant pair, identify whether **harm-profile differentials** exist:
+   - **Allergen profile differential** (FALCPA Big 9 allergen present in one variant but not another)
+   - **Identity-test attestation differential** (different identity-test method required per ingredient class — Wave 2+ data)
+   - **Regulatory-status differential** (NDI / GRAS / pre-DSHEA / pending status differs)
+3. **If harm-profile differentials exist among variants**, the bare technical name (e.g., `'phosphatidylcholine'`, `'lecithin'`) MUST NOT be claimed as a synonym by any single variant. Bare paste of the technical name routes through the parser's cross-entry semantic check (lib/parseFormula.ts findHarmCriticalSiblings) → Tier 3 disambiguation.
+4. **Only qualified synonyms** are claimed by specific variants:
+   - **Concentration-qualified:** `'phosphatidylcholine 35%'`, `'pc 35%'`
+   - **Source-qualified:** `'soy phosphatidylcholine'`, `'soy lecithin'`, `'soybean lecithin'`
+   - **Brand-qualified:** `'metafolin'`, `'quatrefolic'`, `'cognizin'`, `'KSM-66'`
+
+The parser-layer cross-entry check (Wave 1.5e, `findHarmCriticalSiblings`) provides the **runtime safety net**; this rule prevents the authoring-time mistake that triggers the runtime check. Belt-and-suspenders integrity model — same shape as §B3 substance validation: both authoring discipline and parser-layer enforcement.
+
+### ✅ DO (Wave 1.5e+ pattern for substance-family entries)
+
+```typescript
+// Family member entry with sibling variants having allergen differential:
+{
+  name: 'Phosphatidylcholine (PC 35%, Soy)',
+  allergens: ['Soybeans'],
+  synonyms: ['phosphatidylcholine 35%', 'pc 35%', 'soy phosphatidylcholine'],
+  // Qualified-form synonyms only — bare 'phosphatidylcholine' routes
+  // through findHarmCriticalSiblings to Tier 3 disambiguation surfacing
+  // PC 30% Sunflower (allergen-free sibling).
+}
+```
+
+### ❌ DON'T (Wave 1.5e+ anti-pattern)
+
+```typescript
+// Family member entry claiming the bare technical name when harm-critical
+// siblings exist:
+{
+  name: 'Phosphatidylcholine (PC 35%, Soy)',
+  allergens: ['Soybeans'],
+  synonyms: ['phosphatidylcholine', 'pc', 'phosphatidyl choline'],
+  // Bare 'phosphatidylcholine' silently resolves here — Sunflower variant
+  // becomes invisible to operator paste. Harm-critical floor violation.
+}
+```
+
+**Verifying compliance during authoring:** in addition to the §IX.40 item 16 check (≥ 2 synonyms), the §38a combinatorial grep MUST surface all family-member entries; the author checks each variant pair's allergen / regulatory-status fields. If any pair differs, qualified-only-synonyms applies. The pre-commit checklist item is non-negotiable when entries with potentially-family-bearing names are being authored.
+
 ## 9. Naming Convention (with counter-examples)
 
 **The Rule:** Display name = `Common Name (Form, Supplier, Standardization)` where each parenthetical clause encodes a verifiable structured-field value.

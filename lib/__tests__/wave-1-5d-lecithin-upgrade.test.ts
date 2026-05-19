@@ -26,15 +26,23 @@ import { findBestMatchWithTier, findBySynonym, parsePastedFormula } from '../par
 
 const expectedName = 'Lecithin (Soy, Liquid, USP)';
 
-describe('Wave 1.5d — Lecithin entry explicit Tier 1 synonym resolution', () => {
-  it('"Soy Lecithin" resolves at Tier 1 via synonym', () => {
+describe('Wave 1.5d → 1.5e — Lecithin entry qualified-form synonym resolution', () => {
+  // Wave 1.5e refinement: 'lecithin' (bare technical name) NO LONGER claimed
+  // on Soy Lecithin entry because the catalog has a Sunflower Lecithin
+  // sibling with different allergen profile. Bare 'lecithin' paste routes
+  // through the cross-entry semantic check → Tier 3 disambiguation (covered
+  // in wave-1-5e-synonym-layer-collision.test.ts). Qualified-form synonyms
+  // 'soy lecithin' and 'soybean lecithin' are retained for operators who
+  // explicitly specify the soy source — no ambiguity, Tier 1 unchanged.
+
+  it('"Soy Lecithin" (source-qualified) resolves at Tier 1 via synonym', () => {
     const r = findBestMatchWithTier('Soy Lecithin', SUPPLEMENT_INGREDIENTS);
     expect(r.item?.name).toBe(expectedName);
     expect(r.tier).toBe(1);
   });
 
-  it('"Lecithin" resolves at Tier 1 via synonym (was implicit pre-1.5d via stripped-name path)', () => {
-    const r = findBestMatchWithTier('Lecithin', SUPPLEMENT_INGREDIENTS);
+  it('"Soybean Lecithin" (alternate source-qualified spelling) resolves at Tier 1', () => {
+    const r = findBestMatchWithTier('Soybean Lecithin', SUPPLEMENT_INGREDIENTS);
     expect(r.item?.name).toBe(expectedName);
     expect(r.tier).toBe(1);
   });
@@ -44,7 +52,11 @@ describe('Wave 1.5d — Lecithin entry explicit Tier 1 synonym resolution', () =
     expect(r?.name).toBe(expectedName);
   });
 
-  it('bulk-paste "Soy Lecithin 100 mg" resolves cleanly', () => {
+  it('bulk-paste "Soy Lecithin 100 mg" resolves cleanly at Tier 1 (no harm-critical sibling for qualified form)', () => {
+    // "Soy Lecithin" is source-explicit — operator chose soy. Sunflower
+    // Lecithin's stripped name does NOT contain "soy lecithin" as a whole-
+    // word substring, so the cross-entry semantic check finds no sibling
+    // and Tier 1 stands.
     const rows = parsePastedFormula('Soy Lecithin 100 mg', SUPPLEMENT_INGREDIENTS);
     expect(rows[0].matchedItem?.name).toBe(expectedName);
     expect(rows[0].parsedQty).toBe(100);
@@ -55,7 +67,7 @@ describe('Wave 1.5d — Lecithin entry explicit Tier 1 synonym resolution', () =
   it('PC 35% entry still does NOT claim "soy lecithin" — disambiguation discipline holds', () => {
     // Pre-1.5b: PC entry deliberately did not claim 'lecithin'/'soy lecithin'
     // synonyms because PC is the isolated phospholipid (PC fraction of the
-    // lecithin parent material), not the whole lecithin. Post-1.5d that
+    // lecithin parent material), not the whole lecithin. Post-1.5e that
     // disambiguation discipline is unchanged — "Soy Lecithin" lands on the
     // parent Lecithin entry, NOT on the PC fraction.
     const r = findBestMatchWithTier('Soy Lecithin', SUPPLEMENT_INGREDIENTS);

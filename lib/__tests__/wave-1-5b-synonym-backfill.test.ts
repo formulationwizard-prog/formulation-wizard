@@ -229,20 +229,32 @@ describe('Wave 1.5b — Melatonin synonym resolution (single-canonical-name edge
 
 // ──────────────────────────────────────────────────────────────
 // Entry 6: Phosphatidylcholine (PC 35%, Soy)
-// Synonyms: ['phosphatidylcholine', 'pc', 'phosphatidyl choline']
+// Synonyms (Wave 1.5e refinement): ['phosphatidylcholine 35%', 'pc 35%',
+// 'soy phosphatidylcholine'] — qualified-form only. Bare 'phosphatidylcholine'
+// / 'pc' / 'phosphatidyl choline' deliberately NOT claimed because the
+// catalog has harm-critical sibling variants (PC 30% Sunflower allergen-free
+// vs PC 35% Soy with Soybeans allergen). Bare paste routes through the
+// Wave 1.5e cross-entry semantic check → Tier 3 disambiguation. See
+// wave-1-5e-synonym-layer-collision.test.ts for the escalation tests.
 // ──────────────────────────────────────────────────────────────
 
-describe('Wave 1.5b — Phosphatidylcholine synonym resolution', () => {
+describe('Wave 1.5b → 1.5e — Phosphatidylcholine qualified-form synonym resolution', () => {
   const expectedName = 'Phosphatidylcholine (PC 35%, Soy)';
 
-  it('"Phosphatidylcholine" resolves at Tier 1', () => {
-    const r = findBestMatchWithTier('Phosphatidylcholine', SUPPLEMENT_INGREDIENTS);
+  it('"Phosphatidylcholine 35%" (concentration-qualified) resolves at Tier 1', () => {
+    const r = findBestMatchWithTier('Phosphatidylcholine 35%', SUPPLEMENT_INGREDIENTS);
     expect(r.item?.name).toBe(expectedName);
     expect(r.tier).toBe(1);
   });
 
-  it('"Phosphatidyl Choline" (space variant) resolves at Tier 1', () => {
-    const r = findBestMatchWithTier('Phosphatidyl Choline', SUPPLEMENT_INGREDIENTS);
+  it('"PC 35%" (concentration-qualified short form) resolves at Tier 1', () => {
+    const r = findBestMatchWithTier('PC 35%', SUPPLEMENT_INGREDIENTS);
+    expect(r.item?.name).toBe(expectedName);
+    expect(r.tier).toBe(1);
+  });
+
+  it('"Soy Phosphatidylcholine" (source-qualified) resolves at Tier 1', () => {
+    const r = findBestMatchWithTier('Soy Phosphatidylcholine', SUPPLEMENT_INGREDIENTS);
     expect(r.item?.name).toBe(expectedName);
     expect(r.tier).toBe(1);
   });
@@ -265,32 +277,27 @@ describe('Wave 1.5b — Phosphatidylcholine scope discipline (no lecithin claim)
 
 // ──────────────────────────────────────────────────────────────
 // Entry 7: Alpha-GPC (L-Alpha-Glycerylphosphorylcholine)
-// Synonyms: ['alpha-gpc', 'alpha gpc', 'l-alpha-gpc', 'glycerophosphocholine']
+// Synonyms (Wave 1.5e refinement): ['alpha-gpc soy', 'soy alpha-gpc']
+// — qualified source-explicit forms only. Bare 'alpha-gpc' / 'l-alpha-gpc'
+// / 'glycerophosphocholine' deliberately NOT claimed because the catalog
+// has Alpha-GPC 50% (AlphaSize, Synthetic) as a harm-critical sibling
+// (allergen-free vs this entry's Soybeans allergen). Bare paste routes
+// through the Wave 1.5e cross-entry semantic check → Tier 3
+// disambiguation. See wave-1-5e-synonym-layer-collision.test.ts for the
+// escalation regression tests.
 // ──────────────────────────────────────────────────────────────
 
-describe('Wave 1.5b — Alpha-GPC synonym resolution', () => {
+describe('Wave 1.5b → 1.5e — Alpha-GPC qualified-form synonym resolution', () => {
   const expectedName = 'Alpha-GPC (L-Alpha-Glycerylphosphorylcholine)';
 
-  it('"Alpha-GPC" (dash variant) resolves at Tier 1', () => {
-    const r = findBestMatchWithTier('Alpha-GPC', SUPPLEMENT_INGREDIENTS);
+  it('"Alpha-GPC Soy" (source-qualified) resolves at Tier 1', () => {
+    const r = findBestMatchWithTier('Alpha-GPC Soy', SUPPLEMENT_INGREDIENTS);
     expect(r.item?.name).toBe(expectedName);
     expect(r.tier).toBe(1);
   });
 
-  it('"Alpha GPC" (space variant) resolves at Tier 1', () => {
-    const r = findBestMatchWithTier('Alpha GPC', SUPPLEMENT_INGREDIENTS);
-    expect(r.item?.name).toBe(expectedName);
-    expect(r.tier).toBe(1);
-  });
-
-  it('"L-Alpha-GPC" resolves at Tier 1', () => {
-    const r = findBestMatchWithTier('L-Alpha-GPC', SUPPLEMENT_INGREDIENTS);
-    expect(r.item?.name).toBe(expectedName);
-    expect(r.tier).toBe(1);
-  });
-
-  it('"Glycerophosphocholine" resolves at Tier 1', () => {
-    const r = findBestMatchWithTier('Glycerophosphocholine', SUPPLEMENT_INGREDIENTS);
+  it('"Soy Alpha-GPC" (alternate source-qualified form) resolves at Tier 1', () => {
+    const r = findBestMatchWithTier('Soy Alpha-GPC', SUPPLEMENT_INGREDIENTS);
     expect(r.item?.name).toBe(expectedName);
     expect(r.tier).toBe(1);
   });

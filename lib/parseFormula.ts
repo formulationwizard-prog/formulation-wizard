@@ -14,6 +14,7 @@
 // ============================================================
 import type { IndustrialIngredient } from '../types';
 import { UNITS } from './utils';
+import { harmCriticalDifferenceExists } from './supplementHarmCritical';
 
 /**
  * Confidence tier for a bulk-paste match. Round 5 directive 2026-05-07:
@@ -365,6 +366,78 @@ function stripCatalogTrailingParens(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
+/** Escape regex special characters in a literal string. */
+function escapeRegexLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Cross-entry semantic-equivalence check (Wave 1.5e, 2026-05-18).
+ *
+ * Pre-1.5e: an operator paste that hit Tier 1 synonym OR Tier 2 stripped-
+ * name single-match returned the matched entry as a confident emerald
+ * result. Pre-existing catalog state had multiple cases where OTHER entries
+ * (variants of the same substance) could legitimately satisfy the same
+ * paste with materially different harm profiles (allergens, regulatory
+ * status). The matched entry silently won by iteration order / authoring
+ * choice; the operator never saw the harm-critical variants existed.
+ *
+ * Worked examples surfaced operator-side:
+ *   • Phosphatidylcholine paste → PC 35% Soy via Wave 1.5b synonym claim
+ *     'phosphatidylcholine'. PC 30% Sunflower (allergen-free) invisible.
+ *   • Lecithin paste → Lecithin (Soy) via Wave 1.5d synonym claim
+ *     'lecithin'. Sunflower Lecithin (allergen-free) invisible.
+ *
+ * Wave 1.5e fix: after a confident match (Tier 1 synonym or Tier 2 single
+ * stripped-name match), search the catalog for OTHER entries whose
+ * stripped catalog name contains the operator paste text as a whole-word
+ * substring (per the §II.8a authoring discipline, such entries are
+ * sibling variants of the same substance). For each candidate, check the
+ * three-category harm-critical predicate (lib/supplementHarmCritical.ts).
+ * If any harm-critically-different sibling exists, escalate to Tier 3
+ * disambiguation — workspace's existing amber ⚠ Confirm match UI surfaces
+ * the candidate list to the operator.
+ *
+ * Returns the harm-critical-different siblings (excluding the original
+ * matched entry). Empty array → no escalation needed; matched entry's
+ * tier stands.
+ */
+function findHarmCriticalSiblings(
+  matched: IndustrialIngredient,
+  query: string,
+  db: IndustrialIngredient[],
+): IndustrialIngredient[] {
+  // Normalize both sides via normalizeIngredientName to handle the
+  // hyphen-vs-space variant symmetry — operator paste of "Alpha-GPC"
+  // vs "Alpha GPC" must surface the same harm-critical sibling
+  // (Alpha-GPC 50% AlphaSize Synthetic, allergen-free). Same shape as
+  // the synonym match path normalization.
+  const normalizedQuery = normalizeIngredientName(query);
+  if (!normalizedQuery) return [];
+  const queryWordBoundary = new RegExp(`\\b${escapeRegexLiteral(normalizedQuery)}\\b`, 'i');
+  return db.filter(other => {
+    if (other === matched) return false;
+    const stripped = normalizeIngredientName(stripCatalogTrailingParens(other.name));
+    if (!queryWordBoundary.test(stripped)) return false;
+    return harmCriticalDifferenceExists(matched, other);
+  });
+}
+
+/**
+ * Compose a Tier 3 disambiguation reason text enumerating the matched
+ * entry alongside its harm-critical sibling variants. Workspace UI
+ * renders this in the amber "⚠ Confirm match" row. Format kept stable
+ * for the frozen-snapshot disambiguation-prompt-text test in
+ * lib/__tests__/wave-1-5e-synonym-layer-collision.test.ts.
+ */
+function harmCriticalDisambiguationReason(
+  matched: IndustrialIngredient,
+  siblings: IndustrialIngredient[],
+): string {
+  const candidates = [matched, ...siblings].map(e => e.name).join(' or ');
+  return `multiple variants with different harm profiles (allergen / regulatory) — confirm: ${candidates}`;
+}
+
 /** Tokens that appear across many ingredients and don't carry distinctive
  *  semantic content. Skipped during head-token comparisons so matching
  *  focuses on the meaningful head ("Celery" vs "Chia") rather than shared
@@ -417,14 +490,47 @@ export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]):
   // without per-variant enumeration. Authored synonyms are a high-confidence
   // claim by us; this match is Tier 1, on par with the catalog-name exact
   // match. Rulebook §II.8a + §IX.40 checklist item 16 govern.
+  //
+  // Wave 1.5e cross-entry escalation (2026-05-18): even when a synonym
+  // matches confidently, if OTHER catalog entries are sibling variants of
+  // the same substance with materially different harm profiles (allergens,
+  // regulatory status), the operator must disambiguate — silent first-
+  // match-wins crosses the harm-critical floor when sibling variants
+  // differ in allergen/regulatory layer. Escalate to Tier 3.
   const synonymMatch = findBySynonym(name, db);
-  if (synonymMatch) return { item: synonymMatch, tier: 1 };
+  if (synonymMatch) {
+    const harmCriticalSiblings = findHarmCriticalSiblings(synonymMatch, name, db);
+    if (harmCriticalSiblings.length > 0) {
+      return {
+        item: synonymMatch,
+        tier: 3,
+        reason: harmCriticalDisambiguationReason(synonymMatch, harmCriticalSiblings),
+      };
+    }
+    return { item: synonymMatch, tier: 1 };
+  }
 
   // ─── Tier 1: exact match on a single-item sub-ingredient statement ─
   // ("Honey (Industrial Grade)" with subIngredients=['Honey'] → match for input "Honey")
+  //
+  // Wave 1.5e (2026-05-18): same cross-entry escalation as Tier 1 synonym
+  // match. Sub-ingredient single-match is a confident-match path that
+  // silently commits the matched entry; if harm-critical sibling variants
+  // exist elsewhere in the catalog, escalate to Tier 3. Alpha-GPC was the
+  // worked example — subIngredients=['Alpha-GPC'] hits this path; the
+  // Alpha-GPC 50% AlphaSize Synthetic sibling has different allergen
+  // profile and must surface for operator confirmation.
   for (const i of db) {
     const subs = i.subIngredients ?? [];
     if (subs.length === 1 && subs[0].toLowerCase() === lower) {
+      const harmCriticalSiblings = findHarmCriticalSiblings(i, name, db);
+      if (harmCriticalSiblings.length > 0) {
+        return {
+          item: i,
+          tier: 3,
+          reason: harmCriticalDisambiguationReason(i, harmCriticalSiblings),
+        };
+      }
       return { item: i, tier: 1 };
     }
   }
@@ -464,6 +570,25 @@ export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]):
     i => stripCatalogTrailingParens(i.name).toLowerCase() === lower,
   );
   if (strippedMatches.length === 1) {
+    // Wave 1.5e (2026-05-18) — even a single stripped-name match must
+    // check for harm-critical sibling variants elsewhere in the catalog.
+    // Example: bare "Phosphatidylcholine" paste post-Wave-1.5e synonym
+    // cleanup lands here (single stripped-name match to PC 35% Soy);
+    // PC 30% Sunflower has whole-word "phosphatidylcholine" in its
+    // stripped name but strips to a different value, so it doesn't
+    // collide at the stripped-name layer. The cross-entry semantic
+    // check surfaces it as a harm-critical sibling because allergens
+    // differ. Same architectural fix as the Tier 1 synonym escalation
+    // above — silent first-match-wins is unsafe when sibling variants
+    // differ in harm-critical attributes.
+    const harmCriticalSiblings = findHarmCriticalSiblings(strippedMatches[0], lower, db);
+    if (harmCriticalSiblings.length > 0) {
+      return {
+        item: strippedMatches[0],
+        tier: 3,
+        reason: harmCriticalDisambiguationReason(strippedMatches[0], harmCriticalSiblings),
+      };
+    }
     return { item: strippedMatches[0], tier: 2, reason: 'catalog name minus grade qualifier' };
   }
   if (strippedMatches.length > 1) {
