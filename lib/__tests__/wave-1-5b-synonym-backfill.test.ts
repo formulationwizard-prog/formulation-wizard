@@ -179,12 +179,24 @@ describe('Wave 1.5b — Methylfolate disambiguation discipline', () => {
     expect(synonymHit).toBeNull();
   });
 
-  it('bare "Methylfolate" may resolve at Tier 2 via head-token matching but tier signals ambiguity (not Tier 1)', () => {
+  it('bare "Methylfolate" resolves at Tier 3 with ambiguity prompt enumerating both branded forms (Wave 1.5d collision-detection fix)', () => {
+    // Pre-Wave-1.5d: bare "Methylfolate" silently resolved to whichever
+    // branded form appeared first in catalog iteration order (Metafolin),
+    // because the Tier 2 stripped-name loop returned first-match-wins.
+    // Surfaced via operator browser verification 2026-05-18; bench-test
+    // code trace of findBestMatchWithTier predicted the silent
+    // substitution before browser confirmed.
+    //
+    // Wave 1.5d fix: collect all stripped-name matches; if >1, return
+    // Tier 3 with reason enumerating candidates. Workspace UI surfaces
+    // the existing amber "⚠ Confirm match" prompt with the candidate
+    // list — operator picks the right branded form rather than silent
+    // substitution.
     const r = findBestMatchWithTier('Methylfolate', SUPPLEMENT_INGREDIENTS);
-    // Head-token matching will surface one of the two Methylfolate entries.
-    // The KEY assertion is that this is NOT Tier 1 — the synonym path was
-    // deliberately not claimed for "methylfolate" / "5-mthf" alone.
-    expect(r.tier).not.toBe(1);
+    expect(r.tier).toBe(3);
+    expect(r.reason).toContain('multiple branded forms');
+    expect(r.reason).toContain('Metafolin');
+    expect(r.reason).toContain('Quatrefolic');
   });
 });
 

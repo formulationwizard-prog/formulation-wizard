@@ -441,10 +441,42 @@ export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]):
 
   // ─── Tier 2: stripped-name match ──────────────────────────────────
   // Catalog "Salt (Food Grade Fine)" stripped to "Salt" matches input "Salt".
-  for (const i of db) {
-    if (stripCatalogTrailingParens(i.name).toLowerCase() === lower) {
-      return { item: i, tier: 2, reason: 'catalog name minus grade qualifier' };
-    }
+  //
+  // Wave 1.5d (2026-05-18) — collision detection. Pre-1.5d the loop
+  // returned the FIRST stripped-name match by iteration order, which
+  // silently substituted between branded forms that share a stripped
+  // name. Operator paste of bare "Methylfolate" → both
+  // "Methylfolate (Metafolin / Calcium L-5-MTHF)" and
+  // "Methylfolate (Quatrefolic / Glucosamine L-5-MTHF)" strip to
+  // "Methylfolate"; pre-1.5d returned Metafolin (first in db order)
+  // silently as Tier 2 emerald-match, hiding Quatrefolic from the
+  // operator entirely. Same class-of-bugs as the NDI choline-family
+  // substring overgeneralization fixed alongside in 1.5d — silent
+  // first-match-wins where the right behavior is "surface ambiguity
+  // for operator confirmation."
+  //
+  // Post-1.5d: collect ALL stripped-name matches; if >1, return Tier 3
+  // with reason text enumerating candidates so the workspace's Tier 3
+  // amber "⚠ Confirm match" UI fires (no UI change required — the
+  // disambiguation prompt was already present, parser just needed to
+  // route the ambiguous case there instead of silently picking one).
+  const strippedMatches = db.filter(
+    i => stripCatalogTrailingParens(i.name).toLowerCase() === lower,
+  );
+  if (strippedMatches.length === 1) {
+    return { item: strippedMatches[0], tier: 2, reason: 'catalog name minus grade qualifier' };
+  }
+  if (strippedMatches.length > 1) {
+    // Multiple entries share the same stripped name → genuine
+    // ambiguity. Return the first candidate as the "did you mean"
+    // suggestion at Tier 3 with reason enumerating ALL candidates so
+    // the operator can pick the right branded form.
+    const candidateNames = strippedMatches.map(i => i.name).join(' or ');
+    return {
+      item: strippedMatches[0],
+      tier: 3,
+      reason: `multiple branded forms share the stripped name "${stripCatalogTrailingParens(strippedMatches[0].name)}" — specify which one: ${candidateNames}`,
+    };
   }
 
   // ─── Tier 2: whole-word prefix on the catalog side ────────────────

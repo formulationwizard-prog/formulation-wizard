@@ -858,6 +858,33 @@ Wave 1.5a stress-test surfaced the lesson: single-keyword grep ("folate") wouldn
 - **Existing entry found** → Cat 1: add `synonyms[]` to existing entry, write bulk-paste resolution tests asserting the natural names now match. Do NOT author a parallel entry.
 - **No equivalent entry** → Cat 2: proceed to §IX.40 16-item pre-commit checklist.
 
+### Two-miss-mode disambiguation (Wave 1.5d refinement, 2026-05-18)
+
+The Wave 1.5d Lecithin §38a grep-gap finding (operator verification 2026-05-18) surfaced that §38a fails in two distinct ways. Naming them separately matters because they have different velocity profiles and different fixes:
+
+**Miss-mode A — grep-discipline gap (process failure).** The grep was anchored to focal-entry-side terms, not anticipated-operator-paste shapes. Author searched for keywords around the entry they were drafting; didn't search for the natural names operators might paste. Result: pre-existing entries elsewhere in the catalog (different category, different naming convention) weren't surfaced.
+
+- **Worked example:** Wave 1.5b authoring around Phosphatidylcholine deliberately did NOT claim 'lecithin' as a synonym on the PC entry, with the commit note "reserved for future dedicated lecithin entry." But a Lecithin (Soy, Liquid, USP) entry already existed in the Excipients category — surfaced operator-side when bulk-paste of "Soy Lecithin 100 mg" resolved via the existing entry, not Tier 4 no-match. The 1.5b grep was anchored on Phosphatidylcholine-side terms; no grep for "lecithin" standalone.
+- **Fix:** rulebook-level. Run **combinatorial grep across all anticipated operator-paste shapes**, not just keywords anchored to the focal entry's canonical name. For each entry being authored, the grep pattern includes (1) consumer paste names of THIS entry, (2) consumer paste names of related/adjacent substances, (3) names the operator might confusingly paste targeting THIS entry (e.g., parent material name, related compound name).
+- **Velocity:** one-time rulebook update prevents the failure mode forever.
+
+**Miss-mode B — catalog-data quality gap (per-entry failure).** Grep surfaced the pre-existing entry, but the entry is missing current-schema fields (synonyms, regulatoryStatus, functionalRole, coaTemplateType, bioactives, pharmacopeialReference). Operator paste resolves but the entry is F&B-era shape and doesn't carry the harm-critical-grade metadata Wave 1.5+ entries do.
+
+- **Worked example:** the same Lecithin (Soy, Liquid, USP) entry once surfaced was found to lack synonyms, regulatoryStatus, pharmacopeialReference, coaTemplateType — all introduced in Wave 1.5+ schema additions. Operator paste resolved via implicit Tier 1 single-sub-ingredient match (entry's `subIngredients: ['Soy Lecithin']` matched the query exactly) rather than explicit Tier 1 synonym match.
+- **Fix:** per-entry data work. Add missing fields to the existing entry, write the missing tests per §VI.29.
+- **Velocity:** ongoing data work that may surface again as other F&B-era entries get touched in future waves.
+
+### In-commit vs defer-to-later-wave decision rule (Miss-mode B)
+
+When §38a grep surfaces a pre-existing entry that lacks current-schema fields, log it as a **catalog-data finding** and choose:
+
+- **Upgrade in-commit** when (a) the gap is verification-coherent with the current commit's scope (e.g., the same entry that surfaced the §38a grep-gap), AND (b) the upgrade is small (one entry, well-understood field set). The PA-verification queue and rulebook §VI.29 test gate constrain in-commit work to substantiated changes only — no speculative metadata fill.
+- **Defer to later wave** when the gap is incidental (entry surfaced via §38a check on a different entry, no direct verification coupling) OR the upgrade is large (multiple entries, fields that require PA-verification, schema-driven changes). Add to the catalog-finding queue in `docs/findings/` for explicit Round X assignment.
+
+The decision discipline avoids the failure mode where a routine synonym authoring task quietly turns into a 30-entry F&B-schema upgrade pass. Scope creep is the enemy of verification-coherent batches.
+
+**Worked example:** Wave 1.5d upgraded Lecithin (Soy, Liquid, USP) in-commit (verification-coherent, one entry, well-understood fields: synonyms / regulatoryStatus / pharmacopeialReference / coaTemplateType). The adjacent Sunflower Lecithin (Liquid) entry has the same F&B-era shape but was NOT in 1.5d scope — it's a deferred catalog-data finding for a later wave. The rule applied cleanly.
+
 ## 38. Wave 1.5 — Today's Gap Closure
 
 **Inserted between Wave 2 Phase 1 (complete) and Wave 2 Phase 2 (in progress).** Closes operator-visible S1 gaps from 2026-05-17 verification round. Estimated ~15 entries.
