@@ -135,6 +135,48 @@ Example: operator says "add MitoQ (Mitoquinone Mesylate) urgently because it's t
 - `regulatoryStatus.US` (Class 1b enum)
 - `lastReviewedDate` + `reviewedBy`
 
+### §II.8 Transition rider — Wave 1.5–Wave 4 schema gap (added 2026-05-19)
+
+**Status:** Active deferral, scope-bounded. Closed by a Round 12+ catalog-wide schema-migration wave.
+
+**Surfacing event:** Catalog Entry Validator v1 inaugural smoke test (2026-05-19) against `Caffeine Anhydrous (USP, Pharmaceutical-Grade)`. Agent reported PUSHBACK on five universal-required fields whose live-catalog occurrence count is **zero across ~600 entries** (verified Grep):
+
+- **Structured `citation: { authority, source, tier }` object** — live catalog cites in trailing `// Source: ...` comments.
+- **`confidenceLevel` enum** — no entry carries the field.
+- **`regulatoryStatus.US` object form** — live catalog uses bare-string form (`regulatoryStatus: 'GRAS'`); 68 of 68 occurrences. Schema is `{ US: ..., CA?: ... }` per §II.14.
+- **`lastReviewedDate` + `reviewedBy`** — neither present on any entry (precedent exists in `stacks.ts`).
+- **Per-tag `evidenceNote` for functional-role tags** — live catalog has narrative substantiation in `notes`; not structured per Appendix A.
+
+**Decision (operator + Wizard, 2026-05-19):** Path (b) — accept gap as known-deferred per [[feedback_refactors_wait_for_stable_data_layer]] + [[project_supplements_two_wave_ingestion]]. The rulebook captures both the target schema (§II.8 universal-required) AND the explicit acknowledgment that Wave 1.5-era entries pre-date it. Round 12+ schema-migration wave closes the gap deliberately.
+
+**Forward-looking requirement (non-negotiable):** New catalog entries authored from 2026-05-19 forward MUST carry all five gap-affected fields. The rider is NOT a license to author new entries without them — it acknowledges that pre-existing Wave 1.5-era entries get migrated together rather than retroactively-blocked. The four remaining Wave 1.5 entries (Caffeine-from-Green-Tea, Melatonin Time-Release, Choline Bitartrate, Magtein) are the first entries authored under the strict §II.8 reading; they ship with the new fields.
+
+**Validator implication (Catalog Entry Validator v1):** verdict status splits into:
+
+- **PUSHBACK-ENTRY** — mechanical FAILs on rule violations specific to the proposed entry's authoring. Blocks commit until fixed.
+- **PUSHBACK-STRUCTURAL** — mechanical FAILs ONLY on the five gap-affected fields above, AND **all five are absent** from the entry. Informational; does NOT block individual commit. Logs as accumulated schema-migration work.
+
+**Mechanical distinguisher (no git-blame access required):** the validator classifies a structural-vs-entry pushback by counting how many of the five gap-affected fields are present. If 0 of 5 present → Wave 1.5-era entry → PUSHBACK-STRUCTURAL on the missing fields. If 1+ of 5 present → operator started migration on this entry → expect all 5 → PUSHBACK-ENTRY on the missing ones (partial migration is itself an authoring error).
+
+PUSHBACK-ENTRY + PUSHBACK-STRUCTURAL co-occurring → status is PUSHBACK-ENTRY (entry-specific fix takes precedence; structural gap noted but not blocking on its own).
+
+**Round 12+ schema-migration scope:** ~600 entries × 5 fields = ~3000 field-migrations. Estimated as a single coordinated wave:
+
+1. Schema additions to `IndustrialIngredient` type
+2. Per-entry backfill of `confidenceLevel` (Estimated default; Verified-Supplier-COA for top-N entries with current COAs on file)
+3. Per-entry backfill of `regulatoryStatus.US` object form from bare-string source
+4. Per-entry backfill of `lastReviewedDate` (migration-batch date) + `reviewedBy` ('Round-12-schema-migration')
+5. Per-entry backfill of structured `citation[]` array from trailing-comment parse
+6. Per-functional-tag backfill of `evidenceNote` from `notes` field where substantively present
+
+Out of scope for this rider: actual migration execution. The rider sets validator behavior; the migration wave is a separate work item.
+
+**Validator implementation:** [.claude/agents/catalog-entry-validator.md](.claude/agents/catalog-entry-validator.md) (Refinement 1 integration, 2026-05-19). The validator's four-state verdict logic (PASS / PUSHBACK-ENTRY / PUSHBACK-STRUCTURAL / ROUTING-REQUIRED) operationalizes this rider. Round 12+ schema-migration wave will need to touch BOTH files — this rider's removal AND the validator's state machine — together. Cross-reference discipline prevents drift between the rulebook layer and the agent layer.
+
+**Closure criteria:** when the Round 12+ schema-migration wave lands, this rider is removed from §II.8. The strict universal-required reading becomes definitive. PUSHBACK-STRUCTURAL retires from the validator's verdict states.
+
+**Pattern note:** this rider is itself a worked example of the rulebook-as-hypothesis + verification-iterations-as-discovery-channel pattern operating at the validator-build layer. Rulebook describes intended state; validator stress-tests rulebook against catalog; gap surfaces; rider acknowledges gap + sets discipline for closure. Same shape as the Wave 1.5d §38a two-miss-mode disambiguation — different layer, same discipline.
+
 **Required per-category (additional):**
 
 | Category | Additional required |
