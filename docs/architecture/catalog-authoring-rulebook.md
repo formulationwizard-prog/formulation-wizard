@@ -139,37 +139,53 @@ Example: operator says "add MitoQ (Mitoquinone Mesylate) urgently because it's t
 
 **Status:** Active deferral, scope-bounded. Closed by a Round 12+ catalog-wide schema-migration wave.
 
-**Surfacing event:** Catalog Entry Validator v1 inaugural smoke test (2026-05-19) against `Caffeine Anhydrous (USP, Pharmaceutical-Grade)`. Agent reported PUSHBACK on five universal-required fields whose live-catalog occurrence count is **zero across ~600 entries** (verified Grep):
+**Surfacing event:** Catalog Entry Validator v1 inaugural smoke test (2026-05-19) against `Caffeine Anhydrous (USP, Pharmaceutical-Grade)`. Agent reported PUSHBACK on seven gap-affected patterns whose live-catalog occurrence count is **zero (or near-zero) across ~600 entries** (verified Grep across the initial 5 + step-3-retry surfacing 2 more):
 
-- **Structured `citation: { authority, source, tier }` object** — live catalog cites in trailing `// Source: ...` comments.
-- **`confidenceLevel` enum** — no entry carries the field.
-- **`regulatoryStatus.US` object form** — live catalog uses bare-string form (`regulatoryStatus: 'GRAS'`); 68 of 68 occurrences. Schema is `{ US: ..., CA?: ... }` per §II.14.
-- **`lastReviewedDate` + `reviewedBy`** — neither present on any entry (precedent exists in `stacks.ts`).
-- **Per-tag `evidenceNote` for functional-role tags** — live catalog has narrative substantiation in `notes`; not structured per Appendix A.
+- **Gap #1 — Structured `citation: { authority, source, tier }` object** — live catalog cites in trailing `// Source: ...` comments.
+- **Gap #2 — `confidenceLevel` enum** — no entry carries the field.
+- **Gap #3 — `regulatoryStatus.US` object form** — live catalog uses bare-string form (`regulatoryStatus: 'GRAS'`); 68 of 68 occurrences. Schema is `{ US: ..., CA?: ... }` per §II.14.
+- **Gap #4 — `lastReviewedDate` + `reviewedBy`** — neither present on any entry (precedent exists in `stacks.ts`).
+- **Gap #5 — Per-tag `evidenceNote` for functional-role tags** — live catalog has narrative substantiation in `notes`; not structured per Appendix A.
+- **Gap #6 — `allergensInvestigated` / `allergensFound` flag pair** — surfaced by step 3-retry (2026-05-19). The M4 §I.5 harm-critical floor rule documents these flags as an alternative remediation when `confidenceLevel` isn't set. Grep-verified: 0 of ~600 entries carry the flags. Same structural shape as Gaps #1–5: rulebook construct that hasn't landed in the catalog.
+- **Gap #7 — Per-category required fields per §II.8 (broad)** — surfaced by step 3-retry (2026-05-19). §II.8's "Required per-category (additional)" table enumerates fields per category (Vitamins: `dv`/`unit`/`dvKeyword`; Specialty Compounds: `mechanism`/`evidenceGrade`; etc.). For Specialty Compounds, `mechanism` + `evidenceGrade` are catalog-wide absent (Grep-verified: 0 of ~600 entries; the 1 Grep false-positive was nested `mechanism:` inside `drugInteractions` for a different field). Other categories likely have analogous catalog-wide-absent per-category fields, not yet exhaustively audited. **The specific per-category gap inventory is itself a Round 12+ audit-step prerequisite to the migration wave** — see migration scope below.
 
 **Decision (operator + Wizard, 2026-05-19):** Path (b) — accept gap as known-deferred per [[feedback_refactors_wait_for_stable_data_layer]] + [[project_supplements_two_wave_ingestion]]. The rulebook captures both the target schema (§II.8 universal-required) AND the explicit acknowledgment that Wave 1.5-era entries pre-date it. Round 12+ schema-migration wave closes the gap deliberately.
 
-**Forward-looking requirement (non-negotiable):** New catalog entries authored from 2026-05-19 forward MUST carry all five gap-affected fields. The rider is NOT a license to author new entries without them — it acknowledges that pre-existing Wave 1.5-era entries get migrated together rather than retroactively-blocked. The four remaining Wave 1.5 entries (Caffeine-from-Green-Tea, Melatonin Time-Release, Choline Bitartrate, Magtein) are the first entries authored under the strict §II.8 reading; they ship with the new fields.
+**Forward-looking requirement (non-negotiable):** New catalog entries authored from 2026-05-19 forward MUST carry Gaps #1–6 (the universal-required + allergens-flag fields). Gap #7 (per-category required fields) is conditionally required: a new entry must populate the per-category fields IF the entry's category has at least one prior entry with those fields populated; otherwise the per-category fields can defer to the Round 12+ audit-step + migration wave. The rider is NOT a license to author new entries without the universal-required + allergens-flag fields — it acknowledges that pre-existing Wave 1.5-era entries get migrated together rather than retroactively-blocked. The four remaining Wave 1.5 entries (Caffeine-from-Green-Tea, Melatonin Time-Release, Choline Bitartrate, Magtein) are the first entries authored under the strict §II.8 reading; they ship with Gaps #1–6 minimally and Gap #7 per the audit-status of their categories.
+
+**Gap #6 closure semantics (verification-path requirement, added 2026-05-19):** "Closure" on Gap #6 for a new entry means EITHER (a) `allergensInvestigated: true, allergensFound: [list-or-empty]` with `confidenceLevel` reflecting the verification source (Verified-Supplier-COA at minimum) OR (b) `confidenceLevel: 'Undocumented'` with explicit acknowledgment that allergen content hasn't been verified. The flag pair is non-negotiable; the verification path is not. Same closure-claims-bidirectional discipline as elsewhere in the rulebook — the closure isn't satisfied by adding the flag with an aspirational value; it requires either positive verification or explicit Undocumented status. The Round 12+ migration wave applies the same logic to ~600 existing entries (Step 7 of the migration scope): entries where allergen content has been investigated populate the flag pair with their verified findings; remaining entries demote to `confidenceLevel: 'Undocumented'`. No silent-empty default.
 
 **Validator implication (Catalog Entry Validator v1):** verdict status splits into:
 
 - **PUSHBACK-ENTRY** — mechanical FAILs on rule violations specific to the proposed entry's authoring. Blocks commit until fixed.
 - **PUSHBACK-STRUCTURAL** — mechanical FAILs ONLY on the five gap-affected fields above, AND **all five are absent** from the entry. Informational; does NOT block individual commit. Logs as accumulated schema-migration work.
 
-**Mechanical distinguisher (no git-blame access required):** the validator classifies a structural-vs-entry pushback by counting how many of the five gap-affected fields are present. If 0 of 5 present → Wave 1.5-era entry → PUSHBACK-STRUCTURAL on the missing fields. If 1+ of 5 present → operator started migration on this entry → expect all 5 → PUSHBACK-ENTRY on the missing ones (partial migration is itself an authoring error).
+**Mechanical distinguisher (no git-blame access required):** the validator classifies a structural-vs-entry pushback by counting how many of the six universal-mechanically-countable gap-affected fields (Gaps #1–6) are present. Gap #7 (per-category required fields) is NOT in the distinguisher arithmetic because its presence/absence is category-specific and varies across the catalog (some categories have widely-present per-category fields; others are catalog-wide absent — the Round 12+ audit-step produces the canonical per-category list).
+
+- **0 of 6 present** → Wave 1.5-era pre-migration entry → PUSHBACK-STRUCTURAL on missing Gap #1–6 fields. Gap #7 failures (M5 missing per-category required fields) route via the M5-sub-step Grep audit (see below).
+- **1–5 of 6 present** → operator started migration on this entry → expect all 6 → PUSHBACK-ENTRY on the missing ones (partial migration is itself an authoring error).
+- **6 of 6 present** → fully migrated for universal-required + allergens-flag → standard checks apply.
 
 PUSHBACK-ENTRY + PUSHBACK-STRUCTURAL co-occurring → status is PUSHBACK-ENTRY (entry-specific fix takes precedence; structural gap noted but not blocking on its own).
 
-**Round 12+ schema-migration scope:** ~600 entries × 5 fields = ~3000 field-migrations. Estimated as a single coordinated wave:
+**Gap #7 per-category sub-protocol (validator M5 augmentation):** when M5 (per-category required fields) FAILs for an entry, the validator runs a category-specific Grep against `lib/data/supplements.ts` for each missing per-category field. If 0 entries in the same category carry that field → catalog-wide absent → PUSHBACK-STRUCTURAL (Gap #7 deferral). If ≥1 entries in the same category carry that field → catalog-wide pattern exists → PUSHBACK-ENTRY (entry must adopt the existing pattern). This decision is per-field, not per-entry-aggregate; an entry may simultaneously have some per-category fields routing structural and others routing entry-level.
 
-1. Schema additions to `IndustrialIngredient` type
+**Round 12+ schema-migration scope:** ~600 entries × ≥ 6 universal fields + per-category fields per audit = ≥ ~3600 field-migrations. Estimated as a single coordinated wave with an audit-step prerequisite:
+
+**Step 0 (audit prerequisite — must complete before backfill steps):**
+For each of the 14 §III.15 categories, Grep `lib/data/supplements.ts` for each §II.8 per-category required field. Identify which fields are present in 0% of entries for that category (catalog-wide absent → Gap #7 in-scope for migration) vs. present in some entries (partial; out of Gap #7 scope; per-entry backfill via the validator's normal PUSHBACK-ENTRY path during routine catalog work). Output: `docs/catalog/round-12-per-category-audit.md` with the canonical category × field × present-count matrix. This audit feeds steps 7+'s scope.
+
+**Steps 1–7 (backfill, after audit):**
+1. Schema additions to `IndustrialIngredient` type (adds the universal-required + allergens-flag + per-audit category-required fields)
 2. Per-entry backfill of `confidenceLevel` (Estimated default; Verified-Supplier-COA for top-N entries with current COAs on file)
 3. Per-entry backfill of `regulatoryStatus.US` object form from bare-string source
 4. Per-entry backfill of `lastReviewedDate` (migration-batch date) + `reviewedBy` ('Round-12-schema-migration')
 5. Per-entry backfill of structured `citation[]` array from trailing-comment parse
 6. Per-functional-tag backfill of `evidenceNote` from `notes` field where substantively present
+7. Per-entry backfill of `allergensInvestigated` + `allergensFound` for entries where allergen content has been investigated; remaining entries demote to `confidenceLevel: 'Undocumented'` per M4 floor
+8. Per-category required-field backfill per Step 0 audit output (e.g., Specialty Compounds `mechanism` + `evidenceGrade`; other categories per audit)
 
-Out of scope for this rider: actual migration execution. The rider sets validator behavior; the migration wave is a separate work item.
+Out of scope for this rider: actual migration execution. The rider sets validator behavior; the migration wave is a separate work item with the audit step as its explicit kickoff prerequisite.
 
 **Validator implementation:** [.claude/agents/catalog-entry-validator.md](.claude/agents/catalog-entry-validator.md) (Refinement 1 integration, 2026-05-19). The validator's four-state verdict logic (PASS / PUSHBACK-ENTRY / PUSHBACK-STRUCTURAL / ROUTING-REQUIRED) operationalizes this rider. Round 12+ schema-migration wave will need to touch BOTH files — this rider's removal AND the validator's state machine — together. Cross-reference discipline prevents drift between the rulebook layer and the agent layer.
 

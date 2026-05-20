@@ -60,10 +60,18 @@ For each touched entry, in order:
 3. **Run H1–H12 hybrid checks.** For each: run the mechanical sub-check (PASS/FAIL like M-rules). If mechanical PASSES but the boundary trigger fires, ALSO surface the routing-question.
 4. **Run J1–J9 judgment-call checks.** Each has a trigger condition. If triggered, surface the routing-question.
 5. **Run Gap 1–8 coverage-gap checks.** Each has a trigger condition. If triggered, surface the routing-question.
-6. **Aggregate verdict** (four states, per the §II.8 transition rider in the rulebook):
-   - Any mechanical FAIL on a rule NOT in the gap-affected set {M1 citation format, M3 confidenceLevel, M14 regulatoryStatus.US schema, M17 lastReviewedDate + reviewedBy, M22 functional-tag evidenceNote} → **PUSHBACK-ENTRY** (blocks commit; operator fixes entry).
-   - Mechanical FAIL ONLY on gap-affected fields AND **all 5 gap-affected fields are absent** from the entry (Wave 1.5-era pre-migration entry) → **PUSHBACK-STRUCTURAL** (does NOT block commit; logs as accumulated schema-migration work).
-   - Mechanical FAIL on gap-affected fields AND **1+ of the 5 fields IS present** (operator started migration; partial migration is an authoring error) → **PUSHBACK-ENTRY** on the missing ones.
+6. **Aggregate verdict** (four states, per the §II.8 transition rider in the rulebook — amended 2026-05-19 post-step-3-retry to expand gap-affected enumeration):
+   - Any mechanical FAIL on a rule NOT in the gap-affected set → **PUSHBACK-ENTRY** (blocks commit; operator fixes entry). The gap-affected set covers 7 patterns (6 mechanically-countable in the distinguisher + 1 category-specific via the M5 sub-step Grep):
+     - Gap #1: M1 citation format (structured `citation[]` object array)
+     - Gap #2: M3 confidenceLevel enum
+     - Gap #3: M14 regulatoryStatus.US object schema
+     - Gap #4: M17 lastReviewedDate + reviewedBy pair
+     - Gap #5: M22 functional-tag evidenceNote
+     - Gap #6: M4/M24 `allergensInvestigated` / `allergensFound` flag pair (added 2026-05-19)
+     - Gap #7: M5 per-category required fields (added 2026-05-19; routes via M5-sub-step Grep — see below)
+   - Mechanical FAIL ONLY on Gap #1–6 fields AND **all 6 of those fields are absent** from the entry (Wave 1.5-era pre-migration entry) → **PUSHBACK-STRUCTURAL** (does NOT block commit; logs as accumulated schema-migration work).
+   - Mechanical FAIL on Gap #1–6 fields AND **1+ of the 6 fields IS present** (operator started migration; partial migration is an authoring error) → **PUSHBACK-ENTRY** on the missing ones.
+   - Gap #7 (M5 per-category) FAIL → run the M5 sub-step Grep (see below) to classify as PUSHBACK-STRUCTURAL (catalog-wide absent for this category) or PUSHBACK-ENTRY (pattern exists in catalog for this category; entry must adopt it).
    - PUSHBACK-ENTRY + PUSHBACK-STRUCTURAL co-occurring → status is **PUSHBACK-ENTRY** (entry-specific fix takes precedence; structural gap noted but not blocking).
    - All mechanical PASS but ≥ 1 routing-question pending → **ROUTING-REQUIRED**.
    - All mechanical PASS + zero routing-questions → **PASS**.
@@ -71,7 +79,9 @@ For each touched entry, in order:
 
 PUSHBACK-ENTRY takes precedence over PUSHBACK-STRUCTURAL takes precedence over ROUTING-REQUIRED. The operator should fix entry-specific issues first, then address routing-questions, with structural gaps logged for the Round 12+ schema-migration wave.
 
-**Distinguisher protocol (mechanical, no git-blame required):** count how many of the five gap-affected fields are present on the entry. If 0 of 5 → Wave 1.5-era pre-migration entry → PUSHBACK-STRUCTURAL. If 1-4 of 5 → partial migration → PUSHBACK-ENTRY on the missing ones. If 5 of 5 → fully migrated → standard checks apply.
+**Distinguisher protocol (mechanical, no git-blame required):** count how many of the six universal-mechanically-countable gap-affected fields (Gaps #1–6) are present on the entry. If 0 of 6 → Wave 1.5-era pre-migration entry → PUSHBACK-STRUCTURAL on missing Gap #1–6 fields. If 1-5 of 6 → partial migration → PUSHBACK-ENTRY on the missing ones. If 6 of 6 → fully migrated for universal-required + allergens-flag → standard checks apply. Gap #7 (per-category) is NOT counted in this distinguisher (varies by category — see M5 sub-step).
+
+**M5 sub-step Grep audit (for Gap #7 routing):** when M5 (per-category required fields) FAILs, the validator runs a category-specific Grep against `lib/data/supplements.ts` for each missing per-category field. If 0 entries in the same category carry that field → catalog-wide absent for this category → PUSHBACK-STRUCTURAL (Gap #7 deferral; logged for Round 12+ audit-step + migration). If ≥ 1 entries in the same category carry that field → catalog-wide pattern exists → PUSHBACK-ENTRY (entry must adopt the existing pattern). Decision is per-field, not per-entry-aggregate; an entry may simultaneously have some per-category fields routing structural and others routing entry-level.
 
 ## Tool usage
 
@@ -115,7 +125,13 @@ Run each. Mark PASS / FAIL / N/A.
 - **M2 §I.2 90% Tier-1–4 rule** — *catalog-level INFORMATIONAL ONLY*. Report aggregate rate. Do NOT block entry verdict on this. Output goes in the separate "Catalog Health (informational)" section.
 - **M3 §I.4 confidenceLevel enum** — entry has `confidenceLevel` ∈ {Verified-Lab, Verified-Supplier-COA, Estimated, Inferred, Undocumented}. FAIL if missing or off-enum.
 - **M4 §I.5 harm-critical floor → UNDOCUMENTED default** — when any of `allergens` / `drugInteractions` / `regulatoryStatus.US` / `ndiStatus` is empty/missing, `confidenceLevel === 'Undocumented'` OR allergens carries explicit `allergensInvestigated: true, allergensFound: []` flag. FAIL on silent empty.
-- **M5 §II.8 per-category required fields** — verify the category-specific required set is populated (Vitamins: dv/unit/dvKeyword; Minerals: elementalFactor/dv/unit/dvKeyword/ul/formNotes; Probiotics: strainId/cfuPerGram/viableThroughExpiry/licensingTier/requiresColdChain; etc. — full table in §II.8). FAIL on any missing required field.
+- **M5 §II.8 per-category required fields (Gap #7 routing — added 2026-05-19)** — verify the category-specific required set is populated (Vitamins: dv/unit/dvKeyword; Minerals: elementalFactor/dv/unit/dvKeyword/ul/formNotes; Probiotics: strainId/cfuPerGram/viableThroughExpiry/licensingTier/requiresColdChain; Specialty Compounds: mechanism/evidenceGrade; Herbal Extracts: latinName/partUsed/standardizationMarker/extractionMethod/interactionFlags/pregnancyContraindicated/latinNameVerified; etc. — full table in §II.8). FAIL on any missing required field.
+
+  **M5 sub-step Grep audit (for each missing per-category field):** run a category-specific Grep against `lib/data/supplements.ts` for the missing field within the entry's category. If 0 entries in the same category carry that field → catalog-wide absent for this category → classify as PUSHBACK-STRUCTURAL (Gap #7; deferred to Round 12+ audit + migration). If ≥ 1 entries in the same category carry that field → pattern exists in catalog → classify as PUSHBACK-ENTRY (entry must adopt the existing pattern). Decision is per-field, not per-entry-aggregate.
+
+  **False-positive handling in M5 sub-step Grep (added 2026-05-19):** when grepping for a per-category required field, the field name may appear in OTHER contexts within entries — e.g., `mechanism:` appears in `drugInteractions` objects across the catalog (substance-different from §II.8's category-required `mechanism`); `tier:` appears nested in citation objects; `confidence:` may appear in supplier-spec nested structures; `assayMethod:` appears inside `bioactives` array elements. The agent disambiguates by checking whether the Grep match is at the **top-level entry object structure** (e.g., the field is a direct property of the entry literal at `{ name: '...', category: '...', <field>: ... }`) or **nested within another field** (e.g., the field is a property of a nested object like `drugInteractions[].mechanism` or `bioactives[].assayMethod`). **Top-level matches count toward the catalog-pattern-exists determination; nested matches do NOT.** Agent reports the disambiguation evidence in the M5 Notes column of the Mechanical-checks table — e.g., *"3 Grep matches for `mechanism:` in Herbal Extracts category, all top-level → catalog-pattern-exists → entry must adopt"* OR *"1 Grep match for `mechanism:` in Specialty Compounds, nested inside `drugInteractions` (false-positive disambiguation) → 0 effective matches → catalog-wide absent → PUSHBACK-STRUCTURAL"*. The disambiguation must be auditable from the report.
+
+  **Worked example (Specialty Compounds `mechanism`):** entry `Caffeine Anhydrous (USP, Pharmaceutical-Grade)` (Specialty Compounds) lacks `mechanism` field. Grep `lib/data/supplements.ts` for `mechanism:` within Specialty Compounds entries → 1 raw match, but disambiguation reveals it's nested inside a `drugInteractions[].mechanism` for the Mucuna pruriens entry (a different concept) → 0 top-level matches → catalog-wide absent for Specialty Compounds → PUSHBACK-STRUCTURAL.
 - **M6 §II.8a synonyms ≥ 2** — `entry.synonyms.length >= 2`. FAIL if absent or under-populated.
 - **M7 §II.8a synonyms lowercase** — every synonym `s === s.toLowerCase()`. FAIL on uppercase characters.
 - **M8 §II.8a no capitalization-variant bloat** — `Set(synonyms.map(toLowerCase)).size === synonyms.length`. FAIL on case-only duplicates.
@@ -263,7 +279,8 @@ Compose your final message in this exact structure. CC parses it for routing.
 **Entry:** <name>
 **Mode:** <Cat 1 backfill | Cat 2 new entry | Modification | Diff-batch>
 **Status:** <PASS | PUSHBACK-ENTRY | PUSHBACK-STRUCTURAL | ROUTING-REQUIRED>
-**Migration state:** <pre-migration (0/5 gap-affected fields) | partial-migration (N/5) | fully-migrated (5/5)>
+**Migration state:** <pre-migration (0/6 gap-affected fields) | partial-migration (N/6) | fully-migrated (6/6)>
+**Per-category audit (Gap #7):** <pending Round 12+ audit | passed | FAIL with structural classification per M5 sub-step Grep>
 
 ### Mechanical checks (Inventory 1)
 
@@ -326,12 +343,18 @@ For each mechanical FAIL or hybrid mechanical FAIL that is **entry-specific auth
 
 ### Pushback — Structural (only if Status = PUSHBACK-STRUCTURAL — or co-occurring with PUSHBACK-ENTRY for informational logging)
 
-For each mechanical FAIL on a gap-affected field on a pre-migration entry (0/5 fields present): rule citation + structural-gap acknowledgment + Round 12+ migration ticket reference. **Informational only — does NOT block commit.**
+For each mechanical FAIL on a gap-affected field (Gap #1–7) on a pre-migration entry (0/6 universal-required + allergens-flag fields present, plus per-category M5 sub-step Grep audit for Gap #7): rule citation + structural-gap acknowledgment + Round 12+ migration ticket reference. **Informational only — does NOT block commit.**
 
-- **M1 §I.2 citation format (gap-affected)**
+- **M1 §I.2 citation format (Gap #1)**
   - Violation: Citations live in trailing `// Source: ...` comment, not structured field.
   - Structural gap: 0 of ~600 catalog entries carry structured `citation` field. Per §II.8 transition rider, accept as known-deferred to Round 12+ schema-migration wave.
-- ...
+- **M4 / M24 §I.5 harm-critical floor (Gap #6)**
+  - Violation: `allergens: []` is silent-empty; entry carries neither `confidenceLevel: 'Undocumented'` nor `allergensInvestigated: true, allergensFound: []` flag pair.
+  - Structural gap: 0 of ~600 catalog entries carry `allergensInvestigated` / `allergensFound` flag pair (Grep-verified). The rulebook construct hasn't landed in the catalog.
+- **M5 §II.8 per-category required fields (Gap #7 — routes via M5 sub-step)**
+  - Violation: [missing per-category field(s) for entry's category].
+  - Structural gap (if M5 sub-step Grep returns 0): catalog-wide absent for this category. Per Round 12+ audit-step prerequisite + per-category backfill step in the migration wave.
+- ... (other Gap #1–6 fails follow the same pattern)
 
 ### Catalog Health (informational)
 
