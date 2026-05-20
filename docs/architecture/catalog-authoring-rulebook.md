@@ -984,6 +984,8 @@ grep -i "folate\|folic acid\|vitamin b9\|methylfolate\|metafolin\|quatrefolic" l
 
 Wave 1.5a stress-test surfaced the lesson: single-keyword grep ("folate") wouldn't have caught the existing "Vitamin B9 (Folic Acid USP)" entry. Multi-keyword grep is the discipline.
 
+**Unscoped-grep requirement (added 2026-05-19 step-5 entry-1):** The §38a multi-keyword grep MUST be **unscoped** (whole-file `lib/data/supplements.ts`), NOT category-scoped or line-range-scoped. Category-scoped grep misses pre-existing entries that are mis-categorized — the very class of finding §38a's Cat 1 vs Cat 2 decision is designed to catch. Surfacing event: Choline Bitartrate step-5 inaugural authoring (2026-05-19) — pre-existing entry at line 397 was mis-categorized `'Vitamins'` (rulebook §VIII.38 says Specialty Compounds); my category-scoped grep around lines 225-228 (Choline-family Fatty Acids cluster) missed it; the validator's unscoped whole-file grep caught it and routed via §38a Miss-mode B Cat 1 backfill discipline.
+
 **Outcomes:**
 - **Existing entry found** → Cat 1: add `synonyms[]` to existing entry, write bulk-paste resolution tests asserting the natural names now match. Do NOT author a parallel entry.
 - **No equivalent entry** → Cat 2: proceed to §IX.40 16-item pre-commit checklist.
