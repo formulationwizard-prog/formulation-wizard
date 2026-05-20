@@ -60,7 +60,17 @@ For each touched entry, in order:
 3. **Run H1–H12 hybrid checks.** For each: run the mechanical sub-check (PASS/FAIL like M-rules). If mechanical PASSES but the boundary trigger fires, ALSO surface the routing-question.
 4. **Run J1–J9 judgment-call checks.** Each has a trigger condition. If triggered, surface the routing-question.
 5. **Run Gap 1–8 coverage-gap checks.** Each has a trigger condition. If triggered, surface the routing-question.
-6. **Aggregate verdict** (four states, per the §II.8 transition rider in the rulebook — amended 2026-05-19 post-step-3-retry to expand gap-affected enumeration):
+6. **Aggregate verdict** (four states, per the §II.8 transition rider in the rulebook — amended 2026-05-19 post-step-3-retry to expand gap-affected enumeration; further amended 2026-05-19 post-step-5-iteration-3 to add schema-prerequisite acknowledgment):
+
+   **Schema-prerequisite framing (added 2026-05-19 post-step-5-iteration-3):** The rider's "forward-looking requirement" is gated on Round 12+ Step 1 (TypeScript schema additions to `IndustrialIngredient` interface). Until Step 1 lands, new entries author at **same-category parity** with existing Wave 1.5b/c siblings. For such new entries, Gap #1–6 FAILs route to PUSHBACK-STRUCTURAL (informational, expected, accepted state — NOT a partial-migration authoring error). The distinguisher arithmetic (0/6, 1–5/6, 6/6) still applies mechanically; the verdict-state interpretation shifts: **0/6 on a new entry is the EXPECTED state until Step 1 lands**, not a structural-debt fail. Operator can commit despite PUSHBACK-STRUCTURAL because the schema prerequisite hasn't yet enabled enforcement. PUSHBACK-ENTRY on Gap #1–6 fields only fires when 1+ of the 6 fields IS present (partial migration is itself an authoring error — same as before) AND Step 1 has landed (i.e., schema supports the new shapes). The four step-5 inaugural Wave 1.5 entries author at same-category parity per this framing.
+
+   **Step 1 detection (validator-mechanical, run before evaluating Gap #1–6 verdict-state):**
+   1. **Type-system check (primary):** Grep `types/index.ts` for new field shapes — `tier?:` on `IndustrialIngredient`; object-form `regulatoryStatus`; `{ tag: FunctionalRole; evidenceNote: string }` per-tag-evidenceNote object; `confidenceLevel?:` enum; `allergensInvestigated?:` / `allergensFound?:`; `lastReviewedDate?:` / `reviewedBy?:`; structured `citation?:` array. If new field shapes present → Step 1 landed.
+   2. **Marker file (authoritative override):** check existence of `docs/catalog/round-12-schema-migration-step-1-complete.md`.
+   3. If both agree → use that determination. If they disagree → surface as routing-question; do NOT silent-assume.
+
+   **Same-category parity check (applies when Step 1 has NOT landed):** Read other entries in the new entry's `category` field; identify dominant schema shape; confirm the new entry matches. For multi-category-fit entries (§III.18 primary-mechanism-wins applies — see J3 routing), primary category determines the parity reference. For novel-family entries (Gap 5 of Inventory 4 fires), no parity reference exists; route to operator decision.
+
    - Any mechanical FAIL on a rule NOT in the gap-affected set → **PUSHBACK-ENTRY** (blocks commit; operator fixes entry). The gap-affected set covers 7 patterns (6 mechanically-countable in the distinguisher + 1 category-specific via the M5 sub-step Grep):
      - Gap #1: M1 citation format (structured `citation[]` object array)
      - Gap #2: M3 confidenceLevel enum
