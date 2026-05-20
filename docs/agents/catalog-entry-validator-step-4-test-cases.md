@@ -8,7 +8,9 @@
 
 **Common entry shape:** unless a test explicitly targets a pre-migration or partial-migration shape, fixtures are designed as post-migration entries (Gap #1–6 fields populated; per-category required fields present where applicable). This isolates the target rule path from incidental Gap #1–7 noise.
 
-**Run sequence:** tests 1 → 5 sequentially (mechanical isolation tests first); 6a → 6b (distinguisher arithmetic); each verdict surfaced back for review before the next test runs. If any test produces unexpected behavior, pause + iterate before continuing.
+**Incidental co-fires (added 2026-05-19 post-Test-1):** test fixtures isolate the target rule path, but other rule paths may legitimately fire on a fixture because it happens to have characteristics those rules check (e.g., a "Citrate"-named fixture triggers H5 form-detection regardless of the test's primary target). When co-fires happen, the agent surfaces them honestly per its operating discipline. **Co-fires do NOT invalidate the target rule verdict provided the target rule fired correctly.** Document co-fires as known fixture characteristics rather than re-engineering the fixture to mute them. Muting risks masking regressions in the co-fire rule paths — the same fixture exercises multiple rule paths simultaneously, which is bonus coverage worth preserving. Same epistemic discipline as the closure-claims-bidirectional pattern: the verdict is "PASS on target rule + co-fires surfaced honestly," not "clean PASS with no other rule fires."
+
+**Run sequence (revised 2026-05-19 post-Test-1):** 1 → 2 → 5 → 3 → 6a → 6b → 4. Test 5 (discipline-notes-as-frame) moved earlier — if it surfaces issues with discipline-frame application, those issues retroactively affect interpretation of subsequent tests (especially 6a/6b which depend on the agent surfacing distinguisher arithmetic within the discipline-frame). Test 4 stays last (synthetic-injection or real-catalog-gap setup dependency). Each verdict surfaces back for review before the next test runs. If any test produces unexpected behavior, pause + iterate before continuing.
 
 ---
 
