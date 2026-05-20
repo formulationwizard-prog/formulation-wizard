@@ -60,13 +60,18 @@ For each touched entry, in order:
 3. **Run H1–H12 hybrid checks.** For each: run the mechanical sub-check (PASS/FAIL like M-rules). If mechanical PASSES but the boundary trigger fires, ALSO surface the routing-question.
 4. **Run J1–J9 judgment-call checks.** Each has a trigger condition. If triggered, surface the routing-question.
 5. **Run Gap 1–8 coverage-gap checks.** Each has a trigger condition. If triggered, surface the routing-question.
-6. **Aggregate verdict:**
-   - Any mechanical FAIL → **PUSHBACK** (entry blocked until mechanical fixes land)
-   - All mechanical PASS but ≥ 1 routing-question pending → **ROUTING-REQUIRED**
-   - All mechanical PASS + zero routing-questions → **PASS**
+6. **Aggregate verdict** (four states, per the §II.8 transition rider in the rulebook):
+   - Any mechanical FAIL on a rule NOT in the gap-affected set {M1 citation format, M3 confidenceLevel, M14 regulatoryStatus.US schema, M17 lastReviewedDate + reviewedBy, M22 functional-tag evidenceNote} → **PUSHBACK-ENTRY** (blocks commit; operator fixes entry).
+   - Mechanical FAIL ONLY on gap-affected fields AND **all 5 gap-affected fields are absent** from the entry (Wave 1.5-era pre-migration entry) → **PUSHBACK-STRUCTURAL** (does NOT block commit; logs as accumulated schema-migration work).
+   - Mechanical FAIL on gap-affected fields AND **1+ of the 5 fields IS present** (operator started migration; partial migration is an authoring error) → **PUSHBACK-ENTRY** on the missing ones.
+   - PUSHBACK-ENTRY + PUSHBACK-STRUCTURAL co-occurring → status is **PUSHBACK-ENTRY** (entry-specific fix takes precedence; structural gap noted but not blocking).
+   - All mechanical PASS but ≥ 1 routing-question pending → **ROUTING-REQUIRED**.
+   - All mechanical PASS + zero routing-questions → **PASS**.
 7. **Compose structured output** per the schema at the bottom of this document.
 
-PUSHBACK takes precedence over ROUTING-REQUIRED. The operator should fix mechanical issues first, then revisit routing questions.
+PUSHBACK-ENTRY takes precedence over PUSHBACK-STRUCTURAL takes precedence over ROUTING-REQUIRED. The operator should fix entry-specific issues first, then address routing-questions, with structural gaps logged for the Round 12+ schema-migration wave.
+
+**Distinguisher protocol (mechanical, no git-blame required):** count how many of the five gap-affected fields are present on the entry. If 0 of 5 → Wave 1.5-era pre-migration entry → PUSHBACK-STRUCTURAL. If 1-4 of 5 → partial migration → PUSHBACK-ENTRY on the missing ones. If 5 of 5 → fully migrated → standard checks apply.
 
 ## Tool usage
 
@@ -198,6 +203,10 @@ Run mechanical sub-check (PASS/FAIL). If mechanical PASSES but boundary trigger 
 
   Report the frequency counts in the routing-question evidence so the operator can verify the agent's ranking.
 
+  **Exhaustive vs spot-check semantics (refinement 3, post-inaugural-smoke-test):** Compute frequency-in-other-stacks counts exhaustively ONLY when the primary-order ranking (mustHave > commonCompanion > optional) produces a tie that must be broken. Otherwise, spot-check is acceptable and the agent reports counts as approximate (e.g., `'likely 2+'`). Exhaustive precision is required only when the tie-break determines the ranking. This prevents burning time on exhaustive counts when spot-check would do, AND prevents failing to escalate to exhaustive when the tie-break actually fires.
+
+  **Spot-check evidence requirement (auditable mode):** when spot-check applies (no tie requiring frequency-based break), agent reports approximate frequency counts (e.g., `'Vitamin B12: likely 2+ stacks'`) for EACH companion candidate. Agent shows its work by listing every candidate with its primary-order role + approximate frequency — not just an unaudited "spot-check applied" claim. Exhaustive precision is reserved for tie-break cases. The discipline: spot-check is calibrated efficiency, not opaque shortcut. Operator must be able to verify the ranking from the surfaced evidence.
+
   > "Entry <X> appears in: <stack:role list>. Missing from catalog: <missing list with stack:role for each>. Per §IV.22, top-3 most predictable should be added in same commit. Agent's predictability ranking (mustHave > commonCompanion > optional; tie-break by frequency-in-other-stacks): <ranked list with frequency-count per candidate, e.g., '`Resveratrol` (mustHave in STACK.LONGEVITY; freq-in-other-stacks: 3); `TMG` (commonCompanion in STACK.LONGEVITY; freq-in-other-stacks: 1)'>. Confirm top-3 OR override."
 - **H8 §V.24 PA-verification queue routing triggers** — mechanical: detect — `regulatoryStatus.US` undefined / post-1994 ingredient without confirmed NDI / Tier-3 strain not in Appendix B. Boundary trigger: mechanical trigger OR `confidenceLevel: Inferred` on a harm-critical field.
 
@@ -253,7 +262,8 @@ Compose your final message in this exact structure. CC parses it for routing.
 
 **Entry:** <name>
 **Mode:** <Cat 1 backfill | Cat 2 new entry | Modification | Diff-batch>
-**Status:** <PASS | PUSHBACK | ROUTING-REQUIRED>
+**Status:** <PASS | PUSHBACK-ENTRY | PUSHBACK-STRUCTURAL | ROUTING-REQUIRED>
+**Migration state:** <pre-migration (0/5 gap-affected fields) | partial-migration (N/5) | fully-migrated (5/5)>
 
 ### Mechanical checks (Inventory 1)
 
@@ -282,20 +292,45 @@ List only rules whose trigger fired. For each: rule citation + routing-question 
 
 ### Coverage-gap routing (Inventory 4)
 
-Same shape as judgment-call section. Only fired gaps listed.
+**Report ALL 8 gaps every run** (refinement 2, post-inaugural-smoke-test), even when not triggered. Gives operators visibility into what the agent checked vs. what fired. Builds operator trust over time as patterns become legible.
 
+- **Gap 1 — Synonym normalization-equivalence WITHIN an entry**
+  - Status: <checked, not triggered | FIRED>
+  - <If FIRED: Evidence + Routing-question>
+- **Gap 2 — Substance-family bioavailability differential**
+  - Status: <checked, not triggered | FIRED>
+  - <If FIRED: Evidence + Routing-question>
+- **Gap 3 — Tier-3 strain default for strains NOT in Appendix B**
+  - Status: <checked, not triggered | FIRED | N/A (not Probiotics)>
+- **Gap 4 — Tier-6 supplier-COA-only field list non-exhaustive**
+  - Status: <checked, not triggered | FIRED>
 - **Gap 5 — Stack-membership for novel substance families**
-  - Evidence: <what agent found>
-  - Routing-question: "<framing>"
-- ...
+  - Status: <checked, not triggered | FIRED>
+- **Gap 6 — Multi-category entries (mineral-specialty / vitamin-specialty crossovers)**
+  - Status: <checked, not triggered | FIRED>
+- **Gap 7 — Functional-role tag thresholds vs dose-range straddling**
+  - Status: <checked, not triggered | FIRED>
+- **Gap 8 — Miss-mode B current-schema field set not canonically defined**
+  - Status: <checked, not triggered | FIRED>
 
-### Pushback (only if Status = PUSHBACK)
+For any FIRED gap, include Evidence + Routing-question per the gap's framing in the rule catalog above. For checked-not-triggered gaps, the status line alone is sufficient (no evidence dump unless the agent thinks operator visibility would benefit).
 
-For each mechanical FAIL or hybrid mechanical FAIL: rule citation + specific violation + proposed fix.
+### Pushback — Entry (only if Status = PUSHBACK-ENTRY)
+
+For each mechanical FAIL or hybrid mechanical FAIL that is **entry-specific authoring error** (NOT in the gap-affected set OR present on a partially-migrated entry): rule citation + specific violation + proposed fix. Blocks commit until resolved.
 
 - **M11 §II.9 forbidden Class-3 claims in display name**
   - Violation: display name "<name>" contains "<forbidden word>"
   - Proposed fix: remove "<word>" from name; add to structured field `<field>: true` per §II.9
+- ...
+
+### Pushback — Structural (only if Status = PUSHBACK-STRUCTURAL — or co-occurring with PUSHBACK-ENTRY for informational logging)
+
+For each mechanical FAIL on a gap-affected field on a pre-migration entry (0/5 fields present): rule citation + structural-gap acknowledgment + Round 12+ migration ticket reference. **Informational only — does NOT block commit.**
+
+- **M1 §I.2 citation format (gap-affected)**
+  - Violation: Citations live in trailing `// Source: ...` comment, not structured field.
+  - Structural gap: 0 of ~600 catalog entries carry structured `citation` field. Per §II.8 transition rider, accept as known-deferred to Round 12+ schema-migration wave.
 - ...
 
 ### Catalog Health (informational)
