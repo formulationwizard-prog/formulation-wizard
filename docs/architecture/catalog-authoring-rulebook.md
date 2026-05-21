@@ -371,6 +371,173 @@ Turmeric (95% Curcuminoids, Standardized, Organic, Vegan, Non-GMO, Gluten-Free, 
      (it's a Tier-6 supplier spec); the rest belong in structured fields.
 ```
 
+## 9a. Qualifier Discipline — Five Refinements (added 2026-05-20)
+
+**Established:** 2026-05-20 via Q-Audit-1 per-pair routing session. Five distinct refinements surfaced through bidirectional verification between operator framing + Claude reasoning + grep-verified evidence. Stacked here for durable enforcement.
+
+**The structural framework binding the five refinements:**
+
+> Display names should encode substantive truth differentiated by real distinctions, not regulatory baselines, marketing language, or ambiguous overloaded qualifiers. When consolidating same-substance pairs, check whether naming encodes positioning consolidation would erase. When attributing tier, the bar is evidence strength, not pair-vs-single structure.
+
+This is the harm-critical-floor architecture extended into the naming-discipline domain. Same epistemic posture (honest representation, no silent overclaims, structural enforcement) applied at the catalog-naming layer.
+
+### Refinement 1 — Regulatory-baseline solo qualifiers don't differentiate
+
+**The Rule:** `USP`, `GRAS`, `Food-Grade`, `Pharmacopeial-Reference` are regulatory baselines applicable to every catalog entry by default. They do NOT function as differentiating qualifiers when used alone.
+
+**Why:** Regulatory baselines describe the floor every supplement-grade catalog entry must meet, not a differentiating attribute. A name like `Magnesium Oxide (USP)` doesn't differentiate from a sibling `Magnesium Oxide (USP)` — both are USP-grade. The qualifier carries no information; the parenthetical position is wasted.
+
+**Use only in compound qualifiers** where regulatory-reference pairs with a differentiating attribute:
+
+#### ✅ DO
+
+```
+Magnesium Oxide (USP, Pharmaceutical-Grade)        → USP + tier differentiation
+Magnesium Oxide (USP, Commodity Sourcing)          → USP + tier differentiation
+Calcium Carbonate (USP, Limestone)                 → USP + form differentiation
+Niacinamide (USP, Pharmaceutical-Grade)            → USP + tier differentiation
+```
+
+#### ❌ DON'T
+
+```
+Magnesium Oxide (USP)              ← Two entries with this name; no differentiation
+Calcium Citrate (USP)              ← USP alone is regulatory baseline
+Copper Gluconate (USP)             ← Add tier qualifier or merge entries
+Potassium Iodide (USP, Food-Grade) ← Food-Grade also regulatory baseline; pair tier instead
+```
+
+**Surfacing event:** Q-Audit-1 B3.5 Potassium Iodide tier-pair rename.
+
+### Refinement 2 — Borderline-marketing solo qualifiers don't differentiate
+
+**The Rule:** `Premium`, `Pharma Grade`, `Best`, `Super`, `Advanced`, `Ultra`, `Natural` (when used as marketing), and similar borderline-marketing language do NOT function as catalog-grade tier qualifiers. Per §IX.41 AP-09, marketing copy is forbidden in display names.
+
+**Why:** Marketing qualifiers carry no verifiable structured-field meaning. "Premium" doesn't pair with a specific potency, certification, or sourcing tier — it's aspirational. The catalog is not a marketing surface.
+
+**Use explicit tier framing instead** — `Pharmaceutical-Grade`, `Commodity Sourcing`, `Specialty-Brand`, or named branded forms (e.g., `KSM-66`, `Cognizin`, `Quatrefolic`).
+
+#### ✅ DO
+
+```
+Zinc Picolinate (USP, Pharmaceutical-Grade)        → Explicit tier
+Curcumin 95% (Sabinsa C3 Complex, Branded)         → Branded form named
+Iron Bisglycinate (Ferrochel, Albion — 20% Fe)     → Branded form + elemental spec
+```
+
+#### ❌ DON'T
+
+```
+Zinc Picolinate (Premium)             ← "Premium" is borderline marketing
+L-Lysine HCl (Pharma Grade, 78%)      ← "Pharma Grade" is marketing-adjacent; use Pharmaceutical-Grade with structured backing
+Resveratrol (Super Pure)              ← Marketing language
+Quercetin (Best Bioavailable)         ← Marketing language
+```
+
+**Surfacing event:** Q-Audit-1 B4.2.1 Zinc Picolinate "Premium" + B4.1.6 Lysine "Pharma Grade".
+
+### Refinement 3 — "Organic" qualifier overload disambiguation
+
+**The Rule:** `Organic` in display names is ambiguous between two distinct meanings that cannot be disambiguated without explicit framing:
+
+- **(a) USDA-Organic certification** — a Class-3 buyer-requirement; must back via `class3Claims.organic.claimed: true` plus `certifications: [...]` per the Q-Sh3 hybrid encoding.
+- **(b) Organic-chemistry compound classification** — a chemistry-form descriptor distinguishing organic compounds from inorganic salts (e.g., organic selenium as selenomethionine vs inorganic selenium as sodium selenite). NOT a Class-3 claim.
+
+Either meaning is valid; the qualifier MUST be disambiguated.
+
+**For meaning (a) — USDA-Organic certification:**
+
+#### ✅ DO
+
+```
+Turmeric Extract (USDA Organic, 95% Curcumin)     → Explicit cert framing; class3Claims backs it
+Maca Root Powder (USDA Organic, Gelatinized)      → Explicit cert; structured fields populated
+```
+
+#### ❌ DON'T
+
+```
+Turmeric Extract (Organic, 95% Curcumin)          ← "Organic" ambiguous; use "USDA Organic" if cert exists + back via class3Claims
+Flaxseed Oil (Organic, Cold-Pressed)              ← "Organic" without USDA-cert backing is silent-failure pathway
+```
+
+**For meaning (b) — Organic-chemistry compound classification:**
+
+Use explicit chemistry-form framing rather than relying on "Organic" qualifier. The chemistry form should be expressed via specific chemistry descriptors (`Selenium-Yeast`, `Glycinate`, `Amino-Acid-Chelate`, `Yeast-Bound`) rather than the ambiguous "Organic" qualifier.
+
+#### ✅ DO
+
+```
+Selenomethionine (Selenium-Yeast, Yeast-Bound Form)   → Explicit chemistry-form framing
+L-Selenomethionine (USP, Pharmaceutical-Grade)        → Pure synthetic form named explicitly
+```
+
+#### ❌ DON'T
+
+```
+Selenomethionine (Organic Selenium)        ← "Organic" ambiguous between USDA-cert and chemistry-form
+Iron Bisglycinate (Organic Iron)           ← Use "Glycinate" or "Amino-Acid-Chelate" instead
+```
+
+**Surfacing events:** Q-Audit-1 B4.8.1 Flaxseed Organic (USDA-cert ambiguity) + B4.2.2 Selenium L-Selenomethionine (chemistry-form ambiguity).
+
+### Refinement 4 — Pre-consolidation positioning-in-naming check
+
+**The Rule:** Before consolidating a same-substance pair, check whether each entry's display name encodes load-bearing positioning (brand identity, tier identity, regulatory positioning) that consolidation would erase. If yes, supplier-COA verification is required; route to Phase 2 verification queue rather than consolidating speculatively. If no (naming encodes only chemistry precision or stylistic variation), consolidation with supplier-set union proceeds.
+
+**Why:** Consolidation commits to "same product" interpretation. If naming encodes load-bearing positioning, that positioning may reflect real product distinction — erasure produces silent substitution. Operator paste of "USP MSM" silently resolving to OptiMSM-branded entry is a silent-failure pathway adjacent to harm-critical floor.
+
+**Trigger check:**
+
+- ✅ **Consolidation proceeds** when naming encodes only:
+  - Chemistry precision (e.g., `L-Tartrate` vs `Tartrate` — stereochemistry indicator)
+  - Stylistic variation (e.g., `(USP, Crystalline)` vs `(USP)` — Crystalline is form-baseline)
+  - Identical naming (no positioning to erase)
+- ⚠️ **Consolidation routes to Phase 2 verification** when naming encodes:
+  - Brand identity (e.g., `OptiMSM` vs `USP` — brand vs generic positioning)
+  - Tier identity (e.g., `Premium` vs `USP` — but `Premium` fails Refinement 2 separately)
+  - Regulatory positioning (e.g., differing pharmacopeial references)
+
+**Surfacing event:** Q-Audit-1 B4.3.3 MSM pair — both entries list Bergstrom Nutrition (OptiMSM) as supplier, but only line 93's name includes OptiMSM brand; line 297's name uses USP-only framing. Without supplier-COA evidence, cannot disambiguate (a) two distinct products with different positioning vs (b) same product with naming inconsistency. Route to Phase 2 queue.
+
+### Refinement 5 — Tier-attribution evidence-strength bar
+
+**The Rule:** Tier-attribution requires Option Y PENDING-suffix when supplier-tier evidence is mixed/weak. Strong supplier-tier evidence supports tier-attribution lock without supplier-COA verification. The bar is evidence strength, not pair-vs-single structure.
+
+**Strong evidence (lock tier-attribution):**
+
+- Named pharma-specialists uniformly on one side (e.g., `Dr. Paul Lohmann` pharma-grade specialist vs `Martin Marietta` commodity-mining-source on Magnesium Oxide pair)
+- Existing tier-naming precedent in catalog (e.g., Calcium Carbonate `(USP, Limestone)` vs `(Limestone, Commodity Sourcing)` Wave-2-Phase-1 precedent extends to similar minerals)
+- Uniformly-pharma standalone set on single entry (no commodity sibling to confuse against)
+- Cost-supplier-tier alignment consistent (pharma-supplier set ↔ higher cost; commodity-supplier set ↔ lower cost)
+
+**Weak/mixed evidence (Option Y PENDING):**
+
+- Major-pharma suppliers (DSM, BASF, Lonza, Ajinomoto, Kyowa Hakko) common to both sides of supposed tier-pair
+- Supplier-channel ambiguity (consumer-brand-distribution mixed with raw-ingredient-manufacturer in supplier set)
+- Cost-supplier-tier MISALIGNMENT (e.g., "Pharma Grade" entry priced cheaper than commodity sibling — Lysine inversion pattern)
+- Cost gap outside typical tier-pair spread (>3.5× suggests genuine product distinction, not tier-spread)
+
+**Apply uniformly:**
+
+The discipline does NOT distinguish between same-substance pairs and standalone entries. A single entry making a tier-claim (e.g., `L-Selenomethionine (USP, Pharmaceutical-Grade)`) needs evidence-strength backing the claim, but doesn't require comparative-sibling evidence — uniformly-pharma supplier set + USP designation + consistent cost is sufficient.
+
+**Worked example — line 48 L-Selenomethionine (USP, Pharmaceutical-Grade):** Single-entry rename without comparative tier-pair sibling. Supplier set: Pharma Nord (Danish pharmaceutical specialist) + NSF Biotech / Cypress Systems (selenium-specialty pharma) + Dr. Paul Lohmann (pharma-tier mineral specialist). All three are recognizable pharmaceutical-tier suppliers; no commodity-tier suppliers in set. Tier-attribution locks at "Pharmaceutical-Grade" without supplier-COA verification because uniform pharma-tier supplier set is strong evidence. Same evidence-strength bar applies whether the entry is part of a tier-pair or standalone.
+
+**Surfacing event:** Q-Audit-1 Pattern 1 (8 B-vitamin + amino acid pairs with major-pharma supplier overlap → PENDING TIER VERIFICATION) vs Bucket 3 (5 mineral tier-pairs with strong supplier-tier-specialist evidence → lock) vs line 48 single-entry (uniformly-pharma supplier set → lock without sibling).
+
+### Structural framework — the five refinements as a coherent discipline
+
+The five refinements form a coherent §II.9 / Option Y discipline framework:
+
+1. **Display name encodes substantive truth** (Refinements 1, 2, 3 — qualifier disambiguation)
+2. **Tier-attribution requires evidence** (Refinement 5 — evidence-strength bar)
+3. **Consolidation respects positioning-encoded naming** (Refinement 4 — pre-consolidation check)
+
+Together they extend the harm-critical-floor architecture into the naming-discipline domain. Same epistemic posture (honest representation, no silent overclaims, structural enforcement) applied at a different layer. The Option Y PENDING-suffix discipline operates as the verification-architecture's gate at the catalog-naming layer; the §II.9 anti-patterns operate as the substantive-content gate.
+
+**Cross-reference:** Q-Audit-1 per-pair routing methodology (`docs/audits/q-audit-1-pre-screen.md` + downstream resolution) is the worked example of all five refinements operating in concert. Cost-architecture + manufacturer/vendor distinction (`docs/architecture/cost-and-vendor-architecture.md`) provides the architectural context for the supplier-tier-evidence framing in Refinement 5.
+
 ## 10. PotencyFactor + ElementalFactor
 
 These two fields are the most-mishandled in current catalog work. Get them right:
