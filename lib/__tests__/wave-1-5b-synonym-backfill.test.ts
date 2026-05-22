@@ -309,7 +309,7 @@ describe('Wave 1.5b → 1.5e — Alpha-GPC qualified-form synonym resolution', (
 // ──────────────────────────────────────────────────────────────
 
 describe('Wave 1.5b — CDP-Choline synonym resolution', () => {
-  const expectedName = 'CDP-Choline (Citicoline, Cognizin)';
+  const expectedName = 'Citicoline / CDP-Choline (Cognizin, Kyowa Hakko)';
 
   it('"CDP-Choline" resolves at Tier 1', () => {
     const r = findBestMatchWithTier('CDP-Choline', SUPPLEMENT_INGREDIENTS);
@@ -393,7 +393,7 @@ describe('Catalog-wide synonym collision detection (§II.8a)', () => {
       'Melatonin (USP, Crystalline)',
       'Phosphatidylcholine (PC 35%, Soy)',
       'Alpha-GPC (L-Alpha-Glycerylphosphorylcholine)',
-      'CDP-Choline (Citicoline, Cognizin)',
+      'Citicoline / CDP-Choline (Cognizin, Kyowa Hakko)',
     ];
     const missing: string[] = [];
     for (const name of wave15bEntries) {

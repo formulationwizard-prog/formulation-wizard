@@ -54,7 +54,7 @@ describe('NDI choline-family — substring overgeneralization fixed (Wave 1.5d)'
     expect(r.status).toBe('unknown');
   });
 
-  it('"CDP-Choline (Citicoline, Cognizin)" surfaces UNMATCHED', () => {
+  it('"Citicoline / CDP-Choline (Cognizin, Kyowa Hakko)" surfaces UNMATCHED', () => {
     // Whole-word "choline" preceded by "cdp-" — hyphen is \W so \b fires
     // at the 'c' of 'choline', which means substring overgeneralization
     // is fixed via the catalog-name parens-stripping discipline (the
@@ -62,7 +62,7 @@ describe('NDI choline-family — substring overgeneralization fixed (Wave 1.5d)'
     // where 'choline' is not a whole word — the test asserts that even
     // with the parenthetical (Citicoline, Cognizin), none of citicoline
     // / cognizin / cdp-choline matches an NDI_TABLE keyword).
-    const r = classifyIngredientNDI('CDP-Choline (Citicoline, Cognizin)');
+    const r = classifyIngredientNDI('Citicoline / CDP-Choline (Cognizin, Kyowa Hakko)');
     expect(r.status).toBe('unknown');
   });
 });
@@ -238,7 +238,7 @@ describe('analyzeNDI aggregate — multi-ingredient classification bucketing', (
     const summary = analyzeNDI([
       'Phosphatidylcholine (PC 35%, Soy)',
       'Alpha-GPC (L-Alpha-Glycerylphosphorylcholine)',
-      'CDP-Choline (Citicoline, Cognizin)',
+      'Citicoline / CDP-Choline (Cognizin, Kyowa Hakko)',
     ]);
     expect(summary.grandfathered).toBe(0);
     expect(summary.unknown).toBe(3);
