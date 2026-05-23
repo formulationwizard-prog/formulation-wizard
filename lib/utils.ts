@@ -70,7 +70,12 @@ export const ALLERGENS_LIST: { name: string; keywords: string[] }[] = [
   { name: 'Milk', keywords: ['milk', 'dairy', 'cream', 'butter', 'cheese', 'whey', 'casein', 'lactose'] },
   { name: 'Eggs', keywords: ['egg', 'albumin', 'mayonnaise'] },
   { name: 'Fish', keywords: ['fish', 'salmon', 'tuna', 'cod', 'anchov'] },
-  { name: 'Shellfish', keywords: ['shrimp', 'crab', 'lobster', 'shellfish', 'clam', 'oyster'] },
+  // 'Crustacean Shellfish' is the FALCPA-correct term (replaces legacy 'Shellfish').
+  // Mollusks (clam, oyster, mussel, scallop) are NOT federal Big-9 — only some state regs require.
+  // Mollusk handling deferred to launch-blocker 1B (FALCPA wire-up via lib/supplementAllergen.ts).
+  // Catalog entries with mollusk-only ingredients (e.g., Oyster Sauce) preserve explicit allergens: ['Shellfish']
+  // as informational disclosure until 1B introduces a Mollusks category.
+  { name: 'Crustacean Shellfish', keywords: ['shrimp', 'crab', 'lobster', 'shellfish'] },
   { name: 'Tree Nuts', keywords: ['almond', 'cashew', 'walnut', 'pecan', 'pistachio', 'coconut', 'hazelnut', 'macadamia'] },
   { name: 'Peanuts', keywords: ['peanut', 'groundnut'] },
   { name: 'Wheat', keywords: ['wheat', 'flour', 'gluten', 'semolina', 'malt'] },

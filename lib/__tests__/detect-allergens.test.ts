@@ -24,19 +24,19 @@ import { detectAllergens } from '../utils';
 describe('detectAllergens — word-boundary regression (2026-05-23 substring bug)', () => {
   it('"Crustacean Shellfish" matches Shellfish but NOT Fish (the original bug)', () => {
     const result = detectAllergens('Crustacean Shellfish');
-    expect(result).toContain('Shellfish');
+    expect(result).toContain('Crustacean Shellfish');
     expect(result).not.toContain('Fish');
   });
 
   it('"Shellfish-Derived" matches Shellfish but NOT Fish', () => {
     const result = detectAllergens('Glucosamine HCl (USP, Shellfish-Derived)');
-    expect(result).toContain('Shellfish');
+    expect(result).toContain('Crustacean Shellfish');
     expect(result).not.toContain('Fish');
   });
 
   it('"Shellfish allergen warning" in notes matches Shellfish but NOT Fish', () => {
     const result = detectAllergens('Joint health. 1500 mg typical. Shellfish allergen warning.');
-    expect(result).toContain('Shellfish');
+    expect(result).toContain('Crustacean Shellfish');
     expect(result).not.toContain('Fish');
   });
 });
