@@ -75,7 +75,9 @@ if [ -n "$CODE_STAGED" ]; then
       echo ""
     } >&2
     rm -f "$TEST_LOG"
-    exit 1
+    # Exit code 2: blocks tool call per /hooks UI semantics (observed 2026-05-23).
+    # Exit code 1 would only show stderr but let commit proceed — silent gate failure.
+    exit 2
   fi
 fi
 
