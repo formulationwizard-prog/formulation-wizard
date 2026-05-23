@@ -83,11 +83,35 @@ export const ALLERGENS_LIST: { name: string; keywords: string[] }[] = [
  * Scan a free-text string and return the list of Big-9 allergens it implies.
  * Used as a safety net on top of each ingredient's explicit `allergens` array
  * (e.g., for USDA-returned items that don't carry structured allergen data).
+ *
+ * Uses word-boundary-START regex `\b${k}\w*\b` to:
+ *   • PREVENT substring-anywhere false-positives (e.g., 'fish' inside 'shellfish')
+ *   • PRESERVE stem-keyword matching designed into ALLERGENS_LIST:
+ *     - 'anchov' → matches Anchovy, Anchovies
+ *     - 'soy' → matches Soybean, Soya
+ *     - 'almond' → matches Almonds, Almond Butter (head-word)
+ *     - 'egg' → matches Egg, Eggs, Egg Yolks (head-word)
+ *
+ * Known false-positive (pre-existing, unchanged by this fix; tracked for
+ * Round 12+ deferral per lib/supplementAllergen.ts comment block):
+ *   • 'egg' matches 'Eggplant' (non-allergen) — false positive
+ *   • 'flour' matches 'Almond Flour' (non-wheat) — false positive
+ *
+ * Known regression introduced by word-boundary-START (vs prior substring):
+ *   • 'milk' no longer matches 'Buttermilk' (compound word; rare in supplements)
+ *
+ * Proper fix path: wire up lib/supplementAllergen.ts detectAllergensDetailed()
+ * which uses explicit species-mapped keyword sets (tracked as launch-blocker 1B
+ * — required for FALCPA-compliant species-naming output before August 2026).
+ *
+ * Surfaced 2026-05-23 via operator workspace test (Glucosamine HCl Crustacean
+ * Shellfish allergen incorrectly fanning out to "Contains: Crustacean Shellfish,
+ * Fish, Shellfish" via 'shellfish' substring matching — FDA labeling compliance
+ * violation, over-declared Fish allergen).
  */
 export const detectAllergens = (text: string): string[] => {
-  const lower = text.toLowerCase();
   return ALLERGENS_LIST
-    .filter(a => a.keywords.some(k => lower.includes(k)))
+    .filter(a => a.keywords.some(k => new RegExp(`\\b${k}\\w*\\b`, 'i').test(text)))
     .map(a => a.name);
 };
 

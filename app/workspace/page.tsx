@@ -6111,7 +6111,10 @@ export default function FormulationWizard() {
                       <p className="text-red-600 text-[10px] mt-1">Always verify allergens with supplier COA before labeling.</p>
                     </div>
                   ) : (
-                    <div className="text-center py-3 text-gray-400 text-xs italic">No major allergens detected yet.</div>
+                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
+                      <p className="text-amber-900 font-semibold text-sm">Allergen Status: UNDOCUMENTED</p>
+                      <p className="text-amber-700 text-[10px] mt-1">Verify with supplier COA before labeling. Absence of declared allergens does not confirm absence of allergen presence — harm-critical floor doctrine.</p>
+                    </div>
                   )}
                 </div>
               </div>
