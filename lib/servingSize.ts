@@ -17,7 +17,14 @@
 // FINDING #26 BEHAVIOR REQUIREMENTS (per Phase 2 directive):
 //   • Decimal entries accepted (1.5, 2.5, 0.5, etc.)
 //   • Sub-1 entries accepted by default (above min)
-//   • Maximum cap enforced (default 100; configurable)
+//   • Maximum cap enforced (default 9999; configurable). Raised from 100
+//     to 9999 on 2026-05-25 after operator URL test surfaced that 100
+//     blocks realistic food products (FDA RACC: soup 245g, beverages
+//     240g, frozen entrees 300-400g, yogurt 170-227g, ice cream 125-
+//     200g, pasta sauce 125g all exceed 100). The 9999 ceiling preserves
+//     typo defense (catches "999999" overflow) without false-precision
+//     category-specific maxes. Per-context tightening (e.g., supplement
+//     mode caps at 30g) can be applied at callsites via the bounds option.
 //   • Minimum cap enforced (default 0.1; configurable)
 //   • Unparseable input falls back to a configurable default (30 by
 //     default — matches the pre-Round-11 inline fallback)
@@ -33,7 +40,9 @@ export interface ServingSizeBounds {
    *  no-zero-allowed assumption. New default allows empty/zero state
    *  (fresh formulation, operator has not yet entered a value). */
   min?: number;
-  /** Maximum allowed value (inclusive). Default 100. */
+  /** Maximum allowed value (inclusive). Default 9999 (raised 2026-05-25
+   *  from 100 after operator URL test surfaced the cap blocking realistic
+   *  food products — see file header for rationale). */
   max?: number;
   /** Value to return when input is unparseable (NaN). Default 0 —
    *  Round 11 Phase 3 (2026-05-17): pre-A.5-followup default was 30
@@ -61,7 +70,7 @@ export function validateServingSizeInput(
   bounds: ServingSizeBounds = {}
 ): number {
   const min = bounds.min ?? 0;
-  const max = bounds.max ?? 100;
+  const max = bounds.max ?? 9999;
   const fallback = bounds.fallback ?? 0;
 
   const parsed = parseFloat(rawInput);

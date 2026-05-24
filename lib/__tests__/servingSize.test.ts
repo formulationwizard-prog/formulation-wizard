@@ -67,21 +67,33 @@ describe('validateServingSizeInput — min clamp (default 0; Round 11 Phase 3)',
   });
 });
 
-describe('validateServingSizeInput — max clamp (T7-02; default 100)', () => {
-  it('T7-02: "150" → 100 (clamped to default max)', () => {
-    expect(validateServingSizeInput('150')).toBe(100);
+describe('validateServingSizeInput — max clamp (default 9999, raised from 100 on 2026-05-25)', () => {
+  it('"150" → 150 (within new default max; pre-2026-05-25 would have clamped to 100)', () => {
+    expect(validateServingSizeInput('150')).toBe(150);
   });
 
-  it('exactly at default max: "100" → 100 (boundary inclusive)', () => {
-    expect(validateServingSizeInput('100')).toBe(100);
+  it('"245" → 245 (soup RACC; previously blocked at 100)', () => {
+    expect(validateServingSizeInput('245')).toBe(245);
   });
 
-  it('"99.9" → 99.9 (just under max)', () => {
+  it('"1000" → 1000 (within new default max; previously clamped)', () => {
+    expect(validateServingSizeInput('1000')).toBe(1000);
+  });
+
+  it('exactly at new default max: "9999" → 9999 (boundary inclusive)', () => {
+    expect(validateServingSizeInput('9999')).toBe(9999);
+  });
+
+  it('"10000" → 9999 (typo defense — clamps above max)', () => {
+    expect(validateServingSizeInput('10000')).toBe(9999);
+  });
+
+  it('"999999" → 9999 (overflow defense)', () => {
+    expect(validateServingSizeInput('999999')).toBe(9999);
+  });
+
+  it('"99.9" → 99.9 (decimal still works under cap)', () => {
     expect(validateServingSizeInput('99.9')).toBe(99.9);
-  });
-
-  it('"1000" → 100 (clamped well above max)', () => {
-    expect(validateServingSizeInput('1000')).toBe(100);
   });
 });
 
@@ -92,7 +104,7 @@ describe('validateServingSizeInput — T7-01 increment-beyond-30 behavior (no wr
   // governed by the input element's `step` + `max` attributes (set
   // declaratively by the JSX in the fix commit). The helper test here
   // just confirms 31 passes through cleanly when the user types it.
-  it('"31" → 31 (no wrap to 1; 31 is between min 0.1 and max 100)', () => {
+  it('"31" → 31 (no wrap to 1; 31 is between min 0 and max 9999)', () => {
     expect(validateServingSizeInput('31')).toBe(31);
   });
 
@@ -153,6 +165,6 @@ describe('validateServingSizeInput — defensive edge cases', () => {
   });
 
   it('Infinity → clamped to max', () => {
-    expect(validateServingSizeInput('Infinity')).toBe(100);
+    expect(validateServingSizeInput('Infinity')).toBe(9999);
   });
 });
