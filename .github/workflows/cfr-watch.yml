@@ -1,0 +1,81 @@
+name: CFR Watch
+
+# Polls regulatory sources (eCFR + govinfo) for changes to the platform's
+# encoded regulatory surface. Opens a GitHub issue per substantive change
+# with triage tag for routing per scripts/cfr-watch + docs/architecture/cfr-watcher.md.
+#
+# Runs weekly (Sunday 06:00 UTC) and on manual dispatch. The schedule was
+# chosen to surface changes early in the operator's work week while not
+# competing with FDA's typical Friday-afternoon Federal Register publication
+# cadence — giving rules a day or two to propagate to eCFR before the poll.
+
+on:
+  schedule:
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run CFR watcher (GitHub mode)
+        id: watch
+        run: |
+          set +e
+          node scripts/cfr-watch/cfr-watch.mjs --github > watch-output.txt
+          EXIT=$?
+          set -e
+          echo "exit_code=$EXIT" >> $GITHUB_OUTPUT
+          cat watch-output.txt
+
+      - name: Parse change reports and open issues
+        if: steps.watch.outputs.exit_code == '2'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          const raw = fs.readFileSync('watch-output.txt', 'utf-8');
+          const blocks = raw.split('---CFR-WATCH-ISSUE-START---').slice(1);
+
+          for (const block of blocks) {
+            const content = block.split('---CFR-WATCH-ISSUE-END---')[0];
+            const entryIdMatch = content.match(/^ENTRY_ID=(.+)$/m);
+            const tagMatch = content.match(/^TAG=(.+)$/m);
+            const titleMatch = content.match(/^TITLE=(.+)$/m);
+            const bodyMatch = content.match(/BODY<<EOF_BODY\n([\s\S]+?)\nEOF_BODY/);
+
+            if (!entryIdMatch || !titleMatch || !bodyMatch) {
+              console.error('Skipping malformed block');
+              continue;
+            }
+
+            const title = titleMatch[1];
+            const body = bodyMatch[1];
+            const tag = tagMatch[1];
+
+            fs.writeFileSync('/tmp/issue-body.md', body);
+            const cmd = `gh issue create --title ${JSON.stringify(title)} --body-file /tmp/issue-body.md --label "cfr-watch" --label ${JSON.stringify('cfr-' + tag)}`;
+            console.log('Running:', cmd);
+            execSync(cmd, { stdio: 'inherit' });
+          }
+          EOF
+
+      - name: Fail if fetch errors
+        if: steps.watch.outputs.exit_code == '1'
+        run: |
+          echo "::error::CFR watcher encountered fetch errors. Inspect workflow logs."
+          exit 1

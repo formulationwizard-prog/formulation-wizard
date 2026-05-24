@@ -1,0 +1,105 @@
+{
+  "$schema": "./scripts/cfr-watch/schema.json",
+  "description": "Regulations the platform encodes. Watcher polls each entry on a schedule; flags substantive changes via GitHub issue. Add entries when new regulatory surface lands in the codebase (e.g., new product class, state-level expansion, international launch). Remove entries only when the corresponding code paths are removed (not when they're 'stable').",
+  "lastReviewed": "2026-05-25",
+  "reviewedBy": "operator + Opus + CC",
+  "watchList": [
+    {
+      "id": "21-cfr-101-9",
+      "citation": "21 CFR 101.9",
+      "shortName": "Nutrition Labeling of Food (NFP)",
+      "fetcher": "ecfr",
+      "source": {
+        "title": 21,
+        "chapter": "I",
+        "subchapter": "B",
+        "part": 101,
+        "subpart": "A",
+        "section": "101.9"
+      },
+      "codebaseReferences": [
+        "lib/utils.ts — fdaRound* functions",
+        "app/workspace/page.tsx — NFP render"
+      ],
+      "watchPriority": "critical",
+      "rationale": "Mandatory food labeling rounding rules. 2016 overhaul made Vit D/Ca/Fe/K mandatory; further amendments expected."
+    },
+    {
+      "id": "21-cfr-101-36",
+      "citation": "21 CFR 101.36",
+      "shortName": "Nutrition Labeling of Dietary Supplements (SFP)",
+      "fetcher": "ecfr",
+      "source": {
+        "title": 21,
+        "chapter": "I",
+        "subchapter": "B",
+        "part": 101,
+        "subpart": "A",
+        "section": "101.36"
+      },
+      "codebaseReferences": [
+        "lib/utils.ts — fdaRound* functions (shared with NFP)",
+        "app/workspace/page.tsx — SFP render in supplements mode"
+      ],
+      "watchPriority": "critical",
+      "rationale": "Mandatory supplement labeling rules. Aligned with NFP overhaul; structural differences (Other Ingredients section, %DV thresholds)."
+    },
+    {
+      "id": "21-cfr-111-205",
+      "citation": "21 CFR 111.205",
+      "shortName": "Master Manufacturing Record requirements (MMR)",
+      "fetcher": "ecfr",
+      "source": {
+        "title": 21,
+        "chapter": "I",
+        "subchapter": "B",
+        "part": 111,
+        "subpart": "H",
+        "section": "111.205"
+      },
+      "codebaseReferences": [
+        "Base Sheet architecture (planned per [[base-sheet-batch-sheet-architecture]])",
+        "PA-review state machinery"
+      ],
+      "watchPriority": "high",
+      "rationale": "Defines what a Master Manufacturing Record must contain. Base Sheet maps to MMR. Stable since 2007 but guidance updates regular."
+    },
+    {
+      "id": "21-cfr-111-255",
+      "citation": "21 CFR 111.255",
+      "shortName": "Batch Production Record requirements (BPR)",
+      "fetcher": "ecfr",
+      "source": {
+        "title": 21,
+        "chapter": "I",
+        "subchapter": "B",
+        "part": 111,
+        "subpart": "H",
+        "section": "111.255"
+      },
+      "codebaseReferences": [
+        "Batch Sheet architecture (planned per [[base-sheet-batch-sheet-architecture]])",
+        "Post-launch BPR maturation (procedures / equipment / monitoring / deviations / sign-offs)"
+      ],
+      "watchPriority": "high",
+      "rationale": "Defines what a Batch Production Record must contain. Batch Sheet maps to BPR."
+    },
+    {
+      "id": "pl-108-282-falcpa",
+      "citation": "Public Law 108-282 (FALCPA) + Public Law 117-11 (FASTER Act)",
+      "shortName": "Food Allergen Labeling — Big-9 species naming",
+      "fetcher": "govinfo",
+      "source": {
+        "publicLaws": ["108-282", "117-11"],
+        "primaryUrl": "https://www.govinfo.gov/content/pkg/PLAW-108publ282/html/PLAW-108publ282.htm"
+      },
+      "codebaseReferences": [
+        "lib/utils.ts — detectAllergens",
+        "lib/supplementAllergen.ts — detectAllergensDetailed",
+        "app/workspace/page.tsx — Allergen Statement render"
+      ],
+      "watchPriority": "critical",
+      "rationale": "FALCPA defines Big-8; FASTER Act added sesame (Big-9, effective 2023). Future allergen additions possible (gluten/wheat species expansion, etc.)."
+    }
+  ]
+}

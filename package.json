@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cfr:watch": "node scripts/cfr-watch/cfr-watch.mjs",
+    "cfr:baseline": "node scripts/cfr-watch/cfr-watch.mjs --baseline"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
