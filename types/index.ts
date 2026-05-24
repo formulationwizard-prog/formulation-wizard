@@ -1086,3 +1086,231 @@ export interface PackagingItem {
     tiHi?: string;
   };
 }
+
+// ============================================================
+// BASE SHEET / BATCH SHEET ARCHITECTURE (Round 12+ — 2026-05-25)
+// ------------------------------------------------------------
+// Operator-articulated two-document model mapped directly to FDA's
+// §111 framework:
+//
+//   • Base Sheet  ≈ Master Manufacturing Record (21 CFR 111.205)
+//   • Batch Sheet ≈ Batch Production Record    (21 CFR 111.255)
+//
+// SavedFormulation IS the Base Sheet — extended with the fields below
+// (finishedProductDensity, catalogSnapshot) per Opus routing 2026-05-25.
+// BatchSheet is a NEW entity derived from a Base Sheet at a specific
+// version, scaled to a production batch size, with production-specific
+// fields. One Base Sheet → many Batch Sheets over time.
+//
+// Schema-lock-only commit per [[razor-sharp-agentic-building]] — types
+// land first; save backend (launch-blocker #4, Supabase per Opus Q5),
+// UI restructuring (Build → Build Base Sheet + library tab + Batch Sheet
+// selector), and edit-protection workflow follow as separate commits.
+//
+// See memory/project_base_sheet_batch_sheet_architecture_2026_05_23.md
+// for the full architectural rationale + edit-protection options A/B/C.
+// ============================================================
+
+/**
+ * Reference to the catalog state at the moment a Base Sheet was saved.
+ * Required on every SavedFormulation per Opus routing Q2 2026-05-25 —
+ * 21 CFR 111.205(b) MMR change-control requires that catalog mutations
+ * underneath a saved Base Sheet are controlled, not silent.
+ *
+ * Discriminated union — current variants enumerate the snapshot
+ * strategies the platform supports. New variants land as catalog
+ * versioning architecture matures (e.g., 'full-snapshot' for complete
+ * data immutability on regulated saves; 'ingredient-version-pins' for
+ * per-ingredient version refs).
+ */
+export type CatalogSnapshotRef =
+  | {
+      /**
+       * No catalog version captured. Applies to:
+       *   • Saves made before the Base Sheet schema lock (2026-05-25)
+       *   • Saves made AFTER schema lock but BEFORE catalog versioning
+       *     infrastructure lands (interim default; will phase out)
+       *
+       * UI must surface the missing snapshot as "this Base Sheet predates
+       * catalog versioning" and offer to refresh against current catalog
+       * state when catalog versioning ships.
+       */
+      kind: 'legacy-pre-schema-lock';
+    }
+  | {
+      /**
+       * Pins to a catalog version number. Lightweight — single integer.
+       * Catalog versioning infrastructure (lib/data/* version tags +
+       * monotonic increment on substantive changes) lands as separate
+       * work; this variant is the target shape.
+       */
+      kind: 'version-pin';
+      catalogVersion: number;
+      /** ISO timestamp the version was captured. */
+      capturedAt: string;
+    };
+
+/**
+ * A production batch document derived from a Base Sheet at a specific
+ * version. Maps to FDA Batch Production Record (21 CFR 111.255). Pinned
+ * to a specific Base Sheet version per Opus routing Q3 2026-05-25 —
+ * floating would be a §111.255 BPR violation (BPR captures point-in-time
+ * MMR state; once produced, the BPR is immutable).
+ *
+ * MVP scope: production primitives + reference back to Base Sheet.
+ * Full BPR maturation (procedures / equipment / monitoring / deviations /
+ * sign-offs per 21 CFR 111.255 subsections) lands post-launch as the
+ * production-execution workflow comes online.
+ */
+export interface BatchSheet {
+  id: string;
+
+  /** Reference to the Base Sheet this batch derives from. */
+  baseSheetId: string;
+
+  /**
+   * Pinned Base Sheet version string (matches SavedFormulation.currentVersion
+   * format — e.g., '1.0.0', '1.0.1'). Once a Batch Sheet is created, the
+   * pinned version is the source-of-truth for batch composition. Later
+   * Base Sheet edits do NOT retroactively change what was produced.
+   */
+  baseSheetVersion: string;
+
+  /** Display name for the batch (e.g., 'Pilot Run 2026-08-15'). */
+  name: string;
+
+  /** Operator who created the Batch Sheet. */
+  author: string;
+
+  /** ISO timestamp the Batch Sheet was created. */
+  createdAt: string;
+
+  /** ISO timestamp of the most recent edit. */
+  lastModified?: string;
+
+  /**
+   * Production batch size — total mass for this batch (in kilograms by
+   * convention). The pinned Base Sheet's ingredient masses scale linearly
+   * to this batch size at derivation time.
+   */
+  batchSizeKg: number;
+
+  /** Container selection for this batch (overrides Base Sheet default). */
+  containerName?: string | null;
+
+  /** Closure/dispenser selection for this batch. */
+  closureName?: string | null;
+
+  /** Scheduled or actual production date (ISO 8601 date). */
+  productionDate?: string | null;
+
+  /** Operator running the production (separate from author). */
+  productionOperator?: string | null;
+
+  /** Lot number assigned to the finished goods produced from this batch. */
+  finishedLotNumber?: string | null;
+
+  /** Free-text notes (deviations from MMR, batch-specific observations). */
+  notes?: string;
+
+  // ----- Post-launch BPR maturation (per 21 CFR 111.255) ---------------
+  // The following fields are typed forward-compatibly but not currently
+  // populated by the workspace. UI + persistence wire each in as the
+  // production-execution workflow matures.
+  //
+  //   procedures?:       Procedure[]
+  //   equipment?:        EquipmentUsage[]
+  //   monitoring?:       MonitoringRecord[]
+  //   deviations?:       Deviation[]
+  //   signoffs?:         BatchSignoff[]
+  //   ingredientLots?:   IngredientLotRecord[]
+  //
+  // Each of these warrants its own interface + state-machine treatment
+  // when the production workflow lands. Keeping them as commented sketches
+  // here documents the intended schema growth without adding empty types.
+}
+
+// ----- Declaration merging — extends SavedFormulation + FormulationVersion --
+// Adds Base Sheet fields without rewriting the existing interfaces or
+// breaking imports across the codebase. See the original interfaces above
+// for the pre-extension shape.
+
+export interface SavedFormulation {
+  /**
+   * Finished-product density in g/mL. Operator-supplied per
+   * [[density-input-servings-calc]]. Optional in the type for migration of
+   * pre-schema-lock saves; required-when-servingUnit-is-volume enforced
+   * at the UI/render layer per [[serving-size-volume-parens-directive]].
+   */
+  finishedProductDensity?: number | null;
+
+  /**
+   * Reference to catalog state at save time. Required per Opus routing
+   * Q2 2026-05-25 — 21 CFR 111.205(b) MMR change-control discipline.
+   * Pre-schema-lock saves carry `{ kind: 'legacy-pre-schema-lock' }`;
+   * new saves should carry `{ kind: 'version-pin', catalogVersion, capturedAt }`
+   * once catalog versioning infrastructure lands.
+   */
+  catalogSnapshot: CatalogSnapshotRef;
+}
+
+export interface FormulationVersion {
+  /**
+   * Finished-product density captured at this version (g/mL). Optional
+   * for migration of pre-schema-lock versions. New versions should
+   * capture density if the formula uses a volume serving unit.
+   */
+  finishedProductDensity?: number | null;
+
+  /**
+   * Catalog snapshot captured at this version. Required per Opus Q2 —
+   * each version pins to its own catalog state to support audit-grade
+   * reproduction of the version's render output (NFP/SFP, allergen
+   * statement, framework determinations) even when catalog later mutates.
+   */
+  catalogSnapshot: CatalogSnapshotRef;
+}
+
+// ============================================================
+// CONCENTRATION RATIO — FJC + concentrate vendor-specificity
+// ------------------------------------------------------------
+// Per [[fjc-concentration-ratios-greenwood]] + [[matt-fjc-vendor-spec-custodian]]
+// 2026-05-24. Fruit juice concentrates (FJCs), tomato paste, and other
+// concentrated ingredients have vendor-specific dilution ratios that
+// drive the implicit water-addition math during formulation.
+//
+// Lives on the catalog entry (IndustrialIngredient), NOT on the Base
+// Sheet — concentration ratio is intrinsic to the catalog SKU, not the
+// formula. Concentration logic fires at the bulk-paste / formulation
+// boundary, scaling per-ingredient masses to single-strength equivalent
+// for nutrition + per-serving math.
+//
+// MVP scope: ratio + source descriptor + provenance. Post-launch
+// expansion: tomato paste TSS (Total Soluble Solids) variant; dried-
+// ingredient rehydration inverse; honey moisture variance.
+// ============================================================
+
+/**
+ * Vendor-specific concentration ratio for FJC + concentrate catalog entries.
+ *
+ * Interpreted as: when `concentratePart` grams of concentrate are added to
+ * a formula, the system implicitly accounts for `waterPart` additional
+ * grams of water during nutrition + per-serving math (since the concentrate
+ * represents reconstituted single-strength juice).
+ *
+ * Example — Greenwood lemon juice concentrate at 85/15:
+ *   waterPart: 85, concentratePart: 15
+ *   →  15g of concentrate represents 100g of equivalent single-strength juice
+ *   →  Implicit water added in formula math: 15 × (85/15) = 85g
+ */
+export interface ConcentrationRatio {
+  /** Implicit water mass per concentratePart units. */
+  waterPart: number;
+  /** Concentrate mass anchor. */
+  concentratePart: number;
+  /** Free-text notes (e.g., 'Greenwood Spec — 400 g/L citric acid'). */
+  notes?: string;
+  /** Provenance reference for the ratio value (vendor spec sheet, lab measurement, operator estimate). */
+  source?: string;
+}
+

@@ -1260,6 +1260,10 @@ export default function FormulationWizard() {
         // their per-version productClass once set; pre-Path-A versions show
         // productClass undefined.
         productClass,
+        // Base Sheet schema lock (2026-05-25): every version snapshot pins its
+        // catalog state. Pre-versioning-infra default is legacy-pre-schema-lock;
+        // graduates to 'version-pin' when catalog versioning lands.
+        catalogSnapshot: { kind: 'legacy-pre-schema-lock' as const },
       };
 
       const updated: SavedFormulation = {
@@ -1284,7 +1288,11 @@ export default function FormulationWizard() {
       return;
     }
 
-    // Brand-new formulation at v1.0.0
+    // Brand-new formulation at v1.0.0. Per Base Sheet schema lock
+    // (2026-05-25), every save carries a catalogSnapshot reference;
+    // until catalog versioning infrastructure lands the variant is
+    // 'legacy-pre-schema-lock' — see types/index.ts CatalogSnapshotRef.
+    const legacyCatalogSnapshot = { kind: 'legacy-pre-schema-lock' as const };
     const firstSnapshot = {
       version: '1.0.0',
       timestamp: now,
@@ -1296,6 +1304,7 @@ export default function FormulationWizard() {
       closureName: selectedClosure?.name || null,
       productType: productType || null,
       productClass,
+      catalogSnapshot: legacyCatalogSnapshot,
     };
     // Auto-generate a part number if the user hasn't supplied one.
     const assignedPartNumber = partNumber.trim() || generatePartNumber(mode, savedFormulations);
@@ -1316,6 +1325,7 @@ export default function FormulationWizard() {
       versions: [firstSnapshot],
       status: formulaStatus,
       partNumber: assignedPartNumber,
+      catalogSnapshot: legacyCatalogSnapshot,
     };
     setSavedFormulations([...savedFormulations, newSave]);
     setPartNumber(assignedPartNumber);
