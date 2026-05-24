@@ -438,6 +438,32 @@ export default function FormulationWizard() {
   const [formulaStatus, setFormulaStatus] = useState<'draft' | 'in-pilot' | 'launched' | 'on-hold'>('draft');
   /** Part number for the in-progress formula — auto-assigned on first save, user-editable thereafter. */
   const [partNumber, setPartNumber] = useState<string>('');
+  /**
+   * Operator-authored Batch Sheet Template (Execution Canvas) for the
+   * in-progress Base Sheet. Plain text — operator's own conventions for
+   * fill-in slots (underscores), hierarchy, section headers. Inherited
+   * by every Batch Sheet spawned from this Base Sheet version.
+   *
+   * Persisted to localStorage per Opus pressure-test 2026-05-25 — bridges
+   * the no-save-backend gap so operator doesn't lose 30 min of procedure
+   * authoring to a page reload. Survives reload; lost on cache clear.
+   * Replaced by Supabase persistence when launch-blocker #4 lands.
+   */
+  const [batchSheetTemplate, setBatchSheetTemplate] = useState<string>('');
+  // Load batchSheetTemplate from localStorage on mount.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+    try {
+      const stored = typeof window !== 'undefined' ? window.localStorage.getItem('fw_batchSheetTemplate_draft') : null;
+      if (stored) setBatchSheetTemplate(stored);
+    } catch { /* localStorage unavailable (private mode, etc.) — silent fallback to empty */ }
+  }, []);
+  // Persist whenever it changes.
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem('fw_batchSheetTemplate_draft', batchSheetTemplate);
+    } catch { /* localStorage unavailable — silent */ }
+  }, [batchSheetTemplate]);
   // ----- Supplier Qualification Tracker state ---------------------------
   const [supplierQuals, setSupplierQuals] = useState<SupplierQualification[]>([]);
   /** Sourcing tab sub-view toggle. */
@@ -1544,7 +1570,7 @@ export default function FormulationWizard() {
 
         // ─── Static tab nav + quick actions ───
         const tabs: { id: typeof activeTab; label: string; icon: string }[] = [
-          { id: 'build', label: 'Build', icon: '🔬' },
+          { id: 'build', label: 'Build Base Sheet', icon: '🔬' },
           { id: 'cost', label: 'Cost Tool', icon: '💰' },
           { id: 'sourcing', label: 'Sourcing', icon: '🌐' },
           { id: 'batch', label: 'Batch Sheet', icon: '🏭' },
@@ -1832,7 +1858,7 @@ export default function FormulationWizard() {
                     : tab === 'sourcing' ? '🌐 Sourcing'
                     : tab === 'authorities' ? '⚖️ Process Authorities'
                     : tab === 'services' ? '🤝 Services'
-                    : '🔬 Build'}
+                    : '🔬 Build Base Sheet'}
                 </button>
               ))}
             </div>
@@ -5093,6 +5119,60 @@ export default function FormulationWizard() {
                 </div>
                 );
               })()}
+
+              {/* ═══════════════════════════════════════════════════════════════════════
+                  EXECUTION CANVAS (Batch Sheet Template) — operator-authored procedures
+                  + QA + signoff conventions. Inherited by every Batch Sheet spawned from
+                  this Base Sheet version. Plain-text textarea per operator-validated
+                  "less is more" doctrine 2026-05-25 — operator's own conventions for
+                  fill-in slots (underscores), hierarchy, section headers; platform
+                  does not parse this content. Persisted to localStorage as bridge
+                  before Supabase save backend (launch-blocker #4) lands.
+                  ═══════════════════════════════════════════════════════════════════════ */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                  <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                    📝 Execution Canvas
+                    <span className="text-xs font-normal text-gray-500">(Batch Sheet Template)</span>
+                  </h2>
+                  <span className="text-[10px] uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                    Draft — localStorage only
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 mb-3">
+                  Author your procedures, QA capture format, and signoff slots here.
+                  Inherited by every Batch Sheet spawned from this Base Sheet version
+                  (operator edits per-batch for production capture). Plain text — use
+                  your own conventions for fill-in slots (underscores), step ordering,
+                  inline equipment IDs. Platform does not parse this content.
+                </p>
+                <textarea
+                  value={batchSheetTemplate}
+                  onChange={(e) => setBatchSheetTemplate(e.target.value)}
+                  placeholder={`PROCEDURE
+1. Add water to kettle and turn on steam.
+2. While kettle is heating, add tomato paste and turn on agitation.
+3. Add vinegar, peppers, spices and salt.
+4. Heat kettle to 200°F and hold for 5 minutes.
+   Start Time _________  End Time _________  Initials ______  QA Initials ______
+5. Pump to Surge Tank ST03 through PD pump 001.
+
+QA TESTS
+- pH measured:  _________ (target ≤ 4.6)   Initials ______
+- Brix measured: _________ (target 12 ± 2) Initials ______
+
+FINAL APPROVAL
+Batcher:        _____________________  Date / Time _________
+QA:             _____________________  Date / Time _________
+Production Mgr: _____________________  Date / Time _________`}
+                  rows={20}
+                  className="w-full font-mono text-xs border border-gray-300 rounded-lg p-3 focus:outline-none focus:border-emerald-500"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-gray-400 mt-2">
+                  Saves to your browser as you type. Lost on cache clear. Persistent save (Supabase) lands with launch-blocker #4.
+                </p>
+              </div>
             </div>
 
             {/* RIGHT COLUMN - FDA Label */}
@@ -9140,6 +9220,23 @@ export default function FormulationWizard() {
       {/* BATCH SHEET TAB */}
       {activeTab === 'batch' && (
         <div className="max-w-5xl mx-auto px-6 py-8">
+          {/* ═══════════════════════════════════════════════════════════════════════
+              PREVIEW banner — per Opus pressure-test 2026-05-25 Q4 (prominent +
+              amber + same visual weight as UNDOCUMENTED allergen card). Schema
+              and render skeleton are in active design; save backend (launch-
+              blocker #4 — Supabase) has not landed, so no Batch Sheet captures
+              persist across reloads. Banner stays sticky-top, amber, doesn't
+              scroll away — same trust pattern as UNDOCUMENTED allergen card.
+              ═══════════════════════════════════════════════════════════════════════ */}
+          <div className="sticky top-0 z-20 -mt-8 mb-6 bg-amber-50 border-2 border-amber-400 rounded-b-xl px-4 py-3 shadow-sm print:hidden">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="text-sm">
+                <span className="font-bold text-amber-900">PREVIEW — Batch Sheet design in active development.</span>
+                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Execution Canvas template on the Build Base Sheet tab DOES persist (localStorage).</span>
+              </div>
+            </div>
+          </div>
           {/* Controls (hidden on print) */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 print:hidden">
             <div className="flex items-center justify-between mb-4">
@@ -9153,7 +9250,7 @@ export default function FormulationWizard() {
               </button>
             </div>
             {ingredients.length === 0 ? (
-              <div className="text-gray-500 py-8 text-center">Go to the 🔬 Build tab and add some ingredients first.</div>
+              <div className="text-gray-500 py-8 text-center">Go to the 🔬 Build Base Sheet tab and add some ingredients first.</div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
@@ -9331,17 +9428,79 @@ export default function FormulationWizard() {
                   </table>
                 </section>
 
-                {/* Allergens */}
+                {/* Allergens — Base Sheet allergens inherit to Batch Sheet per
+                    [[platform-scope-vs-facility-food-safety-plan]] 2026-05-25 (warning
+                    generated at Base Sheet → follows to Batch Sheet; single source of
+                    truth). Cleaning verification capture is the per-batch action; full
+                    structured AllergenCleaningRecord (per b00c23d schema extension)
+                    wires when save backend lands. */}
                 {allergenStatement.length > 0 && (
                   <section className="mb-6">
                     <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-                      <span>Allergens</span>
+                      <span>Allergens — Cleaning Verification Required</span>
                     </h2>
                     <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.join(', ')}</p>
-                    <p className="text-xs text-gray-500 mt-1">Confirm allergen changeover protocol is complete before starting this batch.</p>
+                    <p className="text-xs text-amber-700 italic mt-1">
+                      ⚠ Species naming pending FALCPA wire-up (launch-blocker #1B). Current display uses legacy allergen detection — when 1B wire-up lands, Tree Nuts will display as the specific species (e.g., &ldquo;Coconut&rdquo; not &ldquo;Tree Nuts&rdquo;).
+                    </p>
+                    <p className="text-xs text-gray-600 mt-2">
+                      Cross-contact risk if equipment was previously used for products not declaring these allergens. Cleaning + verification required per FDA 21 CFR 117.135 + 117.140 (Preventive Controls — allergen). Document below:
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <label className="block text-gray-500 mb-1">Cleaning method</label>
+                        <input type="text" placeholder="e.g., Manual scrub + foam cleaner per SOP-005" className="w-full border border-gray-300 rounded px-2 py-1.5" />
+                      </div>
+                      <div>
+                        <label className="block text-gray-500 mb-1">Cleaning performed by / time</label>
+                        <input type="text" placeholder="Initials  Time _______" className="w-full border border-gray-300 rounded px-2 py-1.5" />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-gray-500 mb-1">Verification methods used (check all that apply)</label>
+                        <div className="flex flex-wrap gap-3 mt-1">
+                          <label className="flex items-center gap-1"><input type="checkbox" /> Visual</label>
+                          <label className="flex items-center gap-1"><input type="checkbox" /> ATP swab</label>
+                          <label className="flex items-center gap-1"><input type="checkbox" /> Allergen test kit</label>
+                          <label className="flex items-center gap-1"><input type="checkbox" /> Protein swab</label>
+                          <label className="flex items-center gap-1"><input type="checkbox" /> Other</label>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-gray-500 mb-1">Verification readings / results</label>
+                        <input type="text" placeholder="e.g., ATP: 12 RLU (pass &lt;30); ELISA: negative" className="w-full border border-gray-300 rounded px-2 py-1.5" />
+                      </div>
+                      <div>
+                        <label className="block text-gray-500 mb-1">Result · Verified by · Time</label>
+                        <div className="flex gap-1.5 items-center">
+                          <select className="border border-gray-300 rounded px-1.5 py-1.5 text-xs">
+                            <option>PASS</option><option>FAIL</option><option>Re-test</option>
+                          </select>
+                          <input type="text" placeholder="Initials  Time" className="flex-1 border border-gray-300 rounded px-2 py-1.5" />
+                        </div>
+                      </div>
+                    </div>
                   </section>
                 )}
+
+                {/* Harm-Critical Ingredient Verification — per b00c23d schema extension
+                    + [[platform-scope-vs-facility-food-safety-plan]] doctrine. Auto-
+                    rendered placeholder for now; full per-ingredient render wires when
+                    catalog harm-critical flagging mechanism lands. Captures FDA 21 CFR
+                    117.130 two-person verification standard for harm-critical
+                    ingredients (preservatives with regulatory caps, high-potency
+                    micronutrients, pH-critical acidulants, cure ingredients). */}
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                    <span>Harm-Critical Ingredient Verification</span>
+                  </h2>
+                  <div className="text-xs bg-gray-50 border border-gray-200 rounded p-3 italic text-gray-600">
+                    Per-ingredient verified-weight capture for harm-critical ingredients (preservatives with regulatory caps like Na benzoate ≤ 0.1% per 21 CFR 184.1733, K sorbate ≤ 0.1% per 182.3640; high-potency micronutrients; pH-critical acidulants for acidified foods; cure ingredients). Two-person verification required per FDA 21 CFR 117.130.
+                    <br /><br />
+                    <span className="text-amber-700">⚠ PREVIEW — Catalog harm-critical flagging mechanism not yet wired. When operator adds a harm-critical-flagged ingredient (e.g., Sodium Benzoate, Potassium Sorbate, Sodium Nitrite), a per-ingredient capture row will auto-render here with target weight (from pinned Base Sheet) + actual weight + added-by/verified-by signoff slots.</span>
+                  </div>
+                </section>
 
                 {/* Packaging */}
                 {(selectedPackaging || selectedClosure) && (
@@ -9371,9 +9530,37 @@ export default function FormulationWizard() {
                   </section>
                 )}
 
-                {/* Process Instructions */}
+                {/* Execution Record — operator-authored procedures + QA + signoff
+                    conventions inherited from Base Sheet's batchSheetTemplate. Per
+                    operator design 2026-05-25 "platform is the canvas, operator
+                    is the author" — plain text, operator's own format. When save
+                    backend lands, this textarea inherits the locked Base Sheet's
+                    batchSheetTemplate at spawn time + operator edits per-batch
+                    (filling in times, initials, deviations, observations). For
+                    this PREVIEW commit: shows the current Build Base Sheet's
+                    Execution Canvas content (localStorage-persisted). */}
+                {batchSheetTemplate.trim().length > 0 && (
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
+                      <span>Execution Record</span>
+                      <span className="text-[10px] text-amber-600 font-normal normal-case tracking-normal">PREVIEW · inherited from Execution Canvas</span>
+                    </h2>
+                    <pre className="text-xs font-mono whitespace-pre-wrap bg-gray-50 border border-gray-200 rounded p-3 leading-relaxed">{batchSheetTemplate}</pre>
+                    <p className="text-[10px] text-gray-500 italic mt-1">
+                      Inherited from Build Base Sheet → Execution Canvas. When save backend lands (launch-blocker #4), Batch Sheets will inherit at spawn time from the locked Base Sheet version and operator will edit a per-batch copy for production capture.
+                    </p>
+                  </section>
+                )}
+
+                {/* Process Instructions — TEMPLATE-DRIVEN (legacy, kept during
+                    PREVIEW transition). Per operator design 2026-05-25, this
+                    section will be replaced by the operator-authored Execution
+                    Record (above) once schema is fully wired. Current behavior:
+                    renders hardcoded processTemplate.steps per product type. */}
                 <section className="mb-6">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Process Instructions</h2>
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
+                    <span>Process Instructions <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(legacy template — will be replaced by Execution Record)</span></span>
+                  </h2>
                   <ol className="list-decimal ml-5 space-y-1.5 text-sm">
                     {processTemplate.steps.map((step, i) => (
                       <li key={i} className="text-gray-800">{step}</li>
