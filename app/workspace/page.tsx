@@ -32,7 +32,8 @@ import {
   fdaRoundIron,
   fdaRoundPotassium,
   fdaRoundCalcium,
-  fdaRoundPercentDV,
+  fdaRoundPercentDVMacros,
+  fdaRoundPercentDVMicros,
 } from '@/lib/utils';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
 import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
@@ -5725,7 +5726,7 @@ export default function FormulationWizard() {
                     <div className="text-5xl font-extrabold">{fdaRoundCalories(perServing(nutrition.calories))}</div>
                   </div>
                   <div className="text-right text-xs border-b border-black py-1 font-bold">% Daily Value*</div>
-                  {/* FDA 21 CFR 101.9 rounded nutrient lines. roundFn applied to amount; percent DV via fdaRoundPercentDV. */}
+                  {/* FDA 21 CFR 101.9 rounded nutrient lines. Macros use nearest-1% per 101.9(d)(7)(ii); vits/mins use 2/5/10 graduated rule. */}
                   {([
                     { label: 'Total Fat', val: nutrition.totalFat, unit: 'g', dv: 78, roundFn: fdaRoundFat, bold: true, indent: false },
                     { label: 'Saturated Fat', val: nutrition.saturatedFat, unit: 'g', dv: 20, roundFn: fdaRoundFat, bold: false, indent: true },
@@ -5741,25 +5742,40 @@ export default function FormulationWizard() {
                     return (
                       <div key={label} className={`border-b border-black py-1 flex justify-between text-sm ${indent ? 'pl-4' : ''}`}>
                         <div><span className={bold ? 'font-bold' : ''}>{label}</span> {roundFn(amt)}{unit}</div>
-                        {dv > 0 && <div className="font-bold">{fdaRoundPercentDV(rawPct(val, dv))}%</div>}
+                        {dv > 0 && <div className="font-bold">{fdaRoundPercentDVMacros(rawPct(val, dv))}%</div>}
                       </div>
                     );
                   })}
                   <div className="border-b-8 border-black" />
-                  {([
-                    { label: 'Vitamin D', val: nutrition.vitaminD, unit: 'mcg', dv: 20, roundFn: fdaRoundVitaminD },
-                    { label: 'Calcium', val: nutrition.calcium, unit: 'mg', dv: 1300, roundFn: fdaRoundCalcium },
-                    { label: 'Iron', val: nutrition.iron, unit: 'mg', dv: 18, roundFn: fdaRoundIron },
-                    { label: 'Potassium', val: nutrition.potassium, unit: 'mg', dv: 4700, roundFn: fdaRoundPotassium },
-                  ] as const).map(({ label, val, unit, dv, roundFn }) => {
-                    const amt = perServing(val);
+                  {(() => {
+                    const vitMinRows = [
+                      { label: 'Vitamin D', val: nutrition.vitaminD, unit: 'mcg', dv: 20, roundFn: fdaRoundVitaminD },
+                      { label: 'Calcium', val: nutrition.calcium, unit: 'mg', dv: 1300, roundFn: fdaRoundCalcium },
+                      { label: 'Iron', val: nutrition.iron, unit: 'mg', dv: 18, roundFn: fdaRoundIron },
+                      { label: 'Potassium', val: nutrition.potassium, unit: 'mg', dv: 4700, roundFn: fdaRoundPotassium },
+                    ] as const;
+                    // 21 CFR 101.9(c)(8)(iv): if <2% DV, may omit row + add "Not a significant source of" footnote.
+                    const declared = vitMinRows.filter(r => rawPct(r.val, r.dv) >= 2);
+                    const omitted = vitMinRows.filter(r => rawPct(r.val, r.dv) < 2);
                     return (
-                      <div key={label} className="border-b border-black py-1 flex justify-between text-sm">
-                        <div>{label} {roundFn(amt)}{unit}</div>
-                        <div className="font-bold">{fdaRoundPercentDV(rawPct(val, dv))}%</div>
-                      </div>
+                      <>
+                        {declared.map(({ label, val, unit, dv, roundFn }) => {
+                          const amt = perServing(val);
+                          return (
+                            <div key={label} className="border-b border-black py-1 flex justify-between text-sm">
+                              <div>{label} {roundFn(amt)}{unit}</div>
+                              <div className="font-bold">{fdaRoundPercentDVMicros(rawPct(val, dv))}%</div>
+                            </div>
+                          );
+                        })}
+                        {omitted.length > 0 && (
+                          <div className="text-[10px] italic mt-1 leading-tight">
+                            Not a significant source of {omitted.map(r => r.label).join(', ')}.
+                          </div>
+                        )}
+                      </>
                     );
-                  })}
+                  })()}
                   <div className="text-xs mt-2 leading-tight">*The % Daily Value tells you how much a nutrient in a serving contributes to a daily diet. 2,000 calories a day is used for general nutrition advice.</div>
                 </div>
                 )}

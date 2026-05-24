@@ -198,32 +198,53 @@ export function fdaRoundGrams(g: number): string {
   return String(Math.round(g));
 }
 
-/** Potassium: ≤ 5mg = "0", 5-140mg nearest 5mg, >140mg nearest 10mg. Same as sodium. */
-export const fdaRoundPotassium = fdaRoundSodium;
-
-/** Calcium and Iron are expressed as %DV (see below) but also mg is sometimes shown. */
-export const fdaRoundCalcium = fdaRoundSodium;
-
-/** Vitamin D: expressed in mcg. ≤0.5 = 0; <10mcg nearest 0.5; ≥10 nearest 1. */
-export function fdaRoundVitaminD(mcg: number): string {
-  if (mcg < 0.5) return '0';
-  if (mcg < 10) {
-    const r = Math.round(mcg * 2) / 2;
-    return r % 1 === 0 ? String(r) : r.toFixed(1);
-  }
-  return String(Math.round(mcg));
+/**
+ * Vitamins/minerals with RDI ≥ 500 mg or mcg — Calcium, Potassium, Vitamin A,
+ * Phosphorous, Chloride, Choline. Per FDA 21 CFR 101.9(c)(8)(iv): nearest 10 mg/mcg.
+ */
+function fdaRoundHighRdiMicro(amt: number): string {
+  if (amt <= 0) return '0';
+  return String(Math.round(amt / 10) * 10);
 }
 
-/** Iron: in mg. <0.1 = 0; <10 nearest 0.1; ≥10 nearest 1. Actually FDA uses per-mineral rules; Iron now uses mg label with rounding per 21 CFR 101.9(c)(8)(iv). */
-export function fdaRoundIron(mg: number): string {
-  if (mg < 0.1) return '0';
-  if (mg < 1) return mg.toFixed(1);
-  if (mg < 10) return (Math.round(mg * 10) / 10).toFixed(1);
-  return String(Math.round(mg));
+/**
+ * Vitamins/minerals with RDI < 25 mg or mcg — Iron, Vitamin D, Vitamin E,
+ * Thiamin, Riboflavin, Niacin, Vitamin B6, B12, Pantothenic Acid, Zinc, Copper,
+ * Manganese, Selenium. Per FDA 21 CFR 101.9(c)(8)(iv): nearest 0.1 mg/mcg.
+ */
+function fdaRoundLowRdiMicro(amt: number): string {
+  if (amt <= 0) return '0';
+  return (Math.round(amt * 10) / 10).toFixed(1);
 }
 
-/** %DV: <2% = omit (return "0" or ""); 2-10% = nearest 2; 10-50% = nearest 5; >50% = nearest 10. */
-export function fdaRoundPercentDV(pct: number): string {
+/** Calcium — nearest 10 mg per 21 CFR 101.9(c)(8)(iv). */
+export const fdaRoundCalcium = fdaRoundHighRdiMicro;
+
+/** Potassium — nearest 10 mg per 21 CFR 101.9(c)(8)(iv). */
+export const fdaRoundPotassium = fdaRoundHighRdiMicro;
+
+/** Vitamin D — nearest 0.1 mcg per 21 CFR 101.9(c)(8)(iv). */
+export const fdaRoundVitaminD = fdaRoundLowRdiMicro;
+
+/** Iron — nearest 0.1 mg per 21 CFR 101.9(c)(8)(iv). */
+export const fdaRoundIron = fdaRoundLowRdiMicro;
+
+/**
+ * %DV for MACRONUTRIENTS — Fat, Saturated Fat, Trans Fat, Cholesterol, Sodium,
+ * Total Carbohydrate, Dietary Fiber, Total Sugars, Added Sugars, Protein.
+ * Per FDA 21 CFR 101.9(d)(7)(ii): nearest whole percent.
+ */
+export function fdaRoundPercentDVMacros(pct: number): string {
+  return String(Math.max(0, Math.round(pct)));
+}
+
+/**
+ * %DV for VITAMINS AND MINERALS — Vitamin D, Calcium, Iron, Potassium, and other vits/mins.
+ * Per FDA 21 CFR 101.9(d)(7)(ii): nearest 2% from 0-10%, nearest 5% from 10-50%, nearest 10% above 50%.
+ * Render layer should additionally enforce "Do Not Declare if <2%" per 21 CFR 101.9(c)(8)(iii)
+ * by suppressing the entire row, not by rendering "0%".
+ */
+export function fdaRoundPercentDVMicros(pct: number): string {
   if (pct < 2) return '0';
   if (pct <= 10) return String(Math.round(pct / 2) * 2);
   if (pct <= 50) return String(Math.round(pct / 5) * 5);
