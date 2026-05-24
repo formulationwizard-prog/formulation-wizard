@@ -1150,6 +1150,131 @@ export type CatalogSnapshotRef =
       capturedAt: string;
     };
 
+// ============================================================
+// BATCH SHEET — 7-section world-class skeleton (2026-05-25)
+// ------------------------------------------------------------
+// Operator-validated design pressure-tested against three product
+// archetypes (Hot Honey / bottled vinegar / hummus-from-scratch).
+// Universal skeleton; operator-authored content. Scope-disciplined
+// per [[platform-scope-vs-facility-food-safety-plan]] — platform
+// owns formulation + labeling + traceability; HACCP / CCP monitoring
+// / Preventive Controls stay with the customer's PCQI.
+//
+// Render skeleton (per docs/architecture/batch-sheet-skeleton.md):
+//   1. HEADER                       — auto from Base Sheet + batch metadata
+//   2. COMPOSITION                  — auto ingredient table + Lot # capture
+//   3. HARM-CRITICAL VERIFICATION   — conditional per harm-critical ingredients
+//   4. ALLERGEN WARNING + CLEANING  — conditional per Base Sheet allergens
+//   5. EXECUTION RECORD             — operator canvas (inherits batchSheetTemplate)
+//   6. QA RESULTS                   — auto from Base Sheet tracked specs
+//   7. APPROVAL                     — universal sign-offs
+//
+// Five interfaces define the structured-capture portions; the EXECUTION
+// canvas is plain text (operator's prose conventions for fill-in slots).
+// ============================================================
+
+/** Production batch status. Drives Hold/Release workflow + release-to-ship
+ *  gating. Failed allergen verification or failed QA spec auto-transitions
+ *  to `qa_hold` (UI/workflow enforcement, not type-system). Release requires
+ *  Approval section sign-offs. */
+export type BatchStatus = 'in_progress' | 'qa_hold' | 'released' | 'rejected';
+
+/** Verification methods for allergen cleaning. Multi-select — operators
+ *  routinely combine visual + ATP swab + allergen-specific test kit for
+ *  high-risk products. Captures FDA 21 CFR 117.135/117.140 verification
+ *  documentation requirement. */
+export type VerificationMethod =
+  | 'visual'
+  | 'atp_swab'
+  | 'allergen_test_kit'
+  | 'protein_swab'
+  | 'microbial_swab'
+  | { type: 'other'; label: string };
+
+/** Per-harm-critical-ingredient verified-weight capture at point of
+ *  addition. Required for preservatives with regulatory caps (Na benzoate
+ *  ≤ 0.1%, K sorbate ≤ 0.1%, etc.), high-potency micronutrients, pH-
+ *  critical acidulants, cure ingredients. Two-person verification per
+ *  FDA 21 CFR 117.130. */
+export interface HarmCriticalCheck {
+  /** Target weight from pinned Base Sheet (auto-populated for operator reference). */
+  targetWeight: number;
+  targetUnit: string;
+  /** Operator-entered actual weight added to batch. */
+  actualWeight: number;
+  actualUnit: string;
+  /** Optional regulatory limit context (e.g., '≤ 0.1% w/w per 21 CFR 184.1733'). */
+  regulatoryLimit?: string;
+  /** Person who added the ingredient + measured the weight. */
+  addedBy: string;
+  addedAt: string;
+  /** Second-person verifier (FDA two-person verification standard for safety-critical). */
+  verifiedBy: string;
+  verifiedAt: string;
+  /** Free-text — deviations, recalculation notes, supplier lot quality issues. */
+  notes?: string;
+}
+
+/** Allergen cleaning verification capture. Auto-rendered on Batch Sheet
+ *  when the pinned Base Sheet declares any allergens. Allergen LIST
+ *  itself is derived from the pinned Base Sheet (single source of truth);
+ *  this record captures the per-batch cleaning + verification + corrective-
+ *  action workflow per FDA 21 CFR 117.135 + 117.140. */
+export interface AllergenCleaningRecord {
+  /** The cleaning method performed (operator-typed; varies by facility/equipment). */
+  cleaningMethod: string;
+  cleaningPerformedBy: string;
+  cleaningPerformedAt: string;
+  /** How cleanliness was verified — multi-select; operators routinely combine methods. */
+  verificationMethods: VerificationMethod[];
+  /** Verification outcome. 'fail' triggers correctiveAction sub-record. */
+  verificationResult: 'pass' | 'fail' | 'retest_required';
+  /** Free-text — ATP RLU value, test-kit qualitative result, swab area location, etc. */
+  verificationReadings?: string;
+  verifiedBy: string;
+  verifiedAt: string;
+  /** Only populated when verificationResult === 'fail'. Captures re-cleaning + re-verification. */
+  correctiveAction?: {
+    recleaningMethod: string;
+    recleanedBy: string;
+    recleanedAt: string;
+    reverificationMethods: VerificationMethod[];
+    reverificationResult: 'pass' | 'fail';
+    reverificationReadings?: string;
+    reverifiedBy: string;
+    reverifiedAt: string;
+    /** If re-verification fails: batch should HOLD. Escalation per facility SOP. */
+    escalationNotes?: string;
+  };
+}
+
+/** Per-tracked-spec measurement capture. Auto-rendered from Base Sheet's
+ *  selected SPECS TO TRACK (pH, brix, water activity, etc.). Targets
+ *  derived from Base Sheet (target spec value + tolerance range);
+ *  measured value + initials captured here per batch. */
+export interface QAMeasurement {
+  /** Actual measured value (numeric typically; string for pass/fail qualitative tests). */
+  measured: number | string;
+  unit?: string;
+  initials?: string;
+  measuredAt?: string;
+  notes?: string;
+}
+
+/** Universal Batch Sheet sign-off. Roles are conventional but operator-
+ *  extensible (string type allows facility-specific roles like 'Production
+ *  Lead', 'Sanitation Supervisor', 'Plant Manager'). FDA 21 CFR 111.255(b)(4)
+ *  initials-of-person-performing-each-step requirement is captured per-step
+ *  in the executionRecord canvas; THIS structured record captures the
+ *  batch-level final-approval sign-offs. */
+export interface BatchSignoff {
+  /** Conventional roles: 'batcher' | 'qa' | 'production_mgr'. Free-text allows facility-specific roles. */
+  role: string;
+  name: string;
+  signedAt: string;
+  notes?: string;
+}
+
 /**
  * A production batch document derived from a Base Sheet at a specific
  * version. Maps to FDA Batch Production Record (21 CFR 111.255). Pinned
@@ -1157,10 +1282,10 @@ export type CatalogSnapshotRef =
  * floating would be a §111.255 BPR violation (BPR captures point-in-time
  * MMR state; once produced, the BPR is immutable).
  *
- * MVP scope: production primitives + reference back to Base Sheet.
- * Full BPR maturation (procedures / equipment / monitoring / deviations /
- * sign-offs per 21 CFR 111.255 subsections) lands post-launch as the
- * production-execution workflow comes online.
+ * Designed minimum-viable per "less is more" doctrine 2026-05-25:
+ * platform owns identity + composition + traceability + structured
+ * regulatory-critical captures; operator owns procedure/QA/notes content
+ * via the executionRecord canvas.
  */
 export interface BatchSheet {
   id: string;
@@ -1176,58 +1301,63 @@ export interface BatchSheet {
    */
   baseSheetVersion: string;
 
-  /** Display name for the batch (e.g., 'Pilot Run 2026-08-15'). */
-  name: string;
-
-  /** Operator who created the Batch Sheet. */
-  author: string;
-
-  /** ISO timestamp the Batch Sheet was created. */
+  /** ISO timestamp the Batch Sheet was created. Auto-set; serves as
+   *  productionDate default when productionDate is unset. */
   createdAt: string;
 
   /** ISO timestamp of the most recent edit. */
   lastModified?: string;
 
-  /**
-   * Production batch size — total mass for this batch (in kilograms by
-   * convention). The pinned Base Sheet's ingredient masses scale linearly
-   * to this batch size at derivation time.
-   */
+  /** Unique batch identifier per FDA 21 CFR 111.255(b)(1). Auto-suggested
+   *  via partNumber convention; operator can override to match facility ERP. */
+  batchId: string;
+
+  /** Scheduled or actual production date (ISO 8601 date). Defaults to
+   *  createdAt when unset (matches the common case where Batch Sheet is
+   *  created on production day). */
+  productionDate?: string;
+
+  /** Production batch size — total mass for this batch in kilograms.
+   *  The pinned Base Sheet's ingredient masses scale linearly to this
+   *  batch size at derivation time. */
   batchSizeKg: number;
 
-  /** Container selection for this batch (overrides Base Sheet default). */
-  containerName?: string | null;
+  /** Hold/Release workflow status. Failed allergen verification or failed
+   *  QA spec should auto-transition to 'qa_hold' (UI/workflow concern, not
+   *  type concern). Release requires Approval section sign-offs. */
+  batchStatus: BatchStatus;
 
-  /** Closure/dispenser selection for this batch. */
-  closureName?: string | null;
+  /**
+   * Operator-authored EXECUTION canvas — procedures, deviations, mid-batch
+   * observations, operator notes. Inherits the pinned Base Sheet's
+   * batchSheetTemplate at spawn time; operator edits per-batch for this
+   * specific production run. Plain text — operator's own conventions for
+   * fill-in slots (underscores), hierarchy (indentation), section headers,
+   * etc. Platform does not parse this content.
+   */
+  executionRecord: string;
 
-  /** Scheduled or actual production date (ISO 8601 date). */
-  productionDate?: string | null;
+  /** Per-ingredient lot tracking. Keys match Ingredient.name from the
+   *  pinned Base Sheet version. Captures FDA 21 CFR 111.255(b)(7)
+   *  per-component-identifier traceability. */
+  ingredientLots?: Record<string, string>;
 
-  /** Operator running the production (separate from author). */
-  productionOperator?: string | null;
+  /** Per-harm-critical-ingredient verified-weight capture. Auto-rendered
+   *  when Base Sheet contains ingredients flagged harm-critical (catalog
+   *  flag + product-class-driven defaults). */
+  harmCriticalChecks?: Record<string, HarmCriticalCheck>;
 
-  /** Lot number assigned to the finished goods produced from this batch. */
-  finishedLotNumber?: string | null;
+  /** Allergen cleaning verification capture. Auto-rendered when Base Sheet
+   *  declares any allergens. Allergen LIST derived from pinned Base Sheet. */
+  allergenCleaning?: AllergenCleaningRecord;
 
-  /** Free-text notes (deviations from MMR, batch-specific observations). */
-  notes?: string;
+  /** Per-tracked-spec measurement capture. Keys match the SPECS TO TRACK
+   *  selection on the Base Sheet (pH / brix / water activity / etc.). */
+  qaResults?: Record<string, QAMeasurement>;
 
-  // ----- Post-launch BPR maturation (per 21 CFR 111.255) ---------------
-  // The following fields are typed forward-compatibly but not currently
-  // populated by the workspace. UI + persistence wire each in as the
-  // production-execution workflow matures.
-  //
-  //   procedures?:       Procedure[]
-  //   equipment?:        EquipmentUsage[]
-  //   monitoring?:       MonitoringRecord[]
-  //   deviations?:       Deviation[]
-  //   signoffs?:         BatchSignoff[]
-  //   ingredientLots?:   IngredientLotRecord[]
-  //
-  // Each of these warrants its own interface + state-machine treatment
-  // when the production workflow lands. Keeping them as commented sketches
-  // here documents the intended schema growth without adding empty types.
+  /** Final-approval sign-offs for the batch. Per-step initials in the
+   *  executionRecord canvas (operator prose); batch-level approval here. */
+  signoffs?: BatchSignoff[];
 }
 
 // ----- Declaration merging — extends SavedFormulation + FormulationVersion --
@@ -1252,6 +1382,38 @@ export interface SavedFormulation {
    * once catalog versioning infrastructure lands.
    */
   catalogSnapshot: CatalogSnapshotRef;
+
+  /**
+   * Operator-authored EXECUTION canvas template — procedures + QA layout
+   * + signoff conventions for this Base Sheet's product. Authored during
+   * R&D bench work; inherited by every Batch Sheet spawned from this
+   * Base Sheet version (the Batch Sheet copies this into its own
+   * executionRecord at spawn, then operator adjusts per-batch).
+   *
+   * Plain text — operator's own conventions for fill-in slots
+   * (underscores), hierarchy, section headers. Platform does not parse
+   * this content. See [[operator-current-base-sheet-format]] for the
+   * format conventions operators use natively.
+   */
+  batchSheetTemplate?: string;
+
+  /**
+   * Target batch mass in grams the formula was designed for. The locked
+   * composition is the PERCENTAGES (derived: ingredient.qty / baseBatchSizeG
+   * — or sum(ingredient.qty) when this field is absent for migration);
+   * gram quantities scale proportionally when operator changes batch size
+   * or spawns a Batch Sheet at a different scale.
+   *
+   * Per operator 2026-05-25: "2000 grams or whatever once the percentage
+   * is locked" — percentages are THE formula; gram quantities derive from
+   * baseBatchSize × percentage. Same workflow operators use in their
+   * existing manual Base Sheet format (commonly 1000g normalization basis,
+   * per [[operator-current-base-sheet-format]]).
+   *
+   * Optional for migration of pre-schema-lock saves; defaults at the UI
+   * layer to sum(ingredient.qty) when unset.
+   */
+  baseBatchSizeG?: number;
 }
 
 export interface FormulationVersion {
@@ -1269,6 +1431,15 @@ export interface FormulationVersion {
    * statement, framework determinations) even when catalog later mutates.
    */
   catalogSnapshot: CatalogSnapshotRef;
+
+  /**
+   * Target batch mass at this version. Per-version pinning supports
+   * audit-grade reproduction — knowing what batch basis the formula was
+   * designed for at this version. Percentages reproduce identically;
+   * gram quantities at version-N can be re-derived from this field
+   * when needed.
+   */
+  baseBatchSizeG?: number;
 }
 
 // ============================================================
