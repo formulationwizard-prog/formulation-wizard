@@ -794,6 +794,8 @@ Operator called it "folder" in initial framing. Industry-aligned candidates:
 
 CC perspective: Top-level `Packet` (Option B in §4.1). Cleaner separation; better lifecycle independence; migration cost is zero today.
 
+**Dignity-moat reframe (operator + CC synthesis 2026-05-25 per [[joy-of-mastery-brand-philosophy]]):** The override mechanism that lives on top of this schema — Format A vs B allergen, operator-input artifacts in §2.7, every operator-asserted authority surface — is not just a UI affordance. It's the platform stating an operating principle: *we treat the operator as the expert on what we cannot know.* This is the **dignity moat**: competitors will eventually copy data aggregation; they cannot copy a posture of respecting operator authority without rebuilding their product philosophy from scratch. Worth landing this framing in the strategic-session conversation + the marketing-narrative work. Affects schema choice indirectly — Option B's clean operator/product separation makes the dignity principle structurally enforceable (operator-level data lives in OperatorProfile and is owned by the operator; product-level data lives in Packet and the operator overrides freely).
+
 Strategic input needed: Are there in-flight integrations or schema commitments that constrain this choice?
 
 ### Q2 — Hierarchy at MVP: flat / branded / tag-based?
@@ -842,20 +844,34 @@ CC perspective: MVP needs the basic surface — capture expiration date per arti
 
 Strategic input needed: Which expiration types are MUST-WARN at MVP? Insurance, GMP cert, organic cert are obvious. Lab results (shelf-life studies typically 24-36 months) and PA letters are weighty but lower-frequency. Co-founder retailer/PA-relationship strategy may drive which expiration types are operational vs nice-to-have.
 
-### Q9 — Authoring-surface UX architecture: wizard / tabbed / hybrid (new — per [[external-developer-trial-2026-05-25]])
+### Q9 — How does the workspace progressively reveal complexity? (reshaped per operator synthesis 2026-05-25)
 
-External developer trial 2026-05-25 surfaced information-overload finding on the current single-scroll Build screen. Tester's literal suggestion: step-by-step wizard with persistent status window. Operator's prior strategic direction ("simplify the formulation page; push redundancies to operator") points the same direction.
+**Original framing** (pure wizard / tabbed / hybrid) was too narrow. **Reshaped framing** per operator + CC synthesis:
 
-CC perspective (per [[external-developer-trial-2026-05-25]] synthesis):
-- **Option A — wizard-style** (Identity → Ingredients → Delivery → Labels → Filing → Save). Walks new users; reduces overload; matches industry pattern. Power users may find slower.
-- **Option B — tabbed authoring with progressive disclosure** (top-level tabs within Build: Identity / Ingredients / Delivery / Labels / Filing; sidebar persistent status). Less linear; preserves power-user flexibility; cleaner than current single-scroll.
-- **Option C — hybrid** (first-time wizard; graduates to compact tabbed view after first formulation). Best of both worlds; more UI to build + maintain.
+> How does the workspace progressively reveal complexity to operators of different mastery levels, persona types, and entry-point contexts?
 
-CC lean: B or C. Final call deferred to Opus + co-founder — affects every subsequent UI commit, the Packet UI surface design (§4.5), and BS/BS implementation sequencing.
+**Candidates:**
 
-Strategic input needed: Tester is a non-domain-expert software developer — their UX reaction generalizes to retailer-QA-evaluator and PA-reviewer first-impression but NOT to operator power users who already accept density. Question is whether August MVP cohort skews toward new-user wizard need (early adopters discovering the platform) or power-user efficiency need (operators who've graduated past first formulation).
+- **(A) Mode toggle (Novice / Pro)** — defaulted by user history, picking up the existing Pro/Novice tier infrastructure (`lib/copy/`, `lib/hooks/useTier.ts`, bilingual strings — Phase 5 parked but scaffold is there). Novice mode: guided/focused with progressive disclosure (subsumes both wizard and tabbed views). Pro mode: the dense Workbench operator already uses. Toggle persists per user; explicit override available.
+- **(B) Tab-based IA within Build** (Identity / Composition / Delivery / Labels / Regulatory) — orthogonal to the mode toggle; both modes benefit from cleaner IA than today's single-scroll.
+- **(C) Shell-level first-touch experience** (welcome / first-product flow) above the workspace — guided onboarding lives at a layer ABOVE Build, not within it.
+- **(D) Information-grouping middle layer** — within a single view, better grouping (categories visually clustered rather than interleaved), default-collapsed sections that expand on demand. Reduces cognitive load without structural change.
+- **(E) Combination** — most likely answer: (A) + (B) + (D) sequenced; (C) lands with Packet UI entry-point shift.
 
-**Timing:** Post-launch-blocker-#4 — wizard saves progress incrementally, needs persistence working first. Mid-to-late MVP work; co-development with Packet UI implementation.
+**CC lean** (updated per operator synthesis): (A) + (B) + (D) sequenced over time, with (C) emerging naturally as Packet UI shifts first-touch entry from Build to Packet library. Pure wizard pattern (original Option A) is the wrong frame — collapses to (A) Novice mode which is the same scaffold extended.
+
+**Constraints surfaced (operator + CC, 2026-05-25):**
+
+1. **Save backend (launch-blocker #4) is precondition** — wizard/Novice mode saves progress incrementally; without persistence, no better than today's single-page (validated by external trial #1 lost-saves experience).
+2. **Packet UI entry-point shift** — Packet UI work (Q1–Q8) reshapes the first-touch context. Today operator opens app and lands in Build (blank workspace). Tomorrow operator opens app and lands in Packet library, clicks into a Packet, then edits the Base Sheet draft. Guided-mode question may not even live in Build anymore — it may live at Packet-creation step.
+3. **Design system memo with 5-category visual encoding (INPUTS / DERIVED VALUES / DERIVED RENDERS / DETERMINATIONS / DIAGNOSTICS) is higher-ROI predecessor** — every primitive ships with its aesthetic stance baked into its defaults per [[joy-of-mastery-brand-philosophy]]. Component-primitive work depends on this categorical encoding being right first.
+4. **Novice tier rendering work + mode toggle work = same project** — don't reinvent the Pro/Novice infrastructure that's already half-built in `lib/copy/` + `lib/hooks/useTier.ts`. Strategic session should explicitly route as one project.
+5. **Domain validation needed** — different operator personas (CPG founder bootstrapping first product / established manufacturer QA head with 50 SKUs / co-packer process engineer / non-domain-expert evaluator) may have radically different mode needs. The mode-toggle "graduate from Novice to Pro" arc assumes uniformity; reality may be "QA head wants Workbench day one; bootstrapping founder wants Novice forever." Worth asking Nate before locking pattern.
+6. **Default-by-user-history mechanic edge cases** — bootstrapping (brand-new user, no history, what default?), migration (existing user when mode toggle ships, what default?), demo (prospect kicking tires 5-min eval, what default?). Not blockers but need scoping when work lands.
+
+**Strategic input needed:** Confirm the (A) + (B) + (D) sequenced approach + Nate persona-validation gating. Once these route, the work has a clean shape; without routing, risk is reinventing Pro/Novice infrastructure or building wizard pattern that doesn't survive Packet UI entry-point shift.
+
+**Timing:** Post-launch-blocker-#4 + post-design-system-memo. Mid-to-late MVP work; co-development with Packet UI implementation per [[joy-of-mastery-brand-philosophy]] principle 2 (mastery is the engine).
 
 ---
 
