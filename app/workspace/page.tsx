@@ -207,10 +207,15 @@ export default function FormulationWizard() {
   // ----- Mode-switch unit reconciliation --------------------------------------
   // When the user switches modes, the current unit selections may no longer be
   // in the new mode's allowed list (e.g., "tsp" in F&B → not available in
-  // Supplements). Reset each stale unit to the mode's natural default. Also
-  // reset size defaults when they're still at the vertical-mismatch values —
-  // e.g., switching from F&B to Supplements with a 30 g serving (sauce-sized)
-  // makes the capsule fill calculator read 15,000 mg per unit, which is absurd.
+  // Supplements). Reset each stale unit to the mode's natural default.
+  //
+  // Per operator UX feedback 2026-05-25 — DO NOT auto-swap serving/package size
+  // numeric values on mode change. Prior logic swapped F&B↔Supplement defaults
+  // (30/300 ↔ 2/60) automatically, which caused state-leak bugs where stale
+  // values from one mode persisted into the other unexpectedly. New behavior:
+  // operator types fresh values per mode; empty fields (0) render as empty per
+  // the empty-default UX principle. Mid-formula mode changes preserve whatever
+  // values the operator already entered (no destructive reset).
   useEffect(() => {
     const modeUnits = mc.units;
     const defaultUnit = mode === 'supplements' ? 'mg' : modeUnits[0];
@@ -224,18 +229,7 @@ export default function FormulationWizard() {
     if (!modeUnits.includes(newUnit)) {
       setNewUnit(defaultUnit);
     }
-    // Supplement-appropriate size defaults when the user is still on F&B numeric defaults.
-    if (mode === 'supplements' && servingSize === 30 && packageSize === 300) {
-      setServingSize(2);
-      setPackageSize(60);
-    }
-    // Reverse direction — if they switch AWAY from supplements and sizes are still
-    // supplement-typical (2g serving, 60g package), restore F&B defaults.
-    if (mode !== 'supplements' && servingSize === 2 && packageSize === 60) {
-      setServingSize(30);
-      setPackageSize(300);
-    }
-  }, [mode, mc.units, servingUnit, packageUnit, newUnit, servingSize, packageSize]);
+  }, [mode, mc.units, servingUnit, packageUnit, newUnit]);
 
 
   // ----- Supplement-specific dosage model (visible only when mode === 'supplements') --
@@ -641,13 +635,43 @@ export default function FormulationWizard() {
 
   const servingSizeInGrams = servingSize * (UNIT_TO_GRAMS[servingUnit] || 1);
   const packageSizeInGrams = packageSize * (UNIT_TO_GRAMS[packageUnit] || 1);
-  /** Auto-computed servings count based on package ÷ serving size. Used as the default. */
+  /**
+   * Servings/Container derived from packageSize ÷ servingSize. Per operator UX
+   * feedback 2026-05-25 — always auto-computed; no operator override (override
+   * was a footgun + override stale-state caused mislabeled servings counts).
+   * Operator changes Serving Size or Package Size to adjust; the count follows.
+   *
+   * 0 when either input is empty (renders as blank in UI; NFP header omits the
+   * line entirely until both inputs are entered).
+   */
   const autoServingsPerContainer = packageSizeInGrams && servingSizeInGrams
-    ? Math.round((packageSizeInGrams / servingSizeInGrams) * 10) / 10 : 1;
-  /** User override — when null we fall back to the auto value. Persists across renders. */
+    ? Math.round((packageSizeInGrams / servingSizeInGrams) * 10) / 10 : 0;
+  /** Override state preserved as backwards-compat scaffold — F&B-mode UI no
+   *  longer exposes editing per operator UX feedback 2026-05-25 (footgun pattern);
+   *  supplement-mode count-back logic (capsule/tablet/softgel forms) still uses
+   *  the setter for its own count-based-derivation flow. Future cleanup commit
+   *  can audit which supplement-mode callsites legitimately need override
+   *  semantics vs which are vestigial. */
   const [servingsPerContainerOverride, setServingsPerContainerOverride] = useState<number | null>(null);
-  /** Effective number used everywhere (label, facts panel, safety/stability cards). */
+  /** Effective servings count. Always equals autoServingsPerContainer at this
+   *  commit (override is always null). The `?? autoServingsPerContainer`
+   *  fallback preserves the existing aggregation pattern for callsites. */
   const servingsPerContainer = servingsPerContainerOverride ?? autoServingsPerContainer;
+
+  /**
+   * FDA-formatted "X servings per container" display per 21 CFR 101.9(b)(8).
+   * Rules:
+   *   • 0 (either input empty) → empty string (NFP header omits the line)
+   *   • < 1.5 servings → "1 serving per container" (single-serving rule)
+   *   • Integer value → "X servings per container" (exact)
+   *   • Fractional ≥ 1.5 → "about X servings per container" (rounded to nearest whole)
+   */
+  const formattedServingsPerContainer = (() => {
+    if (!servingsPerContainer || servingsPerContainer <= 0) return '';
+    if (servingsPerContainer < 1.5) return '1 serving per container';
+    if (Number.isInteger(servingsPerContainer)) return `${servingsPerContainer} servings per container`;
+    return `about ${Math.round(servingsPerContainer)} servings per container`;
+  })();
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -4342,21 +4366,20 @@ export default function FormulationWizard() {
                   // decimal grams for trace ingredients).
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-2">Serving Size</label>
+                      <label className="block text-sm font-medium text-gray-600 mb-2">
+                        Serving Size <span className="text-[10px] font-normal text-emerald-700">✎ editable</span>
+                      </label>
                       <div className="flex gap-1">
                         <input
                           type="number"
                           min={0}
                           step={0.01}
-                          value={servingSize}
+                          placeholder="e.g., 30"
+                          value={servingSize > 0 ? servingSize : ''}
                           onChange={(e) => setServingSize(validateServingSizeInput(e.target.value))}
-                          className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                          className="w-full text-center border-2 border-emerald-300 bg-emerald-50/40 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-600 focus:bg-white placeholder:text-gray-400 placeholder:text-sm placeholder:font-normal"
                         />
-                        <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
-                          {/* Round 11 Phase 3 Workstream A.5 [5b/N] (#25l SP7):
-                              constrain unit dropdown to per-form allow-list in
-                              supplement mode. F&B mode preserves the wide mc.units
-                              list. */}
+                        <select value={servingUnit} onChange={(e) => setServingUnit(e.target.value)} className="border-2 border-emerald-300 bg-emerald-50/40 rounded-lg px-1 py-2 text-sm focus:outline-none focus:bg-white">
                           {(mode === 'supplements' ? allowedServingUnits(suppDeliveryForm) : mc.units).map(u => <option key={u}>{u}</option>)}
                         </select>
                       </div>
@@ -4371,53 +4394,35 @@ export default function FormulationWizard() {
                       )}
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-2">Package Size</label>
+                      <label className="block text-sm font-medium text-gray-600 mb-2">
+                        Package Size <span className="text-[10px] font-normal text-emerald-700">✎ editable</span>
+                      </label>
                       <div className="flex gap-1">
                         <input
                           type="number"
                           min={0}
                           step={0.01}
-                          value={packageSize}
+                          placeholder="e.g., 300"
+                          value={packageSize > 0 ? packageSize : ''}
                           onChange={(e) => setPackageSize(Math.max(0, parseFloat(e.target.value) || 0))}
-                          className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                          className="w-full text-center border-2 border-emerald-300 bg-emerald-50/40 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-600 focus:bg-white placeholder:text-gray-400 placeholder:text-sm placeholder:font-normal"
                         />
-                        <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
+                        <select value={packageUnit} onChange={(e) => setPackageUnit(e.target.value)} className="border-2 border-emerald-300 bg-emerald-50/40 rounded-lg px-1 py-2 text-sm focus:outline-none focus:bg-white">
                           {(mode === 'supplements' ? allowedPackageUnits(suppDeliveryForm) : mc.units).map(u => <option key={u}>{u}</option>)}
                         </select>
                       </div>
                     </div>
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="block text-sm font-medium text-gray-600">Servings/Container</label>
-                        {servingsPerContainerOverride !== null && (
-                          <button
-                            onClick={() => setServingsPerContainerOverride(null)}
-                            className="text-[10px] uppercase tracking-wide text-emerald-700 hover:text-emerald-900 font-medium"
-                            title={`Reset to auto (${autoServingsPerContainer})`}
-                          >
-                            ↻ auto
-                          </button>
-                        )}
+                      <label className="block text-sm font-medium text-gray-600 mb-2">
+                        Servings/Container <span className="text-[10px] font-normal text-gray-400">auto-computed</span>
+                      </label>
+                      <div className="w-full text-center border-2 border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-lg font-bold text-gray-700">
+                        {servingsPerContainer > 0 ? servingsPerContainer : '—'}
                       </div>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={servingsPerContainer}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          setServingsPerContainerOverride(isNaN(v) || v <= 0 ? null : v);
-                        }}
-                        className={`w-full text-center rounded-lg py-2 text-lg font-bold focus:outline-none focus:border-emerald-500 border ${
-                          servingsPerContainerOverride !== null
-                            ? 'border-emerald-400 text-emerald-700 bg-white'
-                            : 'border-gray-100 bg-gray-50 text-emerald-700'
-                        }`}
-                      />
                       <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
-                        {servingsPerContainerOverride !== null
-                          ? `Overridden. Auto would be ${autoServingsPerContainer}.`
-                          : 'Auto-calculated from package ÷ serving size. Edit to override.'}
+                        {formattedServingsPerContainer
+                          ? `Label: "${formattedServingsPerContainer}" (FDA 21 CFR 101.9(b)(8))`
+                          : 'Enter Serving Size + Package Size to compute.'}
                       </p>
                     </div>
                   </div>
@@ -5934,7 +5939,7 @@ Production Mgr: _____________________  Date / Time _________`}
                 {mc.labelMode !== 'aafco' && mc.labelMode !== 'supplement-facts' && (
                 <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans">
                   <div className="text-5xl font-extrabold leading-none border-b-4 border-black pb-1 mb-1">Nutrition Facts</div>
-                  <div className="text-sm border-b border-black pb-1 mb-1">{servingsPerContainer} servings per container</div>
+                  <div className="text-sm border-b border-black pb-1 mb-1">{formattedServingsPerContainer || '— servings per container'}</div>
                   <div className="flex justify-between items-end border-b-8 border-black pb-1 mb-1">
                     <div className="text-sm font-bold">Serving size</div>
                     <div className="text-2xl font-extrabold">{servingSize}{servingUnit}</div>
