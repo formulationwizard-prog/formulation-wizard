@@ -928,6 +928,38 @@ export interface IndustrialIngredient {
    * "verified safe."
    */
   drugInteractions?: DrugInteraction[];
+
+  /**
+   * Provenance metadata per catalog field. Keys = field names from this
+   * IndustrialIngredient that have a documented source (spec sheet / COA /
+   * USDA FDC ID / operator estimate / etc.); values = Provenance discriminated
+   * union. Sub-field provenance can be keyed via dot notation (e.g.,
+   * 'nutrition.calories' for per-nutrient provenance under the nutrition
+   * record).
+   *
+   * Required by [[catalog-must-be-coa-spec-sheet-anchored]] doctrine
+   * 2026-05-25 — every rendered catalog value must trace to a sourced
+   * origin. Pre-foundation legacy entries default to absent (= treated
+   * by render layer as `{ kind: 'unknown', reason: 'legacy pre-foundation' }`
+   * per harm-critical floor — surfaced explicitly as UNDOCUMENTED).
+   *
+   * Common keys:
+   *   - 'allergens' — supplier spec confirmed allergen status
+   *   - 'falcpaExemptionStatus' — supplier spec confirmed refining grade
+   *     (drives FALCPA §203(b)(2) exempt vs declare per
+   *     [[falcpa-highly-refined-oil-exemption]])
+   *   - 'nutrition' — supplier spec / USDA FDC ID / label declaration
+   *   - 'nutrition.calories', 'nutrition.sodium', etc. — per-nutrient
+   *     provenance when the source differs across nutrients
+   *   - 'category', 'subIngredients', 'supplier', 'costPerKg',
+   *     'organicAvailable', 'gmoRisk', 'pharmacopeialReference',
+   *     'drugInteractions', 'coaTemplateType', etc.
+   *
+   * Schema-only field at foundation commit — populated as catalog audit
+   * pass + spec sheet attachment UI + F3 Tier 1 agentic ingestion (per
+   * [[catalog-must-be-coa-spec-sheet-anchored]] MVP foundation) land.
+   */
+  provenance?: Record<string, Provenance>;
 }
 
 /**
@@ -1483,5 +1515,176 @@ export interface ConcentrationRatio {
   notes?: string;
   /** Provenance reference for the ratio value (vendor spec sheet, lab measurement, operator estimate). */
   source?: string;
+}
+
+// ============================================================
+// PROVENANCE — foundational doctrine schema (2026-05-25)
+// ------------------------------------------------------------
+// Per [[catalog-must-be-coa-spec-sheet-anchored]] — every catalog value
+// rendered in the platform must trace back to a supplier-provided spec
+// sheet, supplier-provided COA, canonical regulatory source, or explicit
+// operator estimate with documented basis. LLM-typed values shipped as
+// if verified are non-compliant with platform doctrine.
+//
+// Provenance type answers "where did this number come from?" for any
+// catalog value. The discriminated union covers the source types the
+// platform recognizes — derived from operator's manual workflow patterns
+// documented in [[nutritional-calculator-canonical-source]] (USDA FDC
+// IDs, supplier specs, label declarations, operator estimates, sibling
+// inferences, internal notes) plus the per-batch COA shape (lot-anchored).
+//
+// Sourced<T> wrapper enables typed values to carry provenance inline
+// where ergonomic; parallel Record<string, Provenance> via the
+// `provenance` field on IndustrialIngredient enables gradual annotation
+// without breaking existing typed values.
+//
+// Schema-only commit per [[razor-sharp-agentic-building]] — types land;
+// per-field annotation + workspace render + agentic ingestion (F3 Tier 1)
+// follow as separate commits over the foundation rollout.
+// ============================================================
+
+/**
+ * Provenance for a catalog value — answers "where did this number come
+ * from?" Required by [[catalog-must-be-coa-spec-sheet-anchored]] doctrine
+ * to ship FALCPA-compliant + 21 CFR 101 truth-in-labeling output.
+ *
+ * Discriminated union — each variant captures the metadata appropriate
+ * to its source type. capturedAt tracks WHEN the value was recorded;
+ * values may need re-capture when supplier issues updated spec / new
+ * lot ships / regulatory citation amended / etc.
+ */
+export type Provenance =
+  | {
+      /** Supplier spec sheet — vendor's published specification for the
+       *  ingredient SKU. Catalog-level (one spec sheet per SKU); not
+       *  per-lot (that's 'coa'). Common case for nutrition, allergens,
+       *  refining grade, certifications. */
+      kind: 'supplier-spec';
+      vendor: string;
+      /** URL, file path, or internal doc ID for the spec sheet. */
+      specSheetRef?: string;
+      /** ISO date the spec sheet itself was issued by the supplier. */
+      specSheetDate?: string;
+      /** ISO timestamp when the platform captured this value from the spec. */
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** Certificate of Analysis — supplier's per-lot test results.
+       *  Batch/lot-level (one COA per ingredient lot). Higher confidence
+       *  than supplier-spec for the specific lot. Lives on BatchSheet
+       *  via ingredientLots typically; can also annotate catalog values
+       *  when an operator wants to lot-anchor a catalog entry. */
+      kind: 'coa';
+      vendor: string;
+      lotNumber: string;
+      coaRef?: string;
+      coaDate?: string;
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** USDA FoodData Central — canonical US government nutrition data.
+       *  Common case for raw commodity ingredients (whole foods,
+       *  basic produce). FDC ID enables re-verification + amendment
+       *  tracking when USDA updates their data. */
+      kind: 'usda-fdc';
+      /** FDC numeric identifier per USDA FoodData Central. */
+      fdcId: string;
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** Operator pulled values from a product label declaration.
+       *  Per [[nutritional-calculator-canonical-source]] this is a
+       *  common operator-workbook source ("From Label - Worst Case
+       *  Rounding" / "From Package Declaration"). Rounding mode tracks
+       *  the operator's interpretation strategy (FDA labels are rounded
+       *  per 21 CFR 101.9(c) — recovering pre-rounding values requires
+       *  a rounding-mode assumption). */
+      kind: 'label-declaration';
+      /** Source description (e.g., 'Product label, Costco store visit 2026-03-15'). */
+      labelSource: string;
+      /** Rounding interpretation. 'worst-case' = assume highest pre-rounding value
+       *  (operator's conservative discipline per workbook convention); 'best-case'
+       *  = assume lowest; 'as-printed' = use printed value directly. */
+      rounding?: 'as-printed' | 'worst-case' | 'best-case';
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** Operator's own estimate — documented basis required per
+       *  [[honest-estimate-reframe]] discipline. Acceptable for values
+       *  where no supplier spec / COA / canonical source exists, OR
+       *  where operator wants to apply judgment to a non-canonical case. */
+      kind: 'operator-estimate';
+      /** Identifier of the operator who recorded the estimate. */
+      operatorId?: string;
+      /** Documented basis (e.g., 'Educated guess from similar SKU production
+       *  experience'; 'Calculated assuming standard 8% moisture loss in drying'). */
+      basis: string;
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** Value computed from formula structure — derived rather than
+       *  measured. E.g., pH back-calculated from acid + base composition;
+       *  density from weighted average of ingredient densities. Method
+       *  field documents the calculation approach for audit. */
+      kind: 'computed-from-formula';
+      method: string;
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** Inferred from a sibling catalog entry. Per
+       *  [[nutritional-calculator-canonical-source]] this matches
+       *  operator-workbook source "Adapted From Cider Vinegar" pattern —
+       *  when a new ingredient's values are estimated by analogy to a
+       *  related catalog entry. Lower confidence than direct sourcing. */
+      kind: 'sibling-inference';
+      /** Name of the sibling catalog entry the value was inferred from. */
+      baseEntryName: string;
+      /** Adjustments applied (e.g., 'Increased Brix by 5° for sweetened variant'). */
+      adjustments?: string;
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** Internal team data — values supplied by team members from their
+       *  own knowledge / archives that aren't easily attributable to a
+       *  specific document. Per [[matt-fjc-vendor-spec-custodian]] +
+       *  [[nutritional-calculator-canonical-source]] workbook "Matt's
+       *  Number" / "MN data" / "MAT" patterns. sourceCode preserves
+       *  the team-internal identifier; consider migrating to a more
+       *  specific variant (supplier-spec / operator-estimate) when the
+       *  underlying source surfaces. */
+      kind: 'internal-source';
+      sourceCode: string;
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
+      /** Unknown provenance — legacy LLM-typed values, or values whose
+       *  origin was not recorded at catalog-authoring time. Per
+       *  [[harm-critical-floor]] doctrine, the platform must surface
+       *  these explicitly to the operator (not silently treat as
+       *  verified). All pre-foundation catalog entries default to this
+       *  variant during the audit transition. */
+      kind: 'unknown';
+      reason?: string;
+    };
+
+/**
+ * Sourced<T> — a typed value carrying its provenance inline. Use when
+ * the value + provenance ergonomically travel together (e.g., a single
+ * spec measurement with its source). For records of many values where
+ * provenance applies per-field, prefer the parallel
+ * `Record<string, Provenance>` pattern via the `provenance` field on
+ * IndustrialIngredient (added below).
+ */
+export interface Sourced<T> {
+  value: T;
+  provenance: Provenance;
 }
 
