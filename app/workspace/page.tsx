@@ -718,31 +718,46 @@ export default function FormulationWizard() {
     // Coconut" — duplicate categorically wrong. After dedupe: just "Coconut".
     const collectedMatches: AllergenMatch[] = [];
     currentIngredients.forEach((item) => {
-      // Detector pass — extracts species from ingredient name PLUS sub-ingredients
-      // text. Sub-ingredients commonly carry species names that the ingredient
-      // name itself doesn't (e.g., 'Glucosamine HCl' name + ['Glucosamine HCl',
-      // 'Shrimp Shells', 'Crab Shells'] subIngredients → detector finds Shrimp +
-      // Crab species). Per [[regulatory-classification-vs-supplier-data]] catalog
-      // enrichment doctrine 2026-05-25 — species notation is regulatory-classification
-      // (taxonomic), so the platform can populate it via sub-ingredients
-      // detection without waiting for COA-anchored supplier data.
-      const detectionText = [item.name, ...(item.subIngredients || [])].join(' ');
-      const detected = detectAllergensDetailed(detectionText);
-      collectedMatches.push(...detected);
-      // Catalog allergens — string[] legacy shape. Synthesize as AllergenMatch
-      // for the aggregation pipeline, BUT skip categories where the detector
-      // already found species (species wins per FALCPA §403(w)(1)(B)).
-      const detectorCategories = new Set(detected.map(m => m.category));
-      item.allergens?.forEach(a => {
-        if (detectorCategories.has(a as AllergenMatch['category'])) return;
-        collectedMatches.push({
-          category: a as AllergenMatch['category'],
-          species: undefined,
-          matchedKeyword: a,
-          requiresSpeciesNaming: ['Tree Nuts', 'Fish', 'Shellfish'].includes(a),
-          regulatoryTier: 'falcpa-faster-big-9',
+      // FALCPA §203(b)(2) highly-refined-oil exemption check per
+      // [[falcpa-highly-refined-oil-exemption]] doctrine 2026-05-25. When the
+      // catalog entry has falcpaExemptionStatus: 'exempt' (e.g., Soybean Oil RBD —
+      // decades of clinical data confirm <1 ppm residual protein), skip ALL
+      // allergen aggregation for this ingredient (both catalog declarations + name/
+      // subIngredient detection). The label correctly omits the source allergen.
+      //
+      // Operator-decision status (e.g., Coconut Oil RBD) and not-exempt status
+      // (cold-pressed / virgin) and undefined (refining grade not yet flagged)
+      // all default to "conservative declare" — allergens flow through normally.
+      const industrialData = item.foodData?.type === 'industrial' ? item.foodData.data : null;
+      const falcpaExempt = industrialData?.falcpaExemptionStatus === 'exempt';
+
+      if (!falcpaExempt) {
+        // Detector pass — extracts species from ingredient name PLUS sub-ingredients
+        // text. Sub-ingredients commonly carry species names that the ingredient
+        // name itself doesn't (e.g., 'Glucosamine HCl' name + ['Glucosamine HCl',
+        // 'Shrimp Shells', 'Crab Shells'] subIngredients → detector finds Shrimp +
+        // Crab species). Per [[regulatory-classification-vs-supplier-data]] catalog
+        // enrichment doctrine 2026-05-25 — species notation is regulatory-classification
+        // (taxonomic), so the platform can populate it via sub-ingredients
+        // detection without waiting for COA-anchored supplier data.
+        const detectionText = [item.name, ...(item.subIngredients || [])].join(' ');
+        const detected = detectAllergensDetailed(detectionText);
+        collectedMatches.push(...detected);
+        // Catalog allergens — string[] legacy shape. Synthesize as AllergenMatch
+        // for the aggregation pipeline, BUT skip categories where the detector
+        // already found species (species wins per FALCPA §403(w)(1)(B)).
+        const detectorCategories = new Set(detected.map(m => m.category));
+        item.allergens?.forEach(a => {
+          if (detectorCategories.has(a as AllergenMatch['category'])) return;
+          collectedMatches.push({
+            category: a as AllergenMatch['category'],
+            species: undefined,
+            matchedKeyword: a,
+            requiresSpeciesNaming: ['Tree Nuts', 'Fish', 'Shellfish'].includes(a),
+            regulatoryTier: 'falcpa-faster-big-9',
+          });
         });
-      });
+      }
       const qtyInGrams = item.qty * (UNIT_TO_GRAMS[item.unit] || 1);
       const factor = qtyInGrams / 100;
       if (item.foodData?.type === 'industrial' && item.foodData?.nutrition) {

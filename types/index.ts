@@ -949,6 +949,49 @@ export interface IndustrialIngredient {
   drugInteractions?: DrugInteraction[];
 
   /**
+   * FALCPA §203(b)(2) highly-refined-oil exemption status per
+   * [[falcpa-highly-refined-oil-exemption]] doctrine 2026-05-25.
+   * Three-state taxonomy distinguishing solid exemption / gray-zone
+   * operator-decision / no exemption / undocumented:
+   *
+   *   • 'exempt'             — Solid FALCPA §203(b)(2) exemption (RBD
+   *                            soybean oil, RBD peanut oil; decades of
+   *                            clinical data, <1 ppm residual protein,
+   *                            no clinical reactions documented). The
+   *                            recalculate aggregation auto-strips
+   *                            allergens for entries with this status —
+   *                            no Contains entry rendered.
+   *
+   *   • 'operator-decision'  — Theoretical exemption per §203(b)(2)
+   *                            but conservative industry practice
+   *                            declares anyway (RBD coconut oil, RBD
+   *                            tree-nut oils). Less robust clinical data;
+   *                            documented reactions exist; most US
+   *                            manufacturers declare for liability +
+   *                            retailer-spec compliance. Catalog allergens
+   *                            stay declared by default (conservative);
+   *                            operator can override per-formulation when
+   *                            UI surfaces the choice.
+   *
+   *   • 'not-exempt'         — Cold-pressed / expeller-pressed / virgin /
+   *                            unrefined variants retain protein and are
+   *                            NOT exempt. Catalog allergens stay declared.
+   *
+   *   • undefined            — Refining grade not yet flagged. Catalog
+   *                            allergens stay declared by default
+   *                            (conservative). Should be populated during
+   *                            catalog audit pass per
+   *                            [[catalog-must-be-coa-spec-sheet-anchored]].
+   *
+   * Per [[regulatory-classification-vs-supplier-data]] doctrine: refining
+   * grade is BOTH supplier-variable (different SKUs from same supplier
+   * have different grades) AND regulatorily-classifiable (when the SKU
+   * name explicitly says "RBD" or "Refined" or "Cold-Pressed", the
+   * exemption status is determinable from the catalog name alone).
+   */
+  falcpaExemptionStatus?: 'exempt' | 'operator-decision' | 'not-exempt';
+
+  /**
    * Provenance metadata per catalog field. Keys = field names from this
    * IndustrialIngredient that have a documented source (spec sheet / COA /
    * USDA FDC ID / operator estimate / etc.); values = Provenance discriminated
