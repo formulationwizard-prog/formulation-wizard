@@ -139,6 +139,7 @@ export const emptyNutrition = (): Nutrition => ({
   totalCarbs: 0,
   dietaryFiber: 0,
   totalSugars: 0,
+  addedSugars: 0,
   protein: 0,
   vitaminD: 0,
   calcium: 0,

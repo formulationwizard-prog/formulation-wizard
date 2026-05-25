@@ -5934,12 +5934,38 @@ Production Mgr: _____________________  Date / Time _________`}
                     { label: 'Total Carbohydrate', val: nutrition.totalCarbs, unit: 'g', dv: 275, roundFn: fdaRoundGrams, bold: true, indent: false },
                     { label: 'Dietary Fiber', val: nutrition.dietaryFiber, unit: 'g', dv: 28, roundFn: fdaRoundGrams, bold: false, indent: true },
                     { label: 'Total Sugars', val: nutrition.totalSugars, unit: 'g', dv: 0, roundFn: fdaRoundGrams, bold: false, indent: true },
+                    // Added Sugars — FDA-mandated sub-line per 21 CFR 101.9(c)(6)(iii) since
+                    // the 2016 NFP overhaul. Format "Includes Xg Added Sugars" (FDA-specific
+                    // labeling) per the labelPrefix render branch below. DV = 50g/day per
+                    // 2016 final rule. Catalog data sourcing per [[catalog-must-be-coa-spec-
+                    // sheet-anchored]] — depends on save backend + spec sheet ingestion;
+                    // until then field is 0 across catalog and renders "Includes 0g Added
+                    // Sugars" (FDA-compliant declaration of zero added sugars).
+                    { label: 'Added Sugars', val: nutrition.addedSugars, unit: 'g', dv: 50, roundFn: fdaRoundGrams, bold: false, indent: true, labelPrefix: 'Includes ' },
                     { label: 'Protein', val: nutrition.protein, unit: 'g', dv: 0, roundFn: fdaRoundGrams, bold: true, indent: false },
-                  ]).map(({ label, val, unit, dv, roundFn, bold, indent }) => {
+                  ] as ReadonlyArray<{
+                    label: string;
+                    val: number;
+                    unit: string;
+                    dv: number;
+                    roundFn: (n: number) => string;
+                    bold: boolean;
+                    indent: boolean;
+                    labelPrefix?: string;
+                  }>).map(({ label, val, unit, dv, roundFn, bold, indent, labelPrefix }) => {
                     const amt = perServing(val);
                     return (
                       <div key={label} className={`border-b border-black py-1 flex justify-between text-sm ${indent ? 'pl-4' : ''}`}>
-                        <div><span className={bold ? 'font-bold' : ''}>{label}</span> {roundFn(amt)}{unit}</div>
+                        <div>
+                          {labelPrefix ? (
+                            // FDA "Includes Xg Added Sugars" format per 21 CFR 101.9(c)(6)(iii) —
+                            // prefix + value + unit + space + label (value appears mid-string,
+                            // distinct from the standard "Label Xg" pattern other rows use).
+                            <span className={bold ? 'font-bold' : ''}>{labelPrefix}{roundFn(amt)}{unit} {label}</span>
+                          ) : (
+                            <><span className={bold ? 'font-bold' : ''}>{label}</span> {roundFn(amt)}{unit}</>
+                          )}
+                        </div>
                         {dv > 0 && <div className="font-bold">{fdaRoundPercentDVMacros(rawPct(val, dv))}%</div>}
                       </div>
                     );

@@ -62,6 +62,25 @@ export interface Nutrition {
   totalCarbs: number;
   dietaryFiber: number;
   totalSugars: number;
+  /**
+   * Added Sugars — sugars added during processing or packaging, including
+   * sugar (sucrose), HFCS, honey, maple syrup, agave, fruit-juice
+   * concentrates beyond what would be from whole fruit/vegetable. Excludes
+   * naturally-occurring sugars in fruits, vegetables, dairy.
+   *
+   * Per FDA 21 CFR 101.9(c)(6)(iii) — mandatory declaration on the
+   * Nutrition Facts panel since the 2016 NFP overhaul (final rule effective
+   * 2020). Renders as "Includes Xg Added Sugars" sub-line under Total
+   * Sugars with %DV against the 50g/day Reference Daily Intake.
+   *
+   * Catalog-data sourcing per [[catalog-must-be-coa-spec-sheet-anchored]]
+   * doctrine: must come from supplier spec sheets / COAs / canonical
+   * sources, NOT LLM-typed defaults. Pre-foundation catalog entries
+   * have addedSugars unset; render layer treats as 0 (FDA-compliant
+   * "0g Added Sugars" declaration) until catalog audit pass populates
+   * per ingredient.
+   */
+  addedSugars: number;
   protein: number;
   vitaminD: number;
   calcium: number;
