@@ -5864,7 +5864,15 @@ Production Mgr: _____________________  Date / Time _________`}
                     <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans bg-[#fff] text-black">
                       <div className="text-3xl font-extrabold leading-none border-b-4 border-black pb-1 mb-1">Supplement Facts</div>
                       <div className="text-xs border-b border-black pb-1 mb-1">Serving Size: {facts.servingSize}</div>
-                      <div className="text-xs border-b-8 border-black pb-1 mb-1">Servings Per Container: {facts.servingsPerContainer}</div>
+                      <div className="text-xs border-b-8 border-black pb-1 mb-1">Servings Per Container: {
+                        servingsPerContainer > 0
+                          ? (servingsPerContainer < 1.5
+                              ? '1'
+                              : Number.isInteger(servingsPerContainer)
+                                ? servingsPerContainer
+                                : `about ${Math.round(servingsPerContainer)}`)
+                          : '—'
+                      }</div>
                       <div className="flex justify-between border-b-2 border-black py-0.5 text-[10px] font-bold uppercase">
                         <div>Amount Per Serving</div>
                         <div>% Daily Value</div>
@@ -9622,8 +9630,8 @@ Production Mgr: _____________________  Date / Time _________`}
                       <span>Allergens — Cleaning Verification Required</span>
                     </h2>
                     <p className="text-sm font-bold text-red-700">Contains: {formatAllergenListBody(allergenStatement)}</p>
-                    <p className="text-xs text-amber-700 italic mt-1">
-                      ⚠ Species naming pending FALCPA wire-up (launch-blocker #1B). Current display uses legacy allergen detection — when 1B wire-up lands, Tree Nuts will display as the specific species (e.g., &ldquo;Coconut&rdquo; not &ldquo;Tree Nuts&rdquo;).
+                    <p className="text-xs text-gray-600 italic mt-1">
+                      Statement uses FALCPA-compliant umbrella + species format per 21 CFR 101.36 / FALCPA §403(w) — e.g., &ldquo;Crustacean Shellfish (Shrimp, Crab)&rdquo; and &ldquo;Tree Nuts (Coconut)&rdquo;. Always verify against supplier COA before labeling.
                     </p>
                     <p className="text-xs text-gray-600 mt-2">
                       Cross-contact risk if equipment was previously used for products not declaring these allergens. Cleaning + verification required per FDA 21 CFR 117.135 + 117.140 (Preventive Controls — allergen). Document below:
