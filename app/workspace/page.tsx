@@ -771,13 +771,25 @@ export default function FormulationWizard() {
         // for the aggregation pipeline, BUT skip categories where the detector
         // already found species (species wins per FALCPA §403(w)(1)(B)).
         const detectorCategories = new Set(detected.map(m => m.category));
+        // Catalog-allergen string normalization — catalog uses FALCPA statutory
+        // labels ('Crustacean Shellfish') for some categories where the
+        // AllergenCategory type union uses internal short forms ('Shellfish').
+        // Per Format B regression caught 2026-05-25 (Glucosamine HCl rendering
+        // "Contains: Crustacean Shellfish (Shrimp, Crab) and undefined" — the
+        // synthesized off-union category whiffed the CATEGORY_DISPLAY_NAME map
+        // lookup → undefined leaked into the label string). Normalize here at
+        // the synthesis boundary so downstream Format B grouping works cleanly.
+        const CATALOG_ALLERGEN_NORMALIZE: Record<string, AllergenMatch['category']> = {
+          'Crustacean Shellfish': 'Shellfish',
+        };
         item.allergens?.forEach(a => {
-          if (detectorCategories.has(a as AllergenMatch['category'])) return;
+          const normalized = (CATALOG_ALLERGEN_NORMALIZE[a] ?? a) as AllergenMatch['category'];
+          if (detectorCategories.has(normalized)) return;
           collectedMatches.push({
-            category: a as AllergenMatch['category'],
+            category: normalized,
             species: undefined,
             matchedKeyword: a,
-            requiresSpeciesNaming: ['Tree Nuts', 'Fish', 'Shellfish'].includes(a),
+            requiresSpeciesNaming: ['Tree Nuts', 'Fish', 'Shellfish'].includes(normalized),
             regulatoryTier: 'falcpa-faster-big-9',
           });
         });

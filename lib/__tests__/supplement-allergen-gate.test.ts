@@ -322,6 +322,33 @@ describe('generateContainsStatement — Format B (umbrella+species)', () => {
     ]);
     expect(out).toBe('Contains: Tree Nuts (Almonds) and Milk.');
   });
+
+  it('off-union category string degrades to raw category name (defensive fallback)', () => {
+    // Regression guard for the 2026-05-25 Glucosamine HCl bug. Catalog
+    // synthesis cast off-union catalog allergen strings (e.g., 'Crustacean
+    // Shellfish' as a literal vs. the type-union 'Shellfish') via `as` to
+    // AllergenMatch['category'] — Format B's CATEGORY_DISPLAY_NAME lookup
+    // returned undefined for those off-union strings, leaking "undefined"
+    // into the rendered label ("Contains: ... and undefined"). The
+    // synthesis path is now normalized to type-union values, but this
+    // defensive fallback in formatAllergenListBody guards against any
+    // future catalog-vs-union drift slipping past the `as` cast again.
+    // Constructs the off-union match directly (not via makeMatch) since
+    // makeMatch looks up ALLERGEN_REGULATORY_METADATA which has no entry
+    // for off-union strings.
+    const out = generateContainsStatement([
+      {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        category: 'Crustacean Shellfish' as any,
+        species: undefined,
+        matchedKeyword: 'crustacean shellfish',
+        requiresSpeciesNaming: true,
+        regulatoryTier: 'falcpa-faster-big-9',
+      },
+    ]);
+    expect(out).toBe('Contains: Crustacean Shellfish.');
+    expect(out).not.toContain('undefined');
+  });
 });
 
 // ============================================================

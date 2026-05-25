@@ -542,9 +542,16 @@ export function formatAllergenListBody(
   }
 
   // Render one entry per category: "Display Name" or "Display Name (S1, S2)"
+  // Defensive fallback to raw category string when CATEGORY_DISPLAY_NAME lookup
+  // misses — protects against catalog-side AllergenCategory drift sneaking past
+  // the `as` cast at the synthesis boundary in workspace/page.tsx recalculate.
+  // Pre-Format-B code did `m.species ?? m.category` raw rendering which
+  // tolerated off-union strings; preserve that tolerance here so future
+  // catalog-vs-union mismatches degrade to "best-effort render the raw string"
+  // rather than producing "undefined" in the label.
   const entries: string[] = categoryOrder.map(cat => {
     const species = speciesByCategory.get(cat)!;
-    const displayName = CATEGORY_DISPLAY_NAME[cat];
+    const displayName = CATEGORY_DISPLAY_NAME[cat] ?? cat;
     return species.length === 0
       ? displayName
       : `${displayName} (${species.join(', ')})`;
