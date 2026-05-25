@@ -295,3 +295,27 @@ input:focus, select:focus, textarea:focus {
     visibility: hidden !important;
   }
 }
+
+/* ============================================================
+   NUMBER INPUT POLISH — hide native spinner arrows
+   ------------------------------------------------------------
+   Per operator UX feedback 2026-05-25 — native browser
+   spinner controls on <input type="number"> are clunky for
+   8+ hour daily use; small click targets, easy to accidentally
+   bump values, visual clutter. Operators type values directly
+   anyway. Removing the spinners across the entire app for
+   consistent clean UX. Number-typing behavior + keyboard
+   arrow-key incrementing still work natively — only the
+   visual mouse-spinner controls are hidden.
+   ============================================================ */
+
+/* Chromium / WebKit / Edge */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
