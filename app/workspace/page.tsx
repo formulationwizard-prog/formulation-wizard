@@ -4565,14 +4565,15 @@ export default function FormulationWizard() {
                       </div>
                     </div>
 
-                    {/* Fill weight + capacity utilization — only meaningful for capsules/softgels */}
+                    {/* Capsule capacity utilization diagnostic — only meaningful for capsules/softgels.
+                        Fill Weight column dropped 2026-05-25 per operator UX feedback — was redundant
+                        with the "Per-Capsule Weight" tile in the Serving & Package Size grid above
+                        (both rendered the same perUnitMg/fillWeightMg number). Status text below
+                        still names the fill weight inline ("fill weight 750 mg exceeds capsule
+                        capacity 680 mg"), so the diagnostic loses no information. */}
                     {isCapsule && fillWeightMg > 0 && (
                       <div className={`mt-4 border rounded-lg p-4 ${statusColor}`}>
                         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-                          <div>
-                            <div className="text-[10px] uppercase tracking-wide opacity-70">Fill Weight / unit</div>
-                            <div className="font-bold text-lg">{formatMassDisplay(fillWeightMg)}</div>
-                          </div>
                           <div>
                             <div className="text-[10px] uppercase tracking-wide opacity-70">Capsule capacity</div>
                             <div className="font-bold text-lg">{capsuleCap} mg</div>
