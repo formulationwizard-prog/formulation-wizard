@@ -210,4 +210,17 @@ If you're picking up this project cold:
 
 For routine catalog work, use the validator subagent before commit. For architecture questions, route to Opus via operator relay. For domain accuracy questions, route to SME via operator.
 
+### Canonical reference documents
+
+These are landed reference material — read on-demand when scoping the listed surface area, NOT part of the cold-start reading sequence above:
+
+- **[`docs/agents/product-packet-architecture-2026-05-25.md`](product-packet-architecture-2026-05-25.md)** — Canonical reference for any architectural conversation touching the Packet (per-product workspace + folder), `SavedFormulation`, `FormulationVersion`, `BatchSheet`, Saved tab, PA-review machinery, OperatorProfile (operator-level inheritance), or operator-input artifacts (PA letters / certifications / vendor relationships / facility SOPs). 9 routing questions (Q1–Q9) parked for next Opus + co-founder strategic session; don't let them drift. Implementation is downstream of launch-blocker #4 (Supabase save backend); reference doc itself ships no code.
+- **[`docs/agents/f3-tier-1-supplier-spec-scraping-engineering-brief-2026-05-23.md`](f3-tier-1-supplier-spec-scraping-engineering-brief-2026-05-23.md)** — F3 Tier 1 agentic supplier-spec ingestion engineering brief. Feeds the catalog enrichment side that Packet references.
+- **[`docs/agents/supplement-allergen-wire-up-assessment-2026-05-23.md`](supplement-allergen-wire-up-assessment-2026-05-23.md)** — FALCPA species-naming wire-up assessment + sequencing. Wire-up has shipped (commits b654f49 + 8c7d140 + Format B 23aa693); doc preserved as the scoping origin.
+- **[`docs/agents/nutrition-facts-math-diagnosis-2026-05-23.md`](nutrition-facts-math-diagnosis-2026-05-23.md)** — NFP math correctness investigation. Diagnosis + fixes have shipped (commit b0919ec); doc preserved as the rationale trail.
+
+When a prompt touches a surface covered by one of these references, **cite the doc back in your response** so the operator can verify you're working from current architectural ground state.
+
+---
+
 The disciplines compound. The relay model works. The automation surfaces are there when you need them.
