@@ -4417,11 +4417,17 @@ export default function FormulationWizard() {
                         Servings/Container <span className="text-[10px] font-normal text-gray-400">auto-computed</span>
                       </label>
                       <div className="w-full text-center border-2 border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-lg font-bold text-gray-700">
-                        {servingsPerContainer > 0 ? servingsPerContainer : '—'}
+                        {servingsPerContainer > 0
+                          ? (servingsPerContainer < 1.5
+                              ? '1'
+                              : Number.isInteger(servingsPerContainer)
+                                ? servingsPerContainer
+                                : `about ${Math.round(servingsPerContainer)}`)
+                          : '—'}
                       </div>
                       <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
-                        {formattedServingsPerContainer
-                          ? `Label: "${formattedServingsPerContainer}" (FDA 21 CFR 101.9(b)(8))`
+                        {servingsPerContainer > 0
+                          ? `Computed: ${servingsPerContainer} · Per FDA 21 CFR 101.9(b)(8)`
                           : 'Enter Serving Size + Package Size to compute.'}
                       </p>
                     </div>
