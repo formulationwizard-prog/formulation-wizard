@@ -718,8 +718,16 @@ export default function FormulationWizard() {
     // Coconut" — duplicate categorically wrong. After dedupe: just "Coconut".
     const collectedMatches: AllergenMatch[] = [];
     currentIngredients.forEach((item) => {
-      // Detector pass — extracts species from ingredient name text.
-      const detected = detectAllergensDetailed(item.name);
+      // Detector pass — extracts species from ingredient name PLUS sub-ingredients
+      // text. Sub-ingredients commonly carry species names that the ingredient
+      // name itself doesn't (e.g., 'Glucosamine HCl' name + ['Glucosamine HCl',
+      // 'Shrimp Shells', 'Crab Shells'] subIngredients → detector finds Shrimp +
+      // Crab species). Per [[regulatory-classification-vs-supplier-data]] catalog
+      // enrichment doctrine 2026-05-25 — species notation is regulatory-classification
+      // (taxonomic), so the platform can populate it via sub-ingredients
+      // detection without waiting for COA-anchored supplier data.
+      const detectionText = [item.name, ...(item.subIngredients || [])].join(' ');
+      const detected = detectAllergensDetailed(detectionText);
       collectedMatches.push(...detected);
       // Catalog allergens — string[] legacy shape. Synthesize as AllergenMatch
       // for the aggregation pipeline, BUT skip categories where the detector
