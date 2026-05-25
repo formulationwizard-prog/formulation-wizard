@@ -28,6 +28,8 @@ Neither track subordinates the other. Both must progress.
 | **[Joy-of-mastery brand philosophy](../../C:/Users/chefc/.claude/projects/c--Users-chefc-formulation-wizard-live/memory/feedback_joy_of_mastery_brand_philosophy.md)** (CC memory) | 8 principles + concrete moves + avoid list; voice for every UI/UX/copy/export decision; pinned elevations on beautiful outputs (brand surface) + dignity moat | Voice/aesthetic anchor — not a routing question itself |
 | **[External developer trial findings](../../C:/Users/chefc/.claude/projects/c--Users-chefc-formulation-wizard-live/memory/project_external_developer_trial_2026_05_25.md)** (CC memory) | First non-operator user feedback; 5 signals (overload + wizard pattern + bottom-line value gap + UX standards + Caesar/anchovy catalog gap); validated launch-blocker #4 by lost-saves experience | Motivating evidence behind several questions |
 | **[Scope of work memo](../../C:/Users/chefc/.claude/projects/c--Users-chefc-formulation-wizard-live/memory/project_scope_of_work_2026_05_25.md)** (CC memory) | Phased 6–8 week timeline + two peer tracks + sequencing dependencies; refresh post-session | Timeline context |
+| **[Current-capability inventory](current-capability-inventory-2026-05-25.md)** (~338 lines) | Current-state survey: workspaces / UI surfaces / regulatory engines / computational outputs / operator workflows / catalog state / validators + CFR Watcher / schema / persistence / explicit out-of-scope / bugs surfaced | 3 load-bearing findings: persistence gap is wiring not building; 4 refusal-bearing gates UNCONSUMED by UI; Provenance schema landed but no catalog entry uses it |
+| **[Novice-readiness quad proposal](novice-readiness-quad-proposal-2026-05-25.md)** (~513 lines) | Four-pillar architectural framework for August Nutraceuticals adoption: Compose/Analyze IA + Novice tier rendering + Refusal-bearing gate consumption + Regulatory rigor metering. Reclassifies Packet Q9 from "Phase 5 parked" to launch-critical. §8 captures known concerns + open questions surfaced by hole-finding review pass. | **Q-IA-1/2 + Q-Novice-1/2/3/4 + Q-Gate-1/2 + Q-Meter-1/2/3/4 = 12 routing questions** consolidating Packet Q9 + Design system Q-DS-2 + Catalog Q5+Q8 (Novice subset) |
 
 ---
 
@@ -37,17 +39,17 @@ Neither track subordinates the other. Both must progress.
 
 ### Tier 1 — Foundational (must lock before any implementation starts)
 
-1. **Schema topology (Packet Q1)** — Extend `SavedFormulation` further OR introduce top-level `Packet` with `OperatorProfile` parent? Locks save backend implementation shape.
-2. **Save backend implementation timing (Packet Q5 + Catalog Q1)** — Launch-blocker #4; everything downstream depends. Inferred from external trial lost-saves experience to be confirmed pre-launch-critical.
+1. **Schema topology (Packet Q1)** — Extend `SavedFormulation` further OR introduce top-level `Packet` with `OperatorProfile` parent? Locks save backend implementation shape. **NEW DEPENDENCY surfaced by quad memo §8.2:** Pillar 4 operator-level profile fields (stage / distribution / revenue scale / manufacturing model) ARE essentially OperatorProfile data; they need a schema home. Quad Pillar 4 can scaffold in-memory profile during Phase A while Q1 routes; final schema location resolves once Q1 lands.
+2. **Save backend implementation timing (Packet Q5 + Catalog Q1)** — Launch-blocker #4; everything downstream depends. **REFRAMED by capability inventory:** LB#4 is wiring not building. First half shipped (`e75410a` — localStorage hydrate/persist). Second half is Supabase server-side wire-up; schema + RLS already landed (`supabase/schema.sql`); ~3-5 days CC work once Packet Q1 routes schema shape.
 3. **Catalog ↔ Packet integration seam (Catalog Q4 + Q6 + Q10)** — How does catalog Layer 4 (platform-side suppliers) connect to Packet Layer 4 (operator-side vendor relationships)? What are operator-override semantics? Who owns catalog entry edits — operator vs platform change request?
-4. **What does "August MVP" specifically mean + how do we verify it?** — Per new memory #24 (capability description + test plan artifact pair). Two artifacts feed this. Either drafted as session input (CC can spawn an agent for the capability description, similar to today's catalog investigation) OR drafted as session output once routing clears.
+4. **What does "August MVP" specifically mean + how do we verify it?** — Per memory #24 (capability description + test plan artifact pair). Capability description drafted as session input ([current-capability-inventory-2026-05-25.md](current-capability-inventory-2026-05-25.md)). Test plan drafted as session output once routing clears (needs co-founder domain validation per memory #24).
+5. **Novice-Readiness Quad** (per [novice-readiness-quad-proposal-2026-05-25.md](novice-readiness-quad-proposal-2026-05-25.md)) — Compose/Analyze IA + Novice tier rendering + Refusal-bearing gate consumption + Regulatory rigor metering. **Consolidates** Packet Q9 (mode toggle pattern) + Design system Q-DS-2 (Analyze tab home for DERIVED RENDERS) + Catalog Q5+Q8 Novice subset (profile-aware visibility narrows priority for Novice MVP; Pro browse/search remains independent per §8.1). **Adds new Q-Meter-1/2/3/4 cluster.** Without the quad, August launch experience for non-expert paying customers is structurally similar to Tridiv's overwhelmed-on-first-touch trial. **Per quad memo §8.3, the 6-week phased timeline assumes this session lands in the next 5-7 days + PA outreach starts immediately.** Per quad memo §8.4, Pillar 4 infrastructure tractability is the biggest open scope — session may want to narrow to DSHEA+NDI-only at MVP (option (b)) for buffer.
 
 ### Tier 2 — Sequencing + scope (locks implementation order)
 
-5. **F3 Tier 1 spec-sheet ingestion sequencing (Catalog Q1)** — When does it land relative to save backend? Catalog enrichment + provenance UX both depend.
-6. **Mode toggle / Novice tier work + IA pattern (Packet Q9 + Design system Q-DS-2)** — Reshaped from "wizard/tabbed/hybrid" to broader "how does workspace progressively reveal complexity?" Picks up existing Pro/Novice tier infrastructure (`lib/copy/` + `lib/hooks/useTier.ts`). Needs Nate persona-validation gating.
+6. **F3 Tier 1 spec-sheet ingestion sequencing (Catalog Q1)** — When does it land relative to save backend? Catalog enrichment + provenance UX both depend.
 7. **Synonym strategy (Catalog Q2)** — Source: co-founder domain knowledge + operator paste-pattern data, NOT LLM defaults per memory #21. What's the discipline for adding/reviewing?
-8. **Browse/search/filter surface (Catalog Q5 + Q8)** — Does Layer 9 (search & discovery — currently absent) ship with August Nutraceuticals or Q4? Every required field already exists on `IndustrialIngredient`; what's missing is the UI surface.
+8. **Browse/search/filter surface for Pro mode (Catalog Q5 + Q8)** — For Novice MVP this is narrowed by quad Pillar 4 profile-aware visibility (Tier 1 item 5); for Pro mode it remains independent — Pro operators still want browse/filter/find-substitute/find-similar regardless of profile. Does the Pro discovery surface ship with August Nutraceuticals or Q4? Every required field exists on `IndustrialIngredient`; what's missing is the UI.
 
 ### Tier 3 — Brand voice + visual hierarchy (gates polish quality of everything else)
 
@@ -69,9 +71,9 @@ Neither track subordinates the other. Both must progress.
 
 ## What gets unblocked by each tier
 
-- **Tier 1 unblocked → save backend implementation can start.** ~1 week CC work. Without Tier 1, everything downstream waits.
-- **Tier 2 unblocked → implementation sequencing locks.** F3 Tier 1 + design system + Packet UI + Base/Batch + mode toggle ordering all become deterministic.
-- **Tier 3 unblocked → polish quality locks.** Without it, future UI commits ship with mismatched aesthetic stance (the morning's design-system commit #1 risk we discussed).
+- **Tier 1 unblocked → 6-week phased August implementation can start.** Items 1+2 unblock save backend second half (~3-5 days per inventory reframe). Item 5 (quad) unblocks Phase A (Pillars 3+4 weeks 1-2 per quad memo §5). Item 3 (catalog ↔ Packet seam) unblocks Catalog Q2+Q3+Q6 implementation paths. Item 4 sets MVP scope definition. **Without Tier 1, every week of session delay shifts August timeline 1:1 per quad memo §8.3.**
+- **Tier 2 unblocked → implementation sequencing locks.** F3 Tier 1 sequencing + synonym strategy + Pro browse/search timing become deterministic.
+- **Tier 3 unblocked → polish quality locks.** Without it, future UI commits ship with mismatched aesthetic stance.
 - **Tier 4 unblocked → permission + lifecycle scope clarifies.** Operator role MVP shape clarifies; PA + retailer roles defer cleanly.
 - **Tier 5 unblocked → export + versioning ship at MVP or defer.**
 
@@ -94,11 +96,12 @@ These run concurrently with implementation. Cannot dormant for 6 weeks.
 ## Session output expectations
 
 After 90–120 min with co-founder, the session should produce:
-- **Tier 1 routing decisions locked** (4 decisions; gates save backend start)
-- **Tier 2 sequencing locked** (4 decisions; gates implementation order)
-- **Tier 3 design system encoding confirmed** (2 decisions; gates polish quality)
-- **Founder-side track started** — pricing decision + PA pilot operator outreach kickoff dates committed
-- **Either an MVP capability description draft commitment** (CC spawns the agent post-session) **OR a working draft completed during session**
+- **Tier 1 routing decisions locked** (5 decisions including the quad: Packet Q1 schema + LB#4 second-half timing + catalog↔Packet seam + August MVP definition + Novice-Readiness Quad routing). Gates save backend start AND 6-week phased August implementation.
+- **Tier 2 sequencing locked** (3 decisions: F3 Tier 1 + synonym strategy + Pro browse/search timing). Gates implementation order.
+- **Tier 3 design system encoding confirmed** (2 decisions; gates polish quality).
+- **Founder-side track started** — pricing decision + PA pilot operator outreach kickoff dates committed (PA outreach MUST start in next 5-7 days per quad memo §8.3).
+- **MVP test plan drafting commitment** — capability description already drafted (current-capability-inventory-2026-05-25.md); test plan needs co-founder domain validation per memory #24.
+- **Pillar 4 tractability decision per quad memo §8.4** — confirm option (a) full infrastructure / (b) DSHEA+NDI-only narrower ruleset (CC lean) / (c) defer to V1.1.
 
 Decisions NOT made at this session (Tiers 4 + 5 + remainder) defer cleanly to V1.x.
 
