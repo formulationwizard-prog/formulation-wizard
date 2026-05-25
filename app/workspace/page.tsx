@@ -1920,7 +1920,7 @@ export default function FormulationWizard() {
                               >
                                 <span className="text-base w-5 h-5 inline-flex items-center justify-center shrink-0">{r.icon}</span>
                                 <div className="flex-1 min-w-0">
-                                  <div className={`text-sm truncate ${isSelected ? 'text-emerald-800 font-semibold' : 'text-gray-800'}`}>{r.label}</div>
+                                  <div className={`text-sm truncate ${isSelected ? 'text-gray-900 font-semibold' : 'text-gray-800'}`}>{r.label}</div>
                                   {r.sublabel && <div className="text-[10px] text-gray-500 truncate">{r.sublabel}</div>}
                                 </div>
                                 {isSelected && (
@@ -2079,7 +2079,7 @@ export default function FormulationWizard() {
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-2xl">{m.icon}</span>
-                    <span className={`font-semibold text-sm ${isActive ? 'text-emerald-800' : 'text-gray-800'}`}>{m.name}</span>
+                    <span className={`font-semibold text-sm ${isActive ? 'text-gray-900' : 'text-gray-800'}`}>{m.name}</span>
                   </div>
                   <p className="text-[11px] text-gray-500 leading-tight">{m.tagline}</p>
                 </button>
