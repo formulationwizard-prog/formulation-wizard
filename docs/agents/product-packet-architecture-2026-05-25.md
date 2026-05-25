@@ -1,6 +1,6 @@
 # Product Packet Architecture — Scoping Memo
 
-**Author:** CC, 2026-05-25 (during operator URL verification pass; parallel to BS/BS architecture scoping)
+**Author:** CC, 2026-05-25 (during operator URL verification pass; parallel to Base/Batch architecture scoping)
 **Purpose:** Scope the per-product organizational structure ("Packet" / "Folder" / "Dossier") that holds every regulatory deliverable + artifact the platform generates across a formulation's lifecycle. Output is architectural scope for the next Opus + co-founder strategic session — not implementation.
 **Audience:** Next Opus architecture session + co-founder routing call. Informs hierarchy, schema delta, naming, export format, sequencing relative to launch-blocker #4 (Supabase save backend).
 **Status:** Scoping memo — no code shipped from this work.
@@ -17,11 +17,11 @@ The Packet concept is the **operator-owned product workspace that holds both hal
 
 1. **Operator's "world-class" framing** 2026-05-25 — customer owns own packaging, own density, own serving size, own pricing. The platform's job is to generate determinations + deliverables and organize them per product. Cost/Sourcing/Packaging recommendations on the formulation page are redundancies; the Packet is where the **outputs** live, separate from the **authoring** surface.
 
-2. **BS/BS implementation** (separate concurrent scoping memo) — Base Sheet (MMR) + Batch Sheets (BPRs) per 21 CFR 111.205/255 are the regulatory anchor. The Packet is the user-facing organizing structure that holds Base Sheet versions + Batch Sheet history + everything derived from them.
+2. **Base/Batch implementation** (separate concurrent scoping memo) — Base Sheet (MMR) + Batch Sheets (BPRs) per 21 CFR 111.205/255 are the regulatory anchor. The Packet is the user-facing organizing structure that holds Base Sheet versions + Batch Sheet history + everything derived from them.
 
 3. **Launch-blocker #4 unblock** — Supabase save backend, when wired, needs to know the persistence shape. Defining the Packet now lets the save backend implementation target the right schema instead of just persisting today's `SavedFormulation` (which would lock in a flat shape inadequate for the artifact inventory below).
 
-**Recommended sequencing:** Architectural decisions (this memo's §7 routing questions Q1–Q8) → schema delta (introduces `OperatorProfile` + `Packet` interfaces) → save backend implementation (launch-blocker #4) → OperatorProfile capture + Packet UI library (replaces Saved tab) → export bundle generation including PA-review packet curation. Approximately **6-8 weeks** of focused work post-decision (revised upward from initial 4-6 estimate after operator-input reframe added operator-level workspace surface); can layer with BS/BS implementation since they share schema dependencies.
+**Recommended sequencing:** Architectural decisions (this memo's §7 routing questions Q1–Q8) → schema delta (introduces `OperatorProfile` + `Packet` interfaces) → save backend implementation (launch-blocker #4) → OperatorProfile capture + Packet UI library (replaces Saved tab) → export bundle generation including PA-review packet curation. Approximately **6-8 weeks** of focused work post-decision (revised upward from initial 4-6 estimate after operator-input reframe added operator-level workspace surface); can layer with Base/Batch implementation since they share schema dependencies.
 
 **Recommended naming:** "Packet" — matches existing PA-review-ready packet terminology in memory + industry use for compliance doc bundles. Alternatives evaluated in §6.
 
@@ -41,7 +41,7 @@ Two distinct architectural directions emerge:
 
 **Direction B — Outputs organization.** Build a per-product container for **everything generated about the product** across its lifecycle. Multiple Base Sheet versions (immutable MMRs), multiple Batch Sheets (per production run), generated regulatory deliverables, framework determinations, PA-review artifacts, attached source documents, export bundles. This is the Packet.
 
-This memo scopes **Direction B**. Direction A is implementation work that lands as authoring-surface cleanup commits (likely in BS/BS implementation series). The two are complementary: simplifying authoring (A) reduces what lives in the SavedFormulation root; building the Packet (B) gives lifecycle artifacts a proper home.
+This memo scopes **Direction B**. Direction A is implementation work that lands as authoring-surface cleanup commits (likely in Base/Batch implementation series). The two are complementary: simplifying authoring (A) reduces what lives in the SavedFormulation root; building the Packet (B) gives lifecycle artifacts a proper home.
 
 **Operator-reframe 2026-05-25 (mid-memo-draft):** The Packet is NOT just an archive of platform-generated artifacts — it's an **operator-owned product workspace** that holds both halves. The platform generates what it can determine; the operator brings what the platform can't know. This reframing affects §2 (artifact inventory needs a dedicated operator-input subsection), §4 (schema delta must accommodate operator-level vs product-level placement with inheritance), and §6 (adds permission-model + per-operator-vs-per-product routing question). Per [[catalog-must-be-coa-spec-sheet-anchored]] + memory #22 doctrine, the platform's role is to be authoritative on what it can determine and accommodating of operator-supplied authority on what it can't.
 
@@ -533,7 +533,7 @@ Per operator strategic context above + [[platform-scope-vs-facility-food-safety-
 ### Architectural-only gaps (don't block MVP, but affect Packet design)
 
 - Brand field decision (queued for next Opus session per todo)
-- BS/BS architecture work — capsule selection moves to Batch Sheet; over-fill diagnostic becomes advisory; per-capsule weight direction inverted (operator-articulated 2026-05-25)
+- Base/Batch architecture work — capsule selection moves to Batch Sheet; over-fill diagnostic becomes advisory; per-capsule weight direction inverted (operator-articulated 2026-05-25)
 - Pricing UI removal from formulation page (operator strategic direction 2026-05-25)
 - Two Supabase scaffolds (cleanup before save backend lands)
 

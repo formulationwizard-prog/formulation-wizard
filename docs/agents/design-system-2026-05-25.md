@@ -54,7 +54,7 @@ Operator types, selects, picks, or pastes. Platform passively accepts. Operator 
 Platform takes operator inputs and runs deterministic math/logic to produce a numeric or factual value. Operator can verify the derivation but cannot directly edit (would have to change the underlying inputs).
 
 **Examples from current Build view:**
-- Per-Capsule Weight (today: wrong-direction; per BS/BS scope: per-capsule INPUT, total mass DERIVED)
+- Per-Capsule Weight (today: wrong-direction; per Base/Batch scope: per-capsule INPUT, total mass DERIVED)
 - Total Capsules / Container (computed from Servings × Units Per Serving)
 - Servings Per Container (computed from Total Capsules ÷ Units Per Serving — when not operator-overridden)
 - Serving Size (mass) — computed from per-unit × count
@@ -155,7 +155,7 @@ Each primitive ships with its aesthetic stance baked into its defaults. Operator
 **Copy default:**
 - Label is concrete (e.g., "Per-Capsule Weight", not "Calculated value")
 - Derivation hint shows the math chain ("Derived from formulation ÷ total capsules")
-- For wrong-direction-currently-bug fields (per BS/BS scope), the derivation hint flags it ("Pending BS/BS architecture")
+- For wrong-direction-currently-bug fields (per Base/Batch scope), the derivation hint flags it ("Pending Base/Batch architecture")
 - Hover/tap reveals full provenance per [[joy-of-mastery-brand-philosophy]] principle 3
 
 **Behavior default:**
