@@ -403,13 +403,91 @@ The quad doesn't replace existing strategic-session routing questions; it **CONS
 |---|---|
 | Packet Q9 (mode toggle pattern) | Pillar 2 + Pillar 4 (mode toggle IS the Novice/Pro framework; metering is the new dimension) |
 | Design system Q-DS-2 (provenance pill primitive) | Pillar 1 (Analyze tab is where DERIVED VALUE primitives live) |
-| Catalog Q5 + Q8 (browse/search/filter timing — August vs Q4) | Pillar 4 (profile-aware visibility supersedes generic search/filter for Novice) |
+| Catalog Q5 + Q8 (browse/search/filter timing — August vs Q4) | Pillar 4 narrows priority for Novice MVP via profile-aware visibility; Pro mode browse/search remains independent routing question (see §8.1) |
 | Strategic Q1 (does August Nutraceuticals ship with metering?) | Pillar 4 entirely (NEW routing cluster) |
 
 **Recommended orientation-doc update:** add quad as **Tier 1 routing item** (currently split across Q9 + Q-DS-2; consolidate). Specifically:
 
 > Tier 1 — Foundational (must lock before any implementation starts):
 > 5. **Novice-Readiness Quad** (per `docs/agents/novice-readiness-quad-proposal-2026-05-25.md`) — Compose/Analyze IA + Novice tier rendering + Refusal-bearing gate consumption + Regulatory rigor metering. Consolidates Packet Q9 + design system Q-DS-2 + adds Q-Meter-1/2/3/4. Without the quad, August launch experience for non-expert paying customers is structurally similar to Tridiv's overwhelmed-on-first-touch trial.
+
+---
+
+---
+
+## §8 — Known concerns + open questions for the session
+
+Added per operator review pass 2026-05-25. Same hole-finding discipline applied to this memo as the hole-finding pass on the 4-tab proposal earlier today. None are memo-invalidating; all are session-input refinements that prevent rediscovery at the table.
+
+### 8.1 Catalog Q5+Q8 supersession framing — narrow to Novice subset
+
+§7 of this memo claims Pillar 4 metering "supersedes" Catalog Q5+Q8 (browse/search/filter timing). That overstates the supersession.
+
+**Accurate framing:**
+- For Novice MVP: profile-aware visibility narrows the operator's catalog surface, reducing the priority of generic browse/search/filter for that persona at MVP
+- For Pro mode: browse/search/filter remains an independent routing question. Pro operators still want browse + filter + find-substitute + find-similar capabilities regardless of what their profile shows. Metering reduces visible surface area; it doesn't replace discovery.
+
+**Corrected wording for §7:** "narrows priority for Novice MVP; Pro mode browse/search remains an independent routing question per Catalog Q5+Q8."
+
+This is wording-only, not scope-changing. The metering and the discovery surface address different operator needs in different modes.
+
+### 8.2 Pillar 4 operator-level profile fields — implicit Packet Q1 dependency
+
+The Pillar 4 operator profile (§4) captures TWO kinds of fields:
+
+**Product-level fields** (live on the product / Packet's child):
+- Product type, product class within type, novel ingredient status
+
+**Operator-level fields** (live on the operator / OperatorProfile in Packet hierarchy):
+- Operator stage (cottage / small-commercial / scale-commercial)
+- Distribution (DTC / wholesale / retail)
+- Revenue scale (FDA exemption threshold relevance)
+- Manufacturing model (self-manufacturer / contract / co-pack)
+
+The operator-level fields ARE essentially `OperatorProfile` data from the Packet memo. They need a home — either inside `OperatorProfile` (which exists in Packet hierarchy proposal at Packet memo §4.1) or in a separate metering-profile artifact.
+
+The memo claims the quad's pillars are independent of Packet Q1 routing for schema. That's TRUE for product-level fields and FALSE-with-caveat for operator-level fields. The caveat: operator-level metering fields can live in either Packet-Q1 direction (extension vs two-tier) without breaking — but they DO need a designated home.
+
+**Implication for session:** Pillar 4 doesn't require Packet Q1 to resolve before implementation can start; it requires Packet Q1 to resolve before the operator-level profile fields can be schema-located definitively. Practically: Pillar 4 can scaffold a temporary in-memory profile shape during Phase A while Q1 routes; final schema location resolves once Q1 lands. Not a blocker; worth naming explicitly so the session doesn't discover it mid-routing.
+
+### 8.3 6-week phased timeline — two upstream assumptions
+
+§5's phased plan (Phase A weeks 1-2: Pillars 3+4; Phase B weeks 3-4: Pillars 1+2; Phase C weeks 5-6: integration + PA pilot feedback) is tight but achievable IF:
+
+**Assumption A — Strategic session lands in the next 5-7 days.** Without strategic-session routing of Q1 + Q-Meter-1/2/3/4 + Q-IA-1 + Q-Novice-1/2/3/4 + Q-Gate-1/2, Phase A cannot start cleanly. Every week of session delay shifts the timeline 1:1.
+
+**Assumption B — PA pilot operators are recruited and onboarded by week 5 for Phase C feedback.** Per [[scope-of-work-2026-05-25]] Track B, the PA pilot recruitment is a 4-6 week cycle (outreach → qualification → NDA → onboarding). For Phase C feedback to be real (not synthetic), the founder-side recruitment track must START NOW and progress in parallel with CC implementation. Stage 1 (relationship-building) doesn't require product polish — the demo happens in Phase C, not Stage 1.
+
+**Implication for session:** these dependencies should appear explicitly in the session output — not as quad-memo content but as session-decision content. The session should either confirm both assumptions (and commit to the 5-7 day session window + immediate PA outreach kickoff) OR adjust the timeline accordingly.
+
+### 8.4 Pillar 4 infrastructure tractability — the biggest open scope
+
+The "infrastructure built, narrow rules populated" framing in §4 is strategically right. The infrastructure itself is real engineering:
+
+- **Profile capture flow** — 4-question Novice onboarding + Pro settings panel + state management
+- **Rules engine** — operator-profile-to-applicable-surfaces lookup; pure-function pattern matching expected shape but real to implement + test
+- **Visibility-decision system** — every regulatory engine consults the profile; per-surface visibility props + render-or-not logic across the workspace
+- **Profile-aware Filing Readiness %** — current heuristic computation refactored to compute against profile-applicable subset
+
+A senior engineer might estimate Pillar 4 alone at **2-3 weeks of focused work.** Combined with Pillar 1 (structural new work — Compose/Analyze split is significant restructuring) in a 6-week aggregate is aggressive but not impossible.
+
+**Implication for session:** the session may want to NARROW Pillar 4 scope further from what's proposed. Concrete options:
+- (a) Ship full Pillar 4 infrastructure as proposed
+- (b) Ship Pillar 4 with even-narrower August ruleset (e.g., only DSHEA+NDI visibility — no cGMP profile-routing at MVP)
+- (c) Defer Pillar 4 infrastructure to V1.1 — August ships dense view with Novice copy + Compose/Analyze split only
+
+CC perspective: option (b) is the realistic compromise. Worth surfacing in the session's tractability discussion.
+
+### 8.5 Cross-concern summary
+
+| Concern | Severity | Resolution path |
+|---|---|---|
+| Catalog Q5+Q8 supersession framing | Wording-only | Edit §7 to narrow framing per 8.1 |
+| Operator-level fields ↔ Packet Q1 dependency | Implicit dependency to name explicitly | Acknowledge in session routing; Pillar 4 scaffolds in-memory profile during Phase A |
+| 6-week timeline upstream assumptions | Real but bounded | Session must confirm strategic-session timing + PA outreach kickoff |
+| Pillar 4 infrastructure tractability | Biggest open scope | Session may want to narrow further per 8.4 option (b) |
+
+None of these invalidate the quad framework. All are inputs the session needs to make informed routing decisions instead of rediscovering them at the table.
 
 ---
 
