@@ -48,7 +48,7 @@ import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualificat
 import { PRODUCT_CLASS_LABEL } from '@/types';
 import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
 import { generatePartNumber } from '@/lib/partNumber';
-import { detectAllergensDetailed, type AllergenMatch } from '@/lib/supplementAllergen';
+import { detectAllergensDetailed, evaluateAllergenGate, type AllergenMatch } from '@/lib/supplementAllergen';
 
 /**
  * Adapter — extracts species-or-category strings from rich AllergenMatch[]
@@ -178,7 +178,17 @@ export default function FormulationWizard() {
   const [searchResults, setSearchResults] = useState<(IndustrialIngredient | FoodResult)[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [ingredientStatement, setIngredientStatement] = useState('');
-  const [allergenStatement, setAllergenStatement] = useState<string[]>([]);
+  /**
+   * Aggregated allergen matches across the current formulation's ingredients.
+   * Per launch-blocker #2 Phase 2 (Strategy B rich-shape migration 2026-05-25):
+   * stores AllergenMatch[] (rich shape with category + species + requiresSpeciesNaming +
+   * regulatoryTier) instead of legacy string[]. Enables regulatory-tier surfacing,
+   * inline gate-refusal triggers, and species-aware downstream consumption.
+   *
+   * Render sites consume via `m.species ?? m.category` for the display string
+   * per FALCPA §403(w)(1)(B) bare-species format (operator Option A locked 2026-05-25).
+   */
+  const [allergenStatement, setAllergenStatement] = useState<AllergenMatch[]>([]);
   // Round 11 Phase 3 (2026-05-17): defaults changed from 30g serving /
   // 300g package to 0. Pre-A.5-followup behavior anchored fresh
   // formulations to F&B-default sauce-sized values that aren't
@@ -745,14 +755,26 @@ export default function FormulationWizard() {
     setNutrition(n);
     // Final dedupe pass — for each category where ANY ingredient produced a
     // species match, drop the generic category entries (species naming wins
-    // across the whole formula, not just per-ingredient). Then collapse to
-    // string[] for the legacy allergenStatement shape that 5 render sites
-    // consume (Strategy A per docs/agents/supplement-allergen-wire-up-assessment).
+    // across the whole formula, not just per-ingredient). Also dedupe identical
+    // (category, species) pairs across ingredients (e.g., two coconut-derived
+    // ingredients shouldn't produce "Coconut, Coconut" in the statement).
+    //
+    // Per launch-blocker #2 Phase 2 Strategy B rich-shape migration 2026-05-25 —
+    // state stores AllergenMatch[] directly; 6 render sites extract display
+    // via `.map(m => m.species ?? m.category).join(', ')` (bare species per
+    // operator Option A locked 2026-05-25).
     const speciesCategories = new Set(
       collectedMatches.filter(m => m.species).map(m => m.category)
     );
     const cleaned = collectedMatches.filter(m => m.species || !speciesCategories.has(m.category));
-    setAllergenStatement([...new Set(cleaned.map(m => m.species ?? m.category))]);
+    const seenPairs = new Set<string>();
+    const deduped = cleaned.filter(m => {
+      const key = `${m.category}|${m.species ?? ''}`;
+      if (seenPairs.has(key)) return false;
+      seenPairs.add(key);
+      return true;
+    });
+    setAllergenStatement(deduped);
     const sorted = [...currentIngredients].sort((a, b) => (b.qty * (UNIT_TO_GRAMS[b.unit] || 1)) - (a.qty * (UNIT_TO_GRAMS[a.unit] || 1)));
     // Round 4 fix (2026-05-07): centralized assembly via buildIngredientStatement.
     // Old inline logic produced "Honey (Industrial Grade) (Honey)" double-parens
@@ -1197,8 +1219,36 @@ export default function FormulationWizard() {
    * Print just the Label card (Nutrition Facts + Ingredient Statement + Allergen Statement).
    * Toggles a body class that the print stylesheet uses to hide everything else,
    * then triggers window.print(). Most browsers offer "Save as PDF" as a print destination.
+   *
+   * Per launch-blocker #2 Phase 3 2026-05-25 — FALCPA species-naming hard-stop
+   * gate fires BEFORE export when species-required categories (Tree Nuts, Fish,
+   * Crustacean Shellfish) are detected via generic terms without naming species
+   * per 21 CFR 101.36(b)(1)(i)(B). Operator override is offered (allergen
+   * declaration is operator's regulatory responsibility; platform flags + refuses
+   * default but does not block override). Override = label-compliance risk on
+   * operator, documented in the confirm-dialog text + via [[harm-critical-floor]]
+   * doctrine. Production future maturation: replace window.confirm with custom
+   * modal + capture override rationale in audit trail.
    */
   const printLabel = () => {
+    // FALCPA species-naming hard-stop gate per 21 CFR 101.36(b)(1)(i)(B).
+    const gate = evaluateAllergenGate({ allergenMatches: allergenStatement });
+    if (isHardStop(gate)) {
+      const violationLines = gate.evidence
+        .map((e, i) => `${i + 1}. ${e.subject} — ${e.detail}`)
+        .join('\n');
+      const overrideConfirmed = window.confirm(
+        `⚠ FALCPA SPECIES-NAMING GATE FIRED — REFUSE TO EXPORT (default)\n\n` +
+        `${gate.reason}\n\n` +
+        `${violationLines}\n\n` +
+        `Citation: ${B1_ALLERGEN_CITATION_LOCAL}\n\n` +
+        `Override (proceed with print anyway) = label-compliance risk on operator. ` +
+        `Recommended: cancel + return to Build Base Sheet + correct catalog ingredient ` +
+        `data so species name appears (e.g., 'Coconut' not 'Tree Nuts').\n\n` +
+        `Press OK to OVERRIDE and print anyway. Press Cancel to refuse the print (recommended).`
+      );
+      if (!overrideConfirmed) return;
+    }
     document.body.classList.add('print-label-only');
     const cleanup = () => {
       document.body.classList.remove('print-label-only');
@@ -1209,6 +1259,11 @@ export default function FormulationWizard() {
     // Safety: some browsers don't fire afterprint reliably if dialog is cancelled fast
     setTimeout(cleanup, 3000);
   };
+
+  // Local citation constant inlined to avoid cross-module re-export for a single
+  // user-facing string; mirrors B1_ALLERGEN_CITATION from lib/supplementAllergen.ts.
+  // If this string drifts, the lib-module constant is the source of truth.
+  const B1_ALLERGEN_CITATION_LOCAL = '21 CFR 101.36(b)(1)(i)(B); FALCPA + FASTER Act';
 
   /**
    * Reset the formulation to an empty state. Does NOT clear product type,
@@ -2213,7 +2268,7 @@ export default function FormulationWizard() {
                   </span>
                 )}
                 {allergenStatement.length > 0 && (
-                  <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 font-semibold inline-flex items-center gap-1" title={`Contains: ${allergenStatement.join(', ')}`}>
+                  <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 font-semibold inline-flex items-center gap-1" title={`Contains: ${allergenStatement.map(m => m.species ?? m.category).join(', ')}`}>
                     <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
                     <span>{allergenStatement.length} allergen{allergenStatement.length !== 1 ? 's' : ''}</span>
                   </span>
@@ -5827,7 +5882,7 @@ Production Mgr: _____________________  Date / Time _________`}
                       </p>
 
                       {allergenStatement.length > 0 && (
-                        <p className="text-[10px] mt-2 leading-tight font-bold">Contains: {allergenStatement.join(', ')}</p>
+                        <p className="text-[10px] mt-2 leading-tight font-bold">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
                       )}
 
                       {facts.needsDaggerFootnote && (
@@ -6266,7 +6321,7 @@ Production Mgr: _____________________  Date / Time _________`}
                   <p className="text-[10px] text-gray-500 mb-2">FDA Top 9 allergens — auto-detected from ingredients</p>
                   {allergenStatement.length > 0 ? (
                     <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
-                      <p className="text-red-800 font-semibold text-sm">Contains: {allergenStatement.join(', ')}</p>
+                      <p className="text-red-800 font-semibold text-sm">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
                       <p className="text-red-600 text-[10px] mt-1">Always verify allergens with supplier COA before labeling.</p>
                     </div>
                   ) : (
@@ -9493,7 +9548,7 @@ Production Mgr: _____________________  Date / Time _________`}
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
                       <span>Allergens — Cleaning Verification Required</span>
                     </h2>
-                    <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.join(', ')}</p>
+                    <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
                     <p className="text-xs text-amber-700 italic mt-1">
                       ⚠ Species naming pending FALCPA wire-up (launch-blocker #1B). Current display uses legacy allergen detection — when 1B wire-up lands, Tree Nuts will display as the specific species (e.g., &ldquo;Coconut&rdquo; not &ldquo;Tree Nuts&rdquo;).
                     </p>
@@ -9844,7 +9899,7 @@ Production Mgr: _____________________  Date / Time _________`}
                 <p className="text-xs text-gray-500 mb-2">Verbatim ingredient statement + batch composition (from formulation tool):</p>
                 <div className="bg-amber-50 border border-amber-200 p-3 rounded text-sm mb-3">{ingredientStatement || '—'}</div>
                 {allergenStatement.length > 0 && (
-                  <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.join(', ')}</p>
+                  <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
                 )}
               </section>
 

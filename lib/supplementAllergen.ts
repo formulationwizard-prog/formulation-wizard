@@ -71,7 +71,8 @@ export type AllergenCategory =
   | 'Wheat'
   | 'Soybeans'
   | 'Sesame'
-  | 'Mustard';
+  | 'Mustard'
+  | 'Mollusks';
 
 /**
  * Regulatory tier for an allergen category. Drives gate behavior at the
@@ -125,6 +126,18 @@ export const ALLERGEN_REGULATORY_METADATA: Record<
   // jurisdictions. Round 11 treats as advisory; jurisdiction selector
   // for hard-stop elevation deferred to Round 12+.
   'Mustard':   { tier: 'international-additional', citation: 'Health Canada Priority Allergens; EU Regulation 1169/2011 Annex II; FSANZ Standard 1.2.3' },
+  // Mollusks — added 2026-05-25 (launch-blocker #2 Phase 3 per
+  // docs/agents/supplement-allergen-wire-up-assessment-2026-05-23.md).
+  // Distinct from Crustacean Shellfish ('Shellfish' category) per FALCPA
+  // taxonomic precision — oysters / clams / scallops / mussels / squid /
+  // octopus / snails are mollusks, NOT crustaceans. NOT a FALCPA Big-9
+  // allergen in US (mollusks are excluded from FALCPA §403(w) major food
+  // allergen list); required disclosure in Canada (Health Canada Priority
+  // Allergens), EU (Regulation 1169/2011 Annex II), Australia/NZ (FSANZ
+  // Standard 1.2.3). Many US manufacturers voluntarily disclose for
+  // consumer transparency + retailer-spec compliance + cross-allergic-
+  // reaction risk with crustacean shellfish (some patients react to both).
+  'Mollusks':  { tier: 'international-additional', citation: 'Health Canada Priority Allergens; EU Regulation 1169/2011 Annex II; FSANZ Standard 1.2.3' },
 };
 
 /**
@@ -211,12 +224,35 @@ const FISH_SPECIES: Record<string, string> = {
   anchov: 'Anchovies',
 };
 
+// Crustacean Shellfish species (FALCPA Big-9 'Shellfish' category).
+// Clam + oyster moved OUT 2026-05-25 — they're mollusks, not
+// crustaceans; classified under the new 'Mollusks' category per
+// FALCPA taxonomic precision. Krill added (krill oil entries common
+// in supplements; see supplement-allergen-wire-up-assessment Phase 3).
 const SHELLFISH_SPECIES: Record<string, string> = {
   shrimp: 'Shrimp',
   crab: 'Crab',
   lobster: 'Lobster',
-  clam: 'Clams',
+  prawn: 'Prawns',
+  crayfish: 'Crayfish',
+  krill: 'Krill',
+};
+
+// Mollusks species (international-additional category — Canada / EU /
+// AUS-NZ regulated, NOT US-FALCPA Big-9). Voluntary US disclosure
+// common for consumer transparency + cross-allergic-reaction risk
+// with crustacean shellfish. Added 2026-05-25 (launch-blocker #2
+// Phase 3).
+const MOLLUSKS_SPECIES: Record<string, string> = {
   oyster: 'Oysters',
+  clam: 'Clams',
+  scallop: 'Scallops',
+  mussel: 'Mussels',
+  squid: 'Squid',
+  octopus: 'Octopus',
+  snail: 'Snails',
+  escargot: 'Snails',
+  abalone: 'Abalone',
 };
 
 // Generic-term patterns: when these match WITHOUT a species match
@@ -225,6 +261,8 @@ const TREE_NUT_GENERIC = /\b(tree\s*nuts?|nuts?)\b/i;
 const FISH_GENERIC = /\bfish\b/i;
 const SHELLFISH_GENERIC =
   /\b(shellfish|crustacean(s)?(\s+shellfish)?)\b/i;
+// Mollusks generic — added 2026-05-25 alongside MOLLUSKS_SPECIES.
+const MOLLUSKS_GENERIC = /\bmollusks?\b/i;
 
 // Non-species categories — substring detection per the existing
 // ALLERGENS_LIST in lib/utils.ts, replicated here for module isolation
@@ -333,7 +371,7 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
     }
   }
 
-  // ─── Shellfish ─────────────────────────────────────────────
+  // ─── Shellfish (Crustacean — FALCPA Big-9) ────────────────
   let shellfishSpeciesFound = false;
   for (const [keyword, species] of Object.entries(SHELLFISH_SPECIES)) {
     if (lower.includes(keyword)) {
@@ -356,6 +394,41 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
         matchedKeyword: generic[0],
         requiresSpeciesNaming: true,
         regulatoryTier: ALLERGEN_REGULATORY_METADATA['Shellfish'].tier,
+      });
+    }
+  }
+
+  // ─── Mollusks (international-additional — Canada/EU/AUS-NZ) ───
+  // Per FALCPA taxonomic precision: mollusks are NOT crustacean
+  // shellfish. US-FALCPA does not require declaration; many US
+  // manufacturers voluntarily disclose for consumer transparency +
+  // cross-allergic-reaction risk. Always declared in CA/EU/AUS-NZ.
+  // requiresSpeciesNaming: false — international standards generally
+  // accept the category name 'Mollusks'; some jurisdictions require
+  // species. Conservative default: not species-required at US-FALCPA
+  // gate level; species naming is encouraged for transparency.
+  let mollusksSpeciesFound = false;
+  for (const [keyword, species] of Object.entries(MOLLUSKS_SPECIES)) {
+    if (lower.includes(keyword)) {
+      matches.push({
+        category: 'Mollusks',
+        species,
+        matchedKeyword: keyword,
+        requiresSpeciesNaming: false,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Mollusks'].tier,
+      });
+      mollusksSpeciesFound = true;
+    }
+  }
+  if (!mollusksSpeciesFound) {
+    const generic = text.match(MOLLUSKS_GENERIC);
+    if (generic) {
+      matches.push({
+        category: 'Mollusks',
+        species: undefined,
+        matchedKeyword: generic[0],
+        requiresSpeciesNaming: false,
+        regulatoryTier: ALLERGEN_REGULATORY_METADATA['Mollusks'].tier,
       });
     }
   }
