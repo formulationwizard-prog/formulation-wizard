@@ -132,6 +132,10 @@ import {
   checkModeChange,
   isWorkspaceMode,
 } from '@/lib/workspaceMode';
+import {
+  hydrateSavedFormulations,
+  persistSavedFormulations,
+} from '@/lib/savedFormulationsPersistence';
 
 // ============================================================
 // MAIN COMPONENT
@@ -321,6 +325,18 @@ export default function FormulationWizard() {
   // "Reset to defaults" to re-derive from current productType.
   const [trackedSpecsOverride, setTrackedSpecsOverride] = useState<TrackedSpec[] | null>(null);
   const [savedFormulations, setSavedFormulations] = useState<SavedFormulation[]>([]);
+  // First half of launch-blocker #4 (2026-05-25) — savedFormulations
+  // hydrate/persist via localStorage. Survives page reload; doesn't
+  // require server infra; doesn't depend on Packet Q1 routing for
+  // schema shape. Second half (Supabase server-side wire-up) lands
+  // after Packet Q1 routing decides shape.
+  //
+  // `hasHydratedSavedFormulations` guards the persist-on-change
+  // useEffect from firing BEFORE hydrate completes — without it,
+  // the initial-render `[]` would overwrite stored data on mount.
+  // Pattern follows the React-localStorage idiom + matches existing
+  // entryState hydration shape below.
+  const [hasHydratedSavedFormulations, setHasHydratedSavedFormulations] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'build' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
   // ----- Workspace entry state: mode preference + per-mode TOS ----------
   // Round 11 Phase 3 Workstream A: segmented per-mode TOS replaces the
@@ -346,6 +362,31 @@ export default function FormulationWizard() {
       setMode(hydrated.mode);
     }
   }, []);
+
+  // First half of launch-blocker #4 — savedFormulations hydrate on mount.
+  // Runs once at mount; reads localStorage; populates state; flips the
+  // hasHydratedSavedFormulations guard so the persist useEffect below
+  // can start writing without overwriting initial-render `[]`.
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setHasHydratedSavedFormulations(true);
+      return;
+    }
+    const hydrated = hydrateSavedFormulations(window.localStorage);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+    setSavedFormulations(hydrated);
+    setHasHydratedSavedFormulations(true);
+  }, []);
+
+  // savedFormulations persist on change. Guarded by hasHydratedSavedFormulations
+  // so the initial-render empty `[]` doesn't clobber stored data before
+  // hydrate completes. Subsequent state changes (save/update/delete) trigger
+  // the write.
+  useEffect(() => {
+    if (!hasHydratedSavedFormulations) return;
+    if (typeof window === 'undefined') return;
+    persistSavedFormulations(window.localStorage, savedFormulations);
+  }, [hasHydratedSavedFormulations, savedFormulations]);
   // Pre-TOS mode-selection screen handler — user picks mode at first
   // visit (or returning post-migration from pre-Round-11 fw-tos-v1-only).
   const selectInitialMode = (chosen: 'supplements' | 'fb') => {
