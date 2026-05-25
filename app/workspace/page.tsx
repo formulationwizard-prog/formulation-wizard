@@ -6332,10 +6332,10 @@ Production Mgr: _____________________  Date / Time _________`}
                         );
                       }
                       const strengthColor = (s: string) =>
-                        s === 'high' ? 'emerald-100 text-emerald-800 border-emerald-300' :
-                        s === 'good' ? 'sky-100 text-sky-800 border-sky-300' :
-                        s === 'free' ? 'violet-100 text-violet-800 border-violet-300' :
-                        'amber-100 text-amber-800 border-amber-300';
+                        s === 'high' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                        s === 'good' ? 'bg-sky-100 text-sky-800 border-sky-300' :
+                        s === 'free' ? 'bg-violet-100 text-violet-800 border-violet-300' :
+                        'bg-amber-100 text-amber-800 border-amber-300';
                       return (
                         <div>
                           <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1.5 inline-flex items-center gap-1">
