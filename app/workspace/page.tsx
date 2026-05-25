@@ -20,7 +20,6 @@ import type {
 } from '@/types';
 import {
   UNIT_TO_GRAMS,
-  detectAllergens,
   emptyNutrition,
   isIndustrial,
   fdaRoundCalories,
@@ -49,6 +48,31 @@ import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualificat
 import { PRODUCT_CLASS_LABEL } from '@/types';
 import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
 import { generatePartNumber } from '@/lib/partNumber';
+import { detectAllergensDetailed, type AllergenMatch } from '@/lib/supplementAllergen';
+
+/**
+ * Adapter — extracts species-or-category strings from rich AllergenMatch[]
+ * for backward compat with the workspace's legacy string[] storage shape
+ * on Ingredient.allergens. Prefer species (e.g., "Coconut") over category
+ * (e.g., "Tree Nuts") when both available — per FALCPA §403(w)(1)(B)
+ * species-naming requirement. Dedupes via Set.
+ *
+ * Per [[catalog-must-be-coa-spec-sheet-anchored]] doctrine 2026-05-25 +
+ * launch-blocker 1B wire-up — when this adapter detects "Coconut" (Tree
+ * Nuts species), the workspace now renders "Contains: Coconut" instead
+ * of the legacy "Contains: Tree Nuts" (FALCPA species-naming compliance).
+ *
+ * FALCPA §203(b)(2) highly-refined-oil exemption logic is separate
+ * (launch-blocker #5) — applied at the catalog-data layer (falcpaExemptionStatus
+ * field per [[falcpa-highly-refined-oil-exemption]]) before this adapter runs.
+ * This adapter trusts whatever matches detectAllergensDetailed produces from
+ * the input text.
+ */
+const detectAllergenStrings = (text: string): string[] => {
+  const matches: AllergenMatch[] = detectAllergensDetailed(text);
+  const entries = matches.map(m => m.species ?? m.category);
+  return [...new Set(entries)];
+};
 import { getIngredientPartNumber, getPackagingPartNumber, getCustomPackagingPartNumber } from '@/lib/skuCodes';
 import { NautilusMark } from '@/components/NautilusMark';
 import { DeterminationEngineCard } from '@/components/DeterminationEngineCard';
@@ -669,7 +693,7 @@ export default function FormulationWizard() {
       const food = item as FoodResult;
       const subs = food.ingredients ? food.ingredients.split(/,(?![^(]*\))/).map(s => s.trim()).filter(s => s.length > 0 && s.length < 60).slice(0, 8) : [];
       setNewIngredient(food.brandName ? `${food.description} (${food.brandName})` : food.description);
-      setSelectedFood({ type: 'usda', data: food, subIngredients: subs, allergens: detectAllergens((food.description || '') + ' ' + (food.ingredients || '')), costPerKg: 0, supplier: 'USDA Database', nutrition: {} });
+      setSelectedFood({ type: 'usda', data: food, subIngredients: subs, allergens: detectAllergenStrings((food.description || '') + ' ' + (food.ingredients || '')), costPerKg: 0, supplier: 'USDA Database', nutrition: {} });
     }
     setShowDropdown(false);
     setSearchResults([]);
@@ -677,9 +701,30 @@ export default function FormulationWizard() {
 
   const recalculate = (currentIngredients: Ingredient[]) => {
     const n = emptyNutrition();
-    const allAllergens = new Set<string>();
+    // Per launch-blocker 1B FALCPA species-naming wire-up 2026-05-25 — aggregate
+    // allergens as rich AllergenMatch[] then dedupe by category so detector species
+    // wins over catalog generic. Without this dedupe, an ingredient like Coconut Oil
+    // (catalog: 'Tree Nuts', detector: 'Coconut') would render "Contains: Tree Nuts,
+    // Coconut" — duplicate categorically wrong. After dedupe: just "Coconut".
+    const collectedMatches: AllergenMatch[] = [];
     currentIngredients.forEach((item) => {
-      item.allergens?.forEach(a => allAllergens.add(a));
+      // Detector pass — extracts species from ingredient name text.
+      const detected = detectAllergensDetailed(item.name);
+      collectedMatches.push(...detected);
+      // Catalog allergens — string[] legacy shape. Synthesize as AllergenMatch
+      // for the aggregation pipeline, BUT skip categories where the detector
+      // already found species (species wins per FALCPA §403(w)(1)(B)).
+      const detectorCategories = new Set(detected.map(m => m.category));
+      item.allergens?.forEach(a => {
+        if (detectorCategories.has(a as AllergenMatch['category'])) return;
+        collectedMatches.push({
+          category: a as AllergenMatch['category'],
+          species: undefined,
+          matchedKeyword: a,
+          requiresSpeciesNaming: ['Tree Nuts', 'Fish', 'Shellfish'].includes(a),
+          regulatoryTier: 'falcpa-faster-big-9',
+        });
+      });
       const qtyInGrams = item.qty * (UNIT_TO_GRAMS[item.unit] || 1);
       const factor = qtyInGrams / 100;
       if (item.foodData?.type === 'industrial' && item.foodData?.nutrition) {
@@ -696,10 +741,18 @@ export default function FormulationWizard() {
         n.dietaryFiber += get('fiber'); n.totalSugars += get('sugars'); n.protein += get('protein');
         n.calcium += get('calcium'); n.iron += get('iron'); n.potassium += get('potassium');
       }
-      detectAllergens(item.name).forEach(a => allAllergens.add(a));
     });
     setNutrition(n);
-    setAllergenStatement(Array.from(allAllergens));
+    // Final dedupe pass — for each category where ANY ingredient produced a
+    // species match, drop the generic category entries (species naming wins
+    // across the whole formula, not just per-ingredient). Then collapse to
+    // string[] for the legacy allergenStatement shape that 5 render sites
+    // consume (Strategy A per docs/agents/supplement-allergen-wire-up-assessment).
+    const speciesCategories = new Set(
+      collectedMatches.filter(m => m.species).map(m => m.category)
+    );
+    const cleaned = collectedMatches.filter(m => m.species || !speciesCategories.has(m.category));
+    setAllergenStatement([...new Set(cleaned.map(m => m.species ?? m.category))]);
     const sorted = [...currentIngredients].sort((a, b) => (b.qty * (UNIT_TO_GRAMS[b.unit] || 1)) - (a.qty * (UNIT_TO_GRAMS[a.unit] || 1)));
     // Round 4 fix (2026-05-07): centralized assembly via buildIngredientStatement.
     // Old inline logic produced "Honey (Industrial Grade) (Honey)" double-parens
@@ -1050,7 +1103,7 @@ export default function FormulationWizard() {
 
   const addIngredient = () => {
     if (!newIngredient || !newQty) { alert('Please enter both ingredient name and quantity'); return; }
-    const newItem: Ingredient = { name: newIngredient.trim(), qty: parseFloat(newQty) || 0, unit: newUnit, foodData: selectedFood || null, subIngredients: selectedFood?.subIngredients || [], allergens: selectedFood?.allergens || detectAllergens(newIngredient), costPerKg: selectedFood?.costPerKg || 0, supplier: selectedFood?.supplier || '' };
+    const newItem: Ingredient = { name: newIngredient.trim(), qty: parseFloat(newQty) || 0, unit: newUnit, foodData: selectedFood || null, subIngredients: selectedFood?.subIngredients || [], allergens: selectedFood?.allergens || detectAllergenStrings(newIngredient), costPerKg: selectedFood?.costPerKg || 0, supplier: selectedFood?.supplier || '' };
     const updated = [...ingredients, newItem];
     setIngredients(updated); recalculate(updated);
     setNewIngredient(''); setNewQty(''); setSelectedFood(null);
