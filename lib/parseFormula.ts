@@ -456,6 +456,29 @@ function tokenizeForMatching(s: string): string[] {
     .filter(t => t.length > 2 && !STRUCTURAL_TOKENS.has(t));
 }
 
+/** Decide whether two head tokens match for the head-token-priority
+ *  ranking path. Pre-2026-05-25 logic was bidirectional `startsWith`
+ *  with no length cap, which produced semantic-category mismatches:
+ *  operator pasted "Anchovies (Paste)" (head "anchovies"), iterator
+ *  hit "Ancho Chile Powder" (head "ancho"), `"anchovies".startsWith
+ *  ("ancho")` returned true, the matcher confidently suggested chili
+ *  pepper as a Tier-3 substitution for a fish ingredient (operator-
+ *  flagged 2026-05-25 via Tridiv catalog-completeness external trial).
+ *
+ *  Fix: require length difference ≤ 2 when using startsWith fuzzy
+ *  match. Rejects (`anchovies` 9 vs `ancho` 5, diff 4 — too large).
+ *  Accepts legitimate variations:
+ *    • `almond` (6) ↔ `almonds` (7), diff 1 (singular/plural)
+ *    • `anchovy` (7) ↔ `anchovies` (9), diff 2 (spelling variant)
+ *    • `tomato` (6) ↔ `tomatoes` (8), diff 2 (singular/plural)
+ *  Exact equality always passes regardless of length. */
+function headTokensMatch(itemHead: string, queryHead: string): boolean {
+  if (itemHead === queryHead) return true;
+  const lengthDiff = Math.abs(itemHead.length - queryHead.length);
+  if (lengthDiff > 2) return false;
+  return itemHead.startsWith(queryHead) || queryHead.startsWith(itemHead);
+}
+
 /**
  * Find the best industrial-DB match for a given name string and assign a
  * confidence tier (1–4) per Round 5 directive 2026-05-07.
@@ -637,7 +660,7 @@ export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]):
     const itemTokens = tokenizeForMatching(item.name);
     if (itemTokens.length === 0) continue;
     const itemHead = itemTokens[0];
-    const headMatch = itemHead === queryHead || itemHead.startsWith(queryHead) || queryHead.startsWith(itemHead);
+    const headMatch = headTokensMatch(itemHead, queryHead);
     let tailScore = 0;
     for (let qi = 1; qi < queryTokens.length; qi++) {
       const t = queryTokens[qi];

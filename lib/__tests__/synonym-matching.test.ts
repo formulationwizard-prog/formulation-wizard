@@ -359,3 +359,100 @@ describe('parsePastedFormula — bulk-paste resolution via synonyms (end-to-end)
     expect(rows[0].matchedItem?.name).toBe('5-HTP (Griffonia Seed Extract, 99%)');
   });
 });
+
+// ──────────────────────────────────────────────────────────────
+// findBestMatchWithTier — head-token length-difference guard
+// ------------------------------------------------------------
+// Regression test for the 2026-05-25 Tridiv catalog-completeness
+// external-trial finding: operator pasted "Anchovies (Paste)"
+// (queryHead "anchovies", 9 chars), matcher iterated to
+// "Ancho Chile Powder" (itemHead "ancho", 5 chars), the
+// bidirectional `startsWith` check returned true because
+// `"anchovies".startsWith("ancho")`, and the matcher confidently
+// suggested chili pepper as a Tier-3 substitution for a fish
+// ingredient — a clear semantic-category mismatch.
+//
+// Fix: headTokensMatch helper requires length difference ≤ 2
+// when using `startsWith` fuzzy match. Keeps legitimate
+// singular/plural and spelling variations (almond↔almonds 1,
+// anchovy↔anchovies 2, tomato↔tomatoes 2) while rejecting the
+// short-prefix-of-different-word bug shape (ancho vs anchovies 4).
+// ──────────────────────────────────────────────────────────────
+
+const anchoChileEntry: IndustrialIngredient = {
+  name: 'Ancho Chile Powder',
+  category: 'Spices',
+  suppliers: ['McCormick Industrial'],
+  subIngredients: ['Ancho Chile'],
+  allergens: [],
+  costPerKg: 14,
+  nutrition: {},
+  notes: 'Test fixture for head-token length-diff regression guard.',
+};
+
+const anchoviesPasteEntry: IndustrialIngredient = {
+  name: 'Anchovies (Paste)',
+  category: 'Condiment Ingredients',
+  suppliers: ['Cento', 'Roland Foods'],
+  subIngredients: ['Anchovies', 'Olive Oil', 'Salt'],
+  allergens: ['Fish'],
+  costPerKg: 26,
+  nutrition: {},
+  notes: 'Test fixture for head-token length-diff regression guard.',
+};
+
+describe('findBestMatchWithTier — head-token length-difference guard (Anchovies/Ancho regression)', () => {
+  it('"Anchovies (Paste)" does NOT match "Ancho Chile Powder" via short-prefix similarity', () => {
+    // Pre-fix: bidirectional startsWith returned true for "anchovies"
+    // starting with "ancho", elevating Ancho Chile Powder to Tier 3.
+    // Post-fix: length diff of 4 (9 - 5) exceeds the ≤2 threshold,
+    // headMatch returns false, no candidates have head/tail overlap
+    // sufficient for Tier 1/2/3 → result is Tier 4 (no confident match).
+    const dbWithOnlyAncho: IndustrialIngredient[] = [anchoChileEntry];
+    const result = findBestMatchWithTier('Anchovies (Paste)', dbWithOnlyAncho);
+    expect(result.item).toBeNull();
+    expect(result.tier).toBe(4);
+  });
+
+  it('"Anchovies (Paste)" matches "Anchovies (Paste)" exactly at Tier 1 when present', () => {
+    const dbWithBoth: IndustrialIngredient[] = [anchoChileEntry, anchoviesPasteEntry];
+    const result = findBestMatchWithTier('Anchovies (Paste)', dbWithBoth);
+    expect(result.item?.name).toBe('Anchovies (Paste)');
+    expect(result.tier).toBe(1);
+  });
+
+  it('"Anchovies" (no paste qualifier) matches "Anchovies (Paste)" via stripped-name match', () => {
+    const dbWithBoth: IndustrialIngredient[] = [anchoChileEntry, anchoviesPasteEntry];
+    const result = findBestMatchWithTier('Anchovies', dbWithBoth);
+    expect(result.item?.name).toBe('Anchovies (Paste)');
+    // Stripped-name match elevates to Tier 1; head-token guard never
+    // fires because exact stripped match takes precedence.
+  });
+
+  it('legitimate plural→singular still works (length diff 1: "almonds" ↔ "almond")', () => {
+    const almondMealEntry: IndustrialIngredient = {
+      name: 'Almond Meal',
+      category: 'Bakery',
+      suppliers: ['Blue Diamond'],
+      subIngredients: ['Almonds'],
+      allergens: ['Tree Nuts'],
+      costPerKg: 18,
+      nutrition: {},
+      notes: 'Test fixture for legitimate length-1 variation.',
+    };
+    const result = findBestMatchWithTier('Almonds', [almondMealEntry]);
+    // queryHead "almonds" (7), itemHead "almond" (6), diff 1 → headMatch true
+    // No tail tokens in query → single-token head match against multi-token catalog name
+    // → Tier 3 (head matches but supporting tokens differ)
+    expect(result.item?.name).toBe('Almond Meal');
+    expect(result.tier).toBe(3);
+  });
+
+  it('legitimate spelling variant still works (length diff 2: "anchovy" ↔ "anchovies")', () => {
+    const result = findBestMatchWithTier('Anchovy', [anchoviesPasteEntry]);
+    // queryHead "anchovy" (7), itemHead "anchovies" (9), diff 2 → headMatch true
+    // (passes the ≤2 threshold; spelling-variant case)
+    expect(result.item?.name).toBe('Anchovies (Paste)');
+    expect(result.tier).toBeLessThanOrEqual(3);
+  });
+});
