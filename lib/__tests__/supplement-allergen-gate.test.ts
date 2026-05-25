@@ -189,26 +189,35 @@ describe('detectAllergensDetailed — species-aware detection', () => {
 });
 
 // ============================================================
-// Section B — generateContainsStatement
+// Section B — generateContainsStatement (Format B — umbrella+species)
+// ------------------------------------------------------------
+// Per operator + Opus routing 2026-05-25 — flipped default to
+// Format B (umbrella-category + species in parens). Auto-resolves
+// the species+generic-same-category dedup bug surfaced via the
+// Glucosamine HCl Nutraceuticals-mode test (Test 4) where the
+// rendering showed `Contains: Shrimp, Crab, Crustacean Shellfish`
+// pre-flip. Format A (bare species) is deferred to a per-
+// formulation operator-preference flag pending demonstrated
+// retailer-spec need.
 // ============================================================
-describe('generateContainsStatement — FDA-format Contains: line', () => {
+describe('generateContainsStatement — Format B (umbrella+species)', () => {
   it('empty matches → empty string (no statement needed)', () => {
     expect(generateContainsStatement([])).toBe('');
   });
 
-  it('single Milk match → "Contains: Milk."', () => {
+  it('single Milk match → "Contains: Milk." (non-species category, bare)', () => {
     const out = generateContainsStatement([makeMatch({ category: 'Milk' })]);
     expect(out).toBe('Contains: Milk.');
   });
 
-  it('single Tree Nut species → "Contains: Almonds."', () => {
+  it('single Tree Nut species → "Contains: Tree Nuts (Almonds)."', () => {
     const out = generateContainsStatement([
       makeMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
     ]);
-    expect(out).toBe('Contains: Almonds.');
+    expect(out).toBe('Contains: Tree Nuts (Almonds).');
   });
 
-  it('two matches → "Contains: X and Y." (no Oxford comma for two)', () => {
+  it('two categories → "Contains: X and Y." (no Oxford comma for two)', () => {
     const out = generateContainsStatement([
       makeMatch({ category: 'Milk' }),
       makeMatch({ category: 'Wheat', matchedKeyword: 'wheat' }),
@@ -216,46 +225,46 @@ describe('generateContainsStatement — FDA-format Contains: line', () => {
     expect(out).toBe('Contains: Milk and Wheat.');
   });
 
-  it('three matches → "Contains: X, Y, and Z." (Oxford comma)', () => {
+  it('three categories → "Contains: X, Y, and Z." (Oxford comma)', () => {
     const out = generateContainsStatement([
       makeMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
       makeMatch({ category: 'Milk' }),
       makeMatch({ category: 'Wheat', matchedKeyword: 'wheat' }),
     ]);
-    expect(out).toBe('Contains: Almonds, Milk, and Wheat.');
+    expect(out).toBe('Contains: Tree Nuts (Almonds), Milk, and Wheat.');
   });
 
-  it('four matches → "Contains: A, B, C, and D."', () => {
+  it('four categories → "Contains: A, B, C, and D."', () => {
     const out = generateContainsStatement([
       makeMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
       makeMatch({ category: 'Milk' }),
       makeMatch({ category: 'Wheat', matchedKeyword: 'wheat' }),
       makeMatch({ category: 'Soybeans', matchedKeyword: 'soy' }),
     ]);
-    expect(out).toBe('Contains: Almonds, Milk, Wheat, and Soybeans.');
+    expect(out).toBe('Contains: Tree Nuts (Almonds), Milk, Wheat, and Soybeans.');
   });
 
-  it('multiple tree nut species → each species listed separately', () => {
+  it('multiple species same category → grouped into one parens entry', () => {
     const out = generateContainsStatement([
       makeMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
       makeMatch({ category: 'Tree Nuts', species: 'Walnuts', requiresSpeciesNaming: true }),
     ]);
-    expect(out).toBe('Contains: Almonds and Walnuts.');
+    expect(out).toBe('Contains: Tree Nuts (Almonds, Walnuts).');
   });
 
-  it('Tree Nuts with species undefined → falls back to category name (gate catches the violation separately)', () => {
+  it('Tree Nuts with species undefined → bare category name (gate catches violation separately)', () => {
     const out = generateContainsStatement([
       makeMatch({ category: 'Tree Nuts', species: undefined, requiresSpeciesNaming: true }),
     ]);
     expect(out).toBe('Contains: Tree Nuts.');
   });
 
-  it('dedupes identical entries (same category + species)', () => {
+  it('dedupes identical species entries within the same category', () => {
     const out = generateContainsStatement([
       makeMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
       makeMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
     ]);
-    expect(out).toBe('Contains: Almonds.');
+    expect(out).toBe('Contains: Tree Nuts (Almonds).');
   });
 
   it('dedupes by category for non-species-required allergens', () => {
@@ -265,6 +274,53 @@ describe('generateContainsStatement — FDA-format Contains: line', () => {
       makeMatch({ category: 'Milk', matchedKeyword: 'casein' }),
     ]);
     expect(out).toBe('Contains: Milk.');
+  });
+
+  it('Shellfish category renders as FALCPA-statutory "Crustacean Shellfish"', () => {
+    const out = generateContainsStatement([
+      makeMatch({ category: 'Shellfish', species: 'Shrimp', requiresSpeciesNaming: true }),
+    ]);
+    expect(out).toBe('Contains: Crustacean Shellfish (Shrimp).');
+  });
+
+  it('species + generic-same-category collapse into one grouped entry (Glucosamine HCl bug fix)', () => {
+    // Glucosamine HCl Shellfish-Derived case: detector emits
+    // 'Shrimp' + 'Crab' species matches AND a generic 'Crustacean
+    // Shellfish' match. Pre-Format-B output:
+    //   "Contains: Shrimp, Crab, Crustacean Shellfish."
+    // (redundant — species names already imply the parent category)
+    // Post-Format-B grouping: generic match has no species, so it
+    // contributes nothing beyond the umbrella name that the grouped
+    // entry already provides. Output collapses cleanly.
+    const out = generateContainsStatement([
+      makeMatch({ category: 'Shellfish', species: 'Shrimp', requiresSpeciesNaming: true }),
+      makeMatch({ category: 'Shellfish', species: 'Crab', requiresSpeciesNaming: true }),
+      makeMatch({ category: 'Shellfish', species: undefined, requiresSpeciesNaming: true, matchedKeyword: 'crustacean shellfish' }),
+    ]);
+    expect(out).toBe('Contains: Crustacean Shellfish (Shrimp, Crab).');
+  });
+
+  it('Mollusks (international-additional) renders with umbrella + species', () => {
+    const out = generateContainsStatement([
+      makeMatch({ category: 'Mollusks', species: 'Oysters', requiresSpeciesNaming: false, matchedKeyword: 'oyster' }),
+      makeMatch({ category: 'Wheat', matchedKeyword: 'wheat' }),
+    ]);
+    expect(out).toBe('Contains: Mollusks (Oysters) and Wheat.');
+  });
+
+  it('Mollusks generic-only (no species) → bare category name', () => {
+    const out = generateContainsStatement([
+      makeMatch({ category: 'Mollusks', species: undefined, requiresSpeciesNaming: false, matchedKeyword: 'mollusks' }),
+    ]);
+    expect(out).toBe('Contains: Mollusks.');
+  });
+
+  it('mixed species-required + non-species categories preserve first-seen order', () => {
+    const out = generateContainsStatement([
+      makeMatch({ category: 'Tree Nuts', species: 'Almonds', requiresSpeciesNaming: true }),
+      makeMatch({ category: 'Milk' }),
+    ]);
+    expect(out).toBe('Contains: Tree Nuts (Almonds) and Milk.');
   });
 });
 

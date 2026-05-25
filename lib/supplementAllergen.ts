@@ -450,50 +450,136 @@ export function detectAllergensDetailed(text: string): AllergenMatch[] {
 }
 
 /**
+ * Display-name map for AllergenCategory → label-rendered string.
+ *
+ * Most categories render as their own type-union name. Shellfish is the
+ * exception: the FALCPA statutory term is "Crustacean Shellfish", but
+ * the internal type-union shortens to 'Shellfish' for code-ergonomics
+ * (avoids the longer string + 'Crustacean Shellfish' as a TS literal
+ * across the codebase). This map names the label-side string.
+ *
+ * Updated 2026-05-25 — Format-B umbrella+species routing per operator
+ * + Opus pragmatic call ("matches actual industry practice on real
+ * labels"). See `formatAllergenListBody` below for the grouping logic
+ * that consumes this map.
+ */
+const CATEGORY_DISPLAY_NAME: Record<AllergenCategory, string> = {
+  'Milk': 'Milk',
+  'Eggs': 'Eggs',
+  'Fish': 'Fish',
+  'Shellfish': 'Crustacean Shellfish', // FALCPA §403(w) statutory term
+  'Tree Nuts': 'Tree Nuts',
+  'Peanuts': 'Peanuts',
+  'Wheat': 'Wheat',
+  'Soybeans': 'Soybeans',
+  'Sesame': 'Sesame',
+  'Mustard': 'Mustard',
+  'Mollusks': 'Mollusks',
+};
+
+/**
+ * Format the body of an allergen disclosure list using **Format B**
+ * (umbrella-category + species in parens), the more common labeling
+ * pattern on real-world consumer-facing FDA labels.
+ *
+ * Returns the body string only — no `Contains:` prefix, no trailing
+ * period. Use `generateContainsStatement` below for the full FDA-line
+ * format, or compose the body directly for inline rendering (badges,
+ * tooltips, status chips) where a sentence prefix would be redundant.
+ *
+ * Grouping rules:
+ *   • Matches are grouped by category in first-seen order.
+ *   • Within each category, species are deduplicated and joined by
+ *     comma — e.g., `Crustacean Shellfish (Shrimp, Crab)`.
+ *   • A category with no species (generic-only match, or non-species
+ *     category like Milk / Wheat / Sesame) renders as the bare
+ *     display name — e.g., `Milk`.
+ *   • Cross-category join: 1 entry bare; 2 entries with " and "; 3+
+ *     entries with comma + Oxford comma + final " and ".
+ *
+ * Why Format B (vs. bare species "Format A"):
+ *   • Matches actual industry practice on FDA labels — major
+ *     manufacturers use "Contains: Tree Nuts (Almonds)" / "Contains:
+ *     Crustacean Shellfish (Shrimp)" routinely on real SKUs.
+ *   • Provides consumer-safety redundancy — umbrella-aware consumers
+ *     (general "fish allergy" without per-species recognition) self-
+ *     flag from the category name; species-allergic consumers see the
+ *     specific name they need to avoid.
+ *   • Matches manufacturer COA / spec-sheet mental model — COAs
+ *     typically declare both the category and species.
+ *   • Auto-resolves the historical bug where a species match
+ *     (`Shrimp`) and a generic same-category match (`Crustacean
+ *     Shellfish`) both rendered as separate entries, producing
+ *     redundant output like `Shrimp, Crab, Crustacean Shellfish`.
+ *     Grouping by category absorbs the generic match into the parent
+ *     entry's species list.
+ *
+ * Format-A bare-species rendering deferred to a per-formulation
+ * operator-preference flag pending demonstrated retailer-spec need.
+ * Per operator routing 2026-05-25 + razor-sharp doctrine
+ * (preference UI is dead weight until a real Format-A retailer
+ * requirement surfaces).
+ *
+ * Pure function — no side effects.
+ */
+export function formatAllergenListBody(
+  matches: readonly AllergenMatch[],
+): string {
+  if (matches.length === 0) return '';
+
+  // Group matches by category, preserving first-seen order
+  const categoryOrder: AllergenCategory[] = [];
+  const speciesByCategory = new Map<AllergenCategory, string[]>();
+  for (const m of matches) {
+    if (!speciesByCategory.has(m.category)) {
+      speciesByCategory.set(m.category, []);
+      categoryOrder.push(m.category);
+    }
+    if (m.species) {
+      const bucket = speciesByCategory.get(m.category)!;
+      if (!bucket.includes(m.species)) bucket.push(m.species);
+    }
+  }
+
+  // Render one entry per category: "Display Name" or "Display Name (S1, S2)"
+  const entries: string[] = categoryOrder.map(cat => {
+    const species = speciesByCategory.get(cat)!;
+    const displayName = CATEGORY_DISPLAY_NAME[cat];
+    return species.length === 0
+      ? displayName
+      : `${displayName} (${species.join(', ')})`;
+  });
+
+  if (entries.length === 0) return '';
+  if (entries.length === 1) return entries[0];
+  if (entries.length === 2) return `${entries[0]} and ${entries[1]}`;
+  const head = entries.slice(0, -1).join(', ');
+  const tail = entries[entries.length - 1];
+  return `${head}, and ${tail}`;
+}
+
+/**
  * Generate the FDA-format `Contains:` statement per 21 CFR
  * 101.36(b)(1)(i)(B). Returns the empty string when no matches.
  *
+ * Composes `formatAllergenListBody` (Format B, umbrella+species in
+ * parens) with the `Contains: …` sentence frame + trailing period.
+ *
  * Format:
  *   • 0 entries → "" (no statement)
- *   • 1 entry  → "Contains: X."
- *   • 2 entries → "Contains: X and Y."
- *   • 3+ entries → "Contains: X, Y, and Z." (Oxford comma)
+ *   • 1 category → "Contains: Tree Nuts (Almonds)."
+ *   • 2 categories → "Contains: Tree Nuts (Almonds) and Milk."
+ *   • 3+ categories → "Contains: Tree Nuts (Almonds), Milk, and Wheat." (Oxford comma)
  *
- * Each entry uses the species name when present; falls back to the
- * category name when species is undefined for a species-required
- * category. The gate independently catches species-naming
- * violations — this generator emits a best-effort statement
- * regardless, so operators see both the imperfect statement and
- * the gate refusal.
- *
- * Dedupes identical entries (same category + species). Multiple
- * tree-nut species are listed separately (e.g., "Almonds and Walnuts").
+ * See `formatAllergenListBody` for grouping rules + Format-B rationale.
  *
  * Pure function — no side effects.
  */
 export function generateContainsStatement(
   matches: readonly AllergenMatch[],
 ): string {
-  if (matches.length === 0) return '';
-
-  const entries = matches
-    .map(m => m.species ?? m.category)
-    .filter((entry, index, arr) => arr.indexOf(entry) === index);
-
-  if (entries.length === 0) return '';
-
-  let listed: string;
-  if (entries.length === 1) {
-    listed = entries[0];
-  } else if (entries.length === 2) {
-    listed = `${entries[0]} and ${entries[1]}`;
-  } else {
-    const head = entries.slice(0, -1).join(', ');
-    const tail = entries[entries.length - 1];
-    listed = `${head}, and ${tail}`;
-  }
-
-  return `Contains: ${listed}.`;
+  const body = formatAllergenListBody(matches);
+  return body === '' ? '' : `Contains: ${body}.`;
 }
 
 /**

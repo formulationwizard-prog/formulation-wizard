@@ -48,7 +48,7 @@ import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualificat
 import { PRODUCT_CLASS_LABEL } from '@/types';
 import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
 import { generatePartNumber } from '@/lib/partNumber';
-import { detectAllergensDetailed, evaluateAllergenGate, type AllergenMatch } from '@/lib/supplementAllergen';
+import { detectAllergensDetailed, evaluateAllergenGate, formatAllergenListBody, type AllergenMatch } from '@/lib/supplementAllergen';
 
 /**
  * Adapter — extracts species-or-category strings from rich AllergenMatch[]
@@ -2315,7 +2315,7 @@ export default function FormulationWizard() {
                   </span>
                 )}
                 {allergenStatement.length > 0 && (
-                  <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 font-semibold inline-flex items-center gap-1" title={`Contains: ${allergenStatement.map(m => m.species ?? m.category).join(', ')}`}>
+                  <span className="px-2 py-0.5 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 font-semibold inline-flex items-center gap-1" title={`Contains: ${formatAllergenListBody(allergenStatement)}`}>
                     <AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" />
                     <span>{allergenStatement.length} allergen{allergenStatement.length !== 1 ? 's' : ''}</span>
                   </span>
@@ -5848,7 +5848,7 @@ Production Mgr: _____________________  Date / Time _________`}
                     },
                   });
                   return (
-                    <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans text-black">
+                    <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans bg-[#fff] text-black">
                       <div className="text-3xl font-extrabold leading-none border-b-4 border-black pb-1 mb-1">Supplement Facts</div>
                       <div className="text-xs border-b border-black pb-1 mb-1">Serving Size: {facts.servingSize}</div>
                       <div className="text-xs border-b-8 border-black pb-1 mb-1">Servings Per Container: {facts.servingsPerContainer}</div>
@@ -5916,7 +5916,7 @@ Production Mgr: _____________________  Date / Time _________`}
                       </p>
 
                       {allergenStatement.length > 0 && (
-                        <p className="text-[10px] mt-2 leading-tight font-bold">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
+                        <p className="text-[10px] mt-2 leading-tight font-bold">Contains: {formatAllergenListBody(allergenStatement)}</p>
                       )}
 
                       {facts.needsDaggerFootnote && (
@@ -5943,7 +5943,7 @@ Production Mgr: _____________________  Date / Time _________`}
 
                 {/* FDA Nutrition Facts panel — all modes except AAFCO and Supplement Facts */}
                 {mc.labelMode !== 'aafco' && mc.labelMode !== 'supplement-facts' && (
-                <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans">
+                <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans bg-[#fff] text-black">
                   <div className="text-5xl font-extrabold leading-none border-b-4 border-black pb-1 mb-1">Nutrition Facts</div>
                   <div className="text-sm border-b border-black pb-1 mb-1">{formattedServingsPerContainer || '— servings per container'}</div>
                   <div className="flex justify-between items-end border-b-8 border-black pb-1 mb-1">
@@ -6381,7 +6381,7 @@ Production Mgr: _____________________  Date / Time _________`}
                   <p className="text-[10px] text-gray-500 mb-2">FDA Top 9 allergens — auto-detected from ingredients</p>
                   {allergenStatement.length > 0 ? (
                     <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
-                      <p className="text-red-800 font-semibold text-sm">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
+                      <p className="text-red-800 font-semibold text-sm">Contains: {formatAllergenListBody(allergenStatement)}</p>
                       <p className="text-red-600 text-[10px] mt-1">Always verify allergens with supplier COA before labeling.</p>
                     </div>
                   ) : (
@@ -9608,7 +9608,7 @@ Production Mgr: _____________________  Date / Time _________`}
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
                       <span>Allergens — Cleaning Verification Required</span>
                     </h2>
-                    <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
+                    <p className="text-sm font-bold text-red-700">Contains: {formatAllergenListBody(allergenStatement)}</p>
                     <p className="text-xs text-amber-700 italic mt-1">
                       ⚠ Species naming pending FALCPA wire-up (launch-blocker #1B). Current display uses legacy allergen detection — when 1B wire-up lands, Tree Nuts will display as the specific species (e.g., &ldquo;Coconut&rdquo; not &ldquo;Tree Nuts&rdquo;).
                     </p>
@@ -9959,7 +9959,7 @@ Production Mgr: _____________________  Date / Time _________`}
                 <p className="text-xs text-gray-500 mb-2">Verbatim ingredient statement + batch composition (from formulation tool):</p>
                 <div className="bg-amber-50 border border-amber-200 p-3 rounded text-sm mb-3">{ingredientStatement || '—'}</div>
                 {allergenStatement.length > 0 && (
-                  <p className="text-sm font-bold text-red-700">Contains: {allergenStatement.map(m => m.species ?? m.category).join(', ')}</p>
+                  <p className="text-sm font-bold text-red-700">Contains: {formatAllergenListBody(allergenStatement)}</p>
                 )}
               </section>
 
