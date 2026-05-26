@@ -3817,7 +3817,22 @@ export default function FormulationWizard() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-2">
-                        {TRACKED_SPEC_ORDER.map(s => {
+                        {TRACKED_SPEC_ORDER
+                          .filter(s => {
+                            // Hide F&B-only specs in supplements mode per operator
+                            // 2026-05-25 "2 left over from food" — Brix (sugar content
+                            // of liquid foods), Acetic Acid % (vinegar products),
+                            // Bostwick + Brookfield (food viscosity instruments) are
+                            // F&B-only and don't apply to dietary supplements. pH /
+                            // a_w / Moisture % stay visible — they have legitimate
+                            // supplement use cases (liquid forms, hygroscopic powders,
+                            // capsule shell moisture).
+                            if (mode === 'supplements') {
+                              return !['brix', 'aceticAcid', 'bostwick', 'brookfield'].includes(s);
+                            }
+                            return true;
+                          })
+                          .map(s => {
                           const checked = effectiveSet.has(s);
                           const isSuggested = suggestedSet.has(s);
                           return (
