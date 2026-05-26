@@ -14,6 +14,7 @@ import {
   validateTransition,
   appendTransition,
   getCurrentReviewState,
+  evaluateReviewStateGate,
 } from '../reviewState';
 
 // ─── Test fixtures ──────────────────────────────────────────────
@@ -665,12 +666,6 @@ describe('getCurrentReviewState — wire-up helper', () => {
 // printLabel() call path at app/workspace/page.tsx.
 // ============================================================
 describe('getCurrentReviewState → evaluateReviewStateGate round-trip', () => {
-  // Pull evaluateReviewStateGate via dynamic import-style at-use to
-  // avoid adding to the top-of-file import (which is shared with
-  // existing test sections + would create a large diff).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { evaluateReviewStateGate } = require('../reviewState');
-
   it('no reviews + gate → cleared (undefined-state semantic)', () => {
     const state = getCurrentReviewState(undefined);
     const result = evaluateReviewStateGate(state);
