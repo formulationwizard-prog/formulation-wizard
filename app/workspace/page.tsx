@@ -634,6 +634,17 @@ export default function FormulationWizard() {
   const [batchNumber, setBatchNumber] = useState('');
   const [productionDate, setProductionDate] = useState(new Date().toISOString().slice(0, 10));
   const [operator, setOperator] = useState('');
+  // Controlled-document header fields per operator 2026-05-25 — Batch Sheets
+  // are controlled documents in cGMP shops. Doc # is the facility's QMS-
+  // assigned identifier (BPR-####); Manufacturer is the legal producing
+  // entity; Brand is the co-packing client name (always visible per operator
+  // direction — not conditional); Product Name is the consumer-facing
+  // product name distinct from internal formulationName. All four are
+  // user-edited, free-text, persist with the formulation record.
+  const [controlledDocNumber, setControlledDocNumber] = useState<string>('');
+  const [manufacturerName, setManufacturerName] = useState<string>('');
+  const [brandName, setBrandName] = useState<string>('');
+  const [productName, setProductName] = useState<string>('');
   const [saveMessage, setSaveMessage] = useState('');
   const [dbCategory, setDbCategory] = useState('All');
   const [dbSearch, setDbSearch] = useState('');
@@ -9555,34 +9566,61 @@ export default function FormulationWizard() {
             {ingredients.length === 0 ? (
               <div className="text-gray-500 py-8 text-center">Go to the 🔬 Build Base Sheet tab and add some ingredients first.</div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Production Batch Size</label>
-                  <div className="flex gap-1">
-                    <input type="number" value={batchSize} onChange={(e) => setBatchSize(Math.max(0.1, parseFloat(e.target.value) || 10))}
-                      className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-base font-bold focus:outline-none focus:border-emerald-500" />
-                    <select value={batchSizeUnit} onChange={(e) => setBatchSizeUnit(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
-                      {['kg', 'lb', 'L', 'g'].map(u => <option key={u}>{u}</option>)}
-                    </select>
+              <>
+                {/* Controlled-document header fields. Per operator 2026-05-25 —
+                    Batch Sheets are controlled documents; these fields appear on
+                    the printed BPR header for compliance + co-packing traceability. */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Product Name</label>
+                    <input type="text" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Consumer-facing product name"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Brand</label>
+                    <input type="text" value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="Brand owner (co-packing)"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Manufacturer <span className="text-gray-400 font-normal">(full legal name)</span></label>
+                    <input type="text" value={manufacturerName} onChange={(e) => setManufacturerName(e.target.value)} placeholder="Full legal business name (e.g., Inc., LLC, LLP)"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Controlled Doc #</label>
+                    <input type="text" value={controlledDocNumber} onChange={(e) => setControlledDocNumber(e.target.value)} placeholder="QMS doc ID"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500" />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
-                  <input type="text" value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} placeholder="e.g., 20260422-01"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Production Batch Size</label>
+                    <div className="flex gap-1">
+                      <input type="number" value={batchSize} onChange={(e) => setBatchSize(Math.max(0.1, parseFloat(e.target.value) || 10))}
+                        className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-base font-bold focus:outline-none focus:border-emerald-500" />
+                      <select value={batchSizeUnit} onChange={(e) => setBatchSizeUnit(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
+                        {['kg', 'lb', 'L', 'g'].map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
+                    <input type="text" value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} placeholder="e.g., 20260422-01"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Production Date</label>
+                    <input type="date" value={productionDate} onChange={(e) => setProductionDate(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Operator</label>
+                    <input type="text" value={operator} onChange={(e) => setOperator(e.target.value)} placeholder="Operator initials"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Production Date</label>
-                  <input type="date" value={productionDate} onChange={(e) => setProductionDate(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Operator</label>
-                  <input type="text" value={operator} onChange={(e) => setOperator(e.target.value)} placeholder="Operator initials"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
-                </div>
-              </div>
+              </>
             )}
           </div>
 
@@ -9600,15 +9638,35 @@ export default function FormulationWizard() {
             const dateGeneratedForHeader = new Date(dashboardNow).toLocaleString();
             return (
               <div className="bg-white border border-gray-200 rounded-xl p-8 print:p-0 print:border-0 print:rounded-none print:shadow-none">
-                {/* Header — left: product-stable identity (carries from Base Sheet).
-                    Right: per-batch capture (operator fills in) + generated stamp.
-                    Per cGMP MMR/BPR audience separation 2026-05-25 operator session. */}
+                {/* Header — controlled-document strip on top (Manufacturer / Brand /
+                    Doc # / Generated), then product identity + per-batch capture
+                    in two columns. Per operator audience-separation 2026-05-25
+                    (Batch Sheets are controlled documents). */}
                 <div className="border-b-2 border-gray-800 pb-4 mb-6">
+                  {/* Controlled-document strip — manufacturer + brand + doc # */}
+                  {(manufacturerName || brandName || controlledDocNumber) && (
+                    <div className="flex justify-between items-baseline gap-6 text-xs text-gray-600 pb-2 mb-3 border-b border-gray-300 flex-wrap">
+                      <div className="flex gap-4 flex-wrap">
+                        {manufacturerName && (
+                          <div><span className="text-gray-400 uppercase tracking-wide">Manufacturer</span> <span className="font-semibold ml-1">{manufacturerName}</span></div>
+                        )}
+                        {brandName && (
+                          <div><span className="text-gray-400 uppercase tracking-wide">For Brand</span> <span className="font-semibold ml-1">{brandName}</span></div>
+                        )}
+                      </div>
+                      {controlledDocNumber && (
+                        <div><span className="text-gray-400 uppercase tracking-wide">Doc #</span> <span className="font-mono font-semibold ml-1">{controlledDocNumber}</span></div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex justify-between items-start gap-6">
                     <div>
-                      <h1 className="text-3xl font-bold text-gray-900">{formulationName || 'Untitled Formulation'}</h1>
+                      <h1 className="text-3xl font-bold text-gray-900">{productName || formulationName || 'Untitled Formulation'}</h1>
                       <p className="text-gray-600 text-sm mt-1">{productType || 'Product type not set'}</p>
                       <div className="mt-3 text-sm space-y-0.5">
+                        {productName && formulationName && productName !== formulationName && (
+                          <div><span className="text-gray-500">Internal</span> <span className="font-medium ml-1 text-gray-700">{formulationName}</span></div>
+                        )}
                         <div><span className="text-gray-500">Product #</span> <span className="font-bold ml-1">{partNumber || '_______________'}</span></div>
                         <div><span className="text-gray-500">Version</span> <span className="font-bold ml-1">v{currentVersionForHeader}</span></div>
                       </div>
