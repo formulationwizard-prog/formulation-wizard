@@ -13,6 +13,8 @@ import type { Review } from '../../types';
 import {
   validateTransition,
   appendTransition,
+  getCurrentReviewState,
+  evaluateReviewStateGate,
 } from '../reviewState';
 
 // ─── Test fixtures ──────────────────────────────────────────────
@@ -613,5 +615,101 @@ describe('appendTransition — error propagation', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain('requires a non-empty comment');
+  });
+});
+
+// ============================================================
+// Section G — getCurrentReviewState — Pillar 3 wire-up helper
+// ------------------------------------------------------------
+// Resolves the aggregate current Review state from a SavedFormulation's
+// reviews array for export-gate wire-up. The Pillar 3 ReviewStateGate
+// wire-up at app/workspace/page.tsx printLabel() consumes this helper.
+// ============================================================
+describe('getCurrentReviewState — wire-up helper', () => {
+  it('undefined reviews → undefined', () => {
+    expect(getCurrentReviewState(undefined)).toBeUndefined();
+  });
+
+  it('empty reviews array → undefined', () => {
+    expect(getCurrentReviewState([])).toBeUndefined();
+  });
+
+  it('single review → that review currentState', () => {
+    const r = makeReview('draft');
+    expect(getCurrentReviewState([r])).toBe('draft');
+  });
+
+  it('multiple reviews → last (most-recent) review currentState', () => {
+    const r1 = { ...makeReview('rejected'), id: 'review-1' };
+    const r2 = { ...makeReview('submitted'), id: 'review-2' };
+    const r3 = { ...makeReview('approved'), id: 'review-3' };
+    expect(getCurrentReviewState([r1, r2, r3])).toBe('approved');
+  });
+
+  it('handles every ReviewState value correctly', () => {
+    const states: Array<Review['currentState']> = [
+      'draft', 'submitted', 'approved', 'rejected', 'version_locked',
+    ];
+    for (const s of states) {
+      expect(getCurrentReviewState([makeReview(s)])).toBe(s);
+    }
+  });
+});
+
+// ============================================================
+// Section H — getCurrentReviewState → evaluateReviewStateGate
+//             round-trip integration
+// ------------------------------------------------------------
+// Verifies the wire-up boundary: when SavedFormulation has reviews,
+// the helper resolves currentState; the gate then evaluates that
+// state per its export-eligibility rules. Mirrors the actual
+// printLabel() call path at app/workspace/page.tsx.
+// ============================================================
+describe('getCurrentReviewState → evaluateReviewStateGate round-trip', () => {
+  it('no reviews + gate → cleared (undefined-state semantic)', () => {
+    const state = getCurrentReviewState(undefined);
+    const result = evaluateReviewStateGate(state);
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('reviews in draft → gate hard-stops', () => {
+    const state = getCurrentReviewState([makeReview('draft')]);
+    const result = evaluateReviewStateGate(state);
+    expect(result.hardStop).toBe(true);
+  });
+
+  it('reviews in submitted → gate hard-stops', () => {
+    const state = getCurrentReviewState([makeReview('submitted')]);
+    const result = evaluateReviewStateGate(state);
+    expect(result.hardStop).toBe(true);
+  });
+
+  it('reviews in rejected → gate hard-stops', () => {
+    const state = getCurrentReviewState([makeReview('rejected')]);
+    const result = evaluateReviewStateGate(state);
+    expect(result.hardStop).toBe(true);
+  });
+
+  it('reviews in approved → gate clears', () => {
+    const state = getCurrentReviewState([makeReview('approved')]);
+    const result = evaluateReviewStateGate(state);
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('reviews in version_locked → gate clears', () => {
+    const state = getCurrentReviewState([makeReview('version_locked')]);
+    const result = evaluateReviewStateGate(state);
+    expect(result.hardStop).toBe(false);
+  });
+
+  it('most-recent review controls — approved-then-draft → gate hard-stops', () => {
+    // Operator rolled back from approved → draft (per validateTransition
+    // semantics, requires comment). Most-recent review state controls
+    // export eligibility; earlier approval doesn't help.
+    const r1 = { ...makeReview('approved'), id: 'review-old' };
+    const r2 = { ...makeReview('draft'), id: 'review-current' };
+    const state = getCurrentReviewState([r1, r2]);
+    const result = evaluateReviewStateGate(state);
+    expect(result.hardStop).toBe(true);
   });
 });

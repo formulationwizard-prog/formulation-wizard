@@ -85,6 +85,7 @@ import { MODES, MODE_ORDER, productClassesForMode, type ModeId } from '@/lib/mod
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
 import { evaluateBucketA } from '@/lib/bucketAGate';
 import { isHardStop } from '@/lib/hardStop';
+import { evaluateReviewStateGate, getCurrentReviewState } from '@/lib/reviewState';
 import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
 import { computeFilingReadiness } from '@/lib/filingReadiness';
@@ -1290,6 +1291,53 @@ export default function FormulationWizard() {
    * modal + capture override rationale in audit trail.
    */
   const printLabel = () => {
+    // Pillar 3 ReviewStateGate wire-up (2026-05-26 per novice-readiness-quad
+    // memo §3). Fires BEFORE the FALCPA species-naming gate because review
+    // state is more fundamental — if the review is mid-flow (draft / submitted
+    // / rejected), label-compliance issues are downstream concerns: export
+    // shouldn't proceed regardless of whether allergen statement is FALCPA-
+    // perfect.
+    //
+    // Behavior today (pre-Review-UI):
+    //   • Formulation never saved → no SavedFormulation exists → undefined
+    //     state → gate clears.
+    //   • Saved formulation with no reviews[] → undefined state → gate clears.
+    //   • Saved formulation with reviews in {draft, submitted, rejected} →
+    //     gate HARD-STOPS with operator-overridable refusal dialog.
+    //   • Saved formulation with reviews in {approved, version_locked} → gate
+    //     clears.
+    //
+    // Since no Review-creation UI exists yet (per current-capability inventory
+    // 2026-05-25 finding #2 — gates tested + exported + UNCONSUMED), this gate
+    // is functionally no-op for ALL operators today. The wire-up puts the
+    // rails in place for when Review-creation UI lands. First of three Pillar
+    // 3 wire-ups; IdentityTestGate + DiseaseClaimGate follow on subsequent
+    // commits.
+    //
+    // Override pattern matches the existing FALCPA gate below: window.confirm
+    // + override-accepted-proceeds. Custom modal upgrade flagged as Pillar 3
+    // polish work (per quad memo §3 — "Each gate wires into the appropriate UI
+    // surface ... operator-overridable confirmation dialog explaining what's
+    // failing + how to fix").
+    const currentSaved = savedFormulations.find(f => f.name === formulationName.trim());
+    const currentReviewState = getCurrentReviewState(currentSaved?.reviews);
+    const reviewGate = evaluateReviewStateGate(currentReviewState);
+    if (isHardStop(reviewGate)) {
+      const reviewViolationLines = reviewGate.evidence
+        .map((e, i) => `${i + 1}. ${e.subject} — ${e.detail}`)
+        .join('\n');
+      const reviewOverrideConfirmed = window.confirm(
+        `⚠ PA REVIEW STATE GATE FIRED — REFUSE TO EXPORT (default)\n\n` +
+        `${reviewGate.reason}\n\n` +
+        `${reviewViolationLines}\n\n` +
+        `Citation: PA-Review State Machinery (docs/architecture/pa-review-state-machinery-proposal.md)\n\n` +
+        `Override (proceed with print anyway) = export-compliance risk on operator. ` +
+        `Recommended: transition the review to 'approved' or 'version_locked' before printing.\n\n` +
+        `Press OK to OVERRIDE and print anyway. Press Cancel to refuse the print (recommended).`
+      );
+      if (!reviewOverrideConfirmed) return;
+    }
+
     // FALCPA species-naming hard-stop gate per 21 CFR 101.36(b)(1)(i)(B).
     const gate = evaluateAllergenGate({ allergenMatches: allergenStatement });
     if (isHardStop(gate)) {

@@ -355,3 +355,43 @@ export function evaluateReviewStateGate(
     evidence,
   };
 }
+
+/**
+ * Resolve the current Review state from a SavedFormulation's reviews
+ * array. Used at export-gate wire-up sites to feed
+ * `evaluateReviewStateGate`.
+ *
+ * Behavior:
+ *   • Undefined / missing reviews array → undefined (no Review exists
+ *     for this formulation; gate clears per its undefined-state semantic)
+ *   • Empty reviews array → undefined (same as missing)
+ *   • Non-empty reviews array → currentState of the most-recent Review
+ *
+ * "Most-recent" defined as the last element of the array. Reviews are
+ * append-only per [[pa-review-state-machinery-proposal]]; each Review
+ * tracks its own state-machine transitions internally. The aggregate
+ * currentState that drives export-eligibility is the latest Review's
+ * currentState.
+ *
+ * NOTE on multi-version semantics: a SavedFormulation can have multiple
+ * FormulationVersions; each version could theoretically have its own
+ * Review. At Pillar 3 ReviewStateGate wire-up (2026-05-26), the
+ * aggregate-most-recent semantics are sufficient for refuse-to-export
+ * behavior. Per-version Review resolution lands when the Packet UI
+ * wires version-aware export contexts (strategic-session Packet Q1
+ * routing gates that work).
+ *
+ * Pure function — no side effects.
+ *
+ * @param reviews  SavedFormulation.reviews array (or undefined if the
+ *                 formulation has never been reviewed).
+ * @returns        ReviewState of the most-recent Review, or undefined
+ *                 if no Review exists. Pass directly to
+ *                 evaluateReviewStateGate.
+ */
+export function getCurrentReviewState(
+  reviews: readonly Review[] | undefined,
+): ReviewState | undefined {
+  if (!reviews || reviews.length === 0) return undefined;
+  return reviews[reviews.length - 1].currentState;
+}
