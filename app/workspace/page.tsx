@@ -9795,12 +9795,12 @@ export default function FormulationWizard() {
                 <section className="mb-6">
                   <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
                     <AlertTriangle className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
-                    <span>MMR — Harm-Critical Weight Verification</span>
+                    <span>MMR — Critical Ingredient Verification</span>
                   </h2>
                   <div className="text-xs bg-gray-50 border border-gray-200 rounded p-3 text-gray-700 leading-relaxed">
                     Some ingredients carry tight safety windows: preservative caps (Na benzoate ≤ 0.1% per 21 CFR 184.1733, K sorbate ≤ 0.1% per 182.3640), cure salts, high-potency micronutrients, pH-critical acidulants for acidified foods. Your Master Manufacturing Record specifies target weights and two-person verification per 21 CFR 111.205 / 117.130. Capture execution below; it follows onto the Batch Production Record.
                     <br /><br />
-                    <span className="text-amber-700 italic">⚠ PREVIEW — Catalog harm-critical flagging mechanism not yet wired. When operator adds a harm-critical-flagged ingredient (e.g., Sodium Benzoate, Potassium Sorbate, Sodium Nitrite), a per-ingredient capture row will auto-render here with target weight (from pinned Base Sheet) + actual weight + added-by / verified-by signoff slots.</span>
+                    <span className="text-amber-700 italic">⚠ PREVIEW — Catalog critical-ingredient flagging mechanism not yet wired. When operator adds a critical ingredient (e.g., Sodium Benzoate, Potassium Sorbate, Sodium Nitrite), a per-ingredient capture row will auto-render here with target weight (from pinned Base Sheet) + actual weight + added-by / verified-by signoff slots.</span>
                   </div>
                 </section>
 
@@ -10508,7 +10508,7 @@ ${serviceNotes || '(none)'}
             Advisory tool only — not legal, regulatory, or scientific advice.
             {entryState?.mode === 'supplements' ? (
               <>
-                {' '}Harm-critical floor checks require verification by a qualified
+                {' '}Critical-ingredient checks require verification by a qualified
                 <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">regulatory reviewer</button>
                 before commercial production.
               </>
