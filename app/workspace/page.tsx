@@ -9740,14 +9740,14 @@ export default function FormulationWizard() {
                   <section className="mb-6">
                     <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-                      <span>Allergens — Cleaning Verification Required</span>
+                      <span>Allergen Control Plan — Cleaning Verification</span>
                     </h2>
                     <p className="text-sm font-bold text-red-700">Contains: {formatAllergenListBody(allergenStatement)}</p>
-                    <p className="text-xs text-gray-600 italic mt-1">
-                      Statement uses FALCPA-compliant umbrella + species format per 21 CFR 101.36 / FALCPA §403(w) — e.g., &ldquo;Crustacean Shellfish (Shrimp, Crab)&rdquo; and &ldquo;Tree Nuts (Coconut)&rdquo;. Always verify against supplier COA before labeling.
+                    <p className="text-[10px] text-gray-500 italic mt-1">
+                      FALCPA umbrella + species format per 21 CFR 101.36 / §403(w). Always verify against supplier COA.
                     </p>
-                    <p className="text-xs text-gray-600 mt-2">
-                      Cross-contact risk if equipment was previously used for products not declaring these allergens. Cleaning + verification required per FDA 21 CFR 117.135 + 117.140 (Preventive Controls — allergen). Document below:
+                    <p className="text-xs text-gray-700 mt-3 leading-relaxed">
+                      Your facility&apos;s Allergen Control Plan and Sanitation SSOP define the cleaning + verification protocol for this changeover. Document the execution below; it follows onto the Batch Production Record. (21 CFR 117.135 — Allergen Preventive Controls.)
                     </p>
                     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                       <div>
@@ -9795,12 +9795,12 @@ export default function FormulationWizard() {
                 <section className="mb-6">
                   <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
                     <AlertTriangle className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
-                    <span>Harm-Critical Ingredient Verification</span>
+                    <span>MMR — Harm-Critical Weight Verification</span>
                   </h2>
-                  <div className="text-xs bg-gray-50 border border-gray-200 rounded p-3 italic text-gray-600">
-                    Per-ingredient verified-weight capture for harm-critical ingredients (preservatives with regulatory caps like Na benzoate ≤ 0.1% per 21 CFR 184.1733, K sorbate ≤ 0.1% per 182.3640; high-potency micronutrients; pH-critical acidulants for acidified foods; cure ingredients). Two-person verification required per FDA 21 CFR 117.130.
+                  <div className="text-xs bg-gray-50 border border-gray-200 rounded p-3 text-gray-700 leading-relaxed">
+                    Some ingredients carry tight safety windows: preservative caps (Na benzoate ≤ 0.1% per 21 CFR 184.1733, K sorbate ≤ 0.1% per 182.3640), cure salts, high-potency micronutrients, pH-critical acidulants for acidified foods. Your Master Manufacturing Record specifies target weights and two-person verification per 21 CFR 111.205 / 117.130. Capture execution below; it follows onto the Batch Production Record.
                     <br /><br />
-                    <span className="text-amber-700">⚠ PREVIEW — Catalog harm-critical flagging mechanism not yet wired. When operator adds a harm-critical-flagged ingredient (e.g., Sodium Benzoate, Potassium Sorbate, Sodium Nitrite), a per-ingredient capture row will auto-render here with target weight (from pinned Base Sheet) + actual weight + added-by/verified-by signoff slots.</span>
+                    <span className="text-amber-700 italic">⚠ PREVIEW — Catalog harm-critical flagging mechanism not yet wired. When operator adds a harm-critical-flagged ingredient (e.g., Sodium Benzoate, Potassium Sorbate, Sodium Nitrite), a per-ingredient capture row will auto-render here with target weight (from pinned Base Sheet) + actual weight + added-by / verified-by signoff slots.</span>
                   </div>
                 </section>
 
