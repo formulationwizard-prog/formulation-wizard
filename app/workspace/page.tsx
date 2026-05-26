@@ -161,6 +161,29 @@ Batcher:        _____________________  Date / Time _________
 QA:             _____________________  Date / Time _________
 Production Mgr: _____________________  Date / Time _________`;
 
+// Strip internal catalog-QA tokens from ingredient display names on
+// controlled-document surfaces (BPR, etc.) per operator 2026-05-26 — the
+// catalog has Tier-A/Tier-B PENDING TIER VERIFICATION suffixes on duplicate-
+// SKU entries from the May-20 audit (L-Citrulline Malate, Creatine Monohydrate).
+// These tags are internal QA flags for the catalog-author roadmap; they
+// shouldn't bleed onto production-facing BPR documents handed to Batchers.
+// Path A fix: strip the tokens at render time. Path B (proper resolution
+// of the underlying duplicate-SKU pairs in the catalog itself) remains
+// queued per [[project_catalog_duplicate_sku_audit_ticket]].
+//
+// Scope: applied ONLY to the printable BPR ingredient table render. Build
+// Base Sheet's Current Formulation cards (editing/internal surface) keep
+// the full catalog name visible so the catalog author can spot pending
+// entries. SFP / NFP / ingredient statement strip remains a follow-up if
+// the same tokens surface on consumer-facing label outputs.
+function stripCatalogQaTokens(name: string): string {
+  return name
+    .replace(/,\s*Tier-[AB],\s*PENDING TIER VERIFICATION/g, '')
+    .replace(/,\s*PENDING TIER VERIFICATION/g, '')
+    .replace(/,\s*Tier-[AB]/g, '')
+    .trim();
+}
+
 const FB_QA_CHECKPOINTS_PLACEHOLDER = `☐ pH measured at hot-fill (target ≤ 4.6 for acidified)  Initials _____
 ☐ Brix measured at hot-fill (target per spec)  Initials _____
 ☐ Container fill weight check every 30 min (target ± 2%)  Initials _____
@@ -9788,7 +9811,7 @@ export default function FormulationWizard() {
                               />
                             </td>
                             <td className="py-2 pr-2 align-top">
-                              <div className="font-medium">{ing.name}</div>
+                              <div className="font-medium">{stripCatalogQaTokens(ing.name)}</div>
                               {ing.subIngredients && ing.subIngredients.length > 0 && (
                                 <div className="text-gray-400 text-[10px]">{ing.subIngredients.join(', ')}</div>
                               )}
