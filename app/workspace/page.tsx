@@ -9900,12 +9900,12 @@ export default function FormulationWizard() {
                   {mode !== 'supplements' && (
                     <p className="text-xs text-gray-500 italic mt-2">{specs.regulatoryClass}</p>
                   )}
-                  {processTemplate.targetSpecs && processTemplate.targetSpecs.length > 0 && (
-                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                      <span className="font-semibold">Critical targets for {productType}: </span>
-                      {processTemplate.targetSpecs.map(t => `${t.name}: ${t.value}`).join(' • ')}
-                    </div>
-                  )}
+                  {/* "Critical targets for {productType}" callout removed
+                      2026-05-25 — redundant with the editable QA Checkpoints
+                      section below (same identity testing / blend uniformity /
+                      weight variation / heavy metals content, but QA Checkpoints
+                      is operator-authored so the platform-driven callout was
+                      duplicating + locking content the operator should own. */}
                 </section>
 
                 {/* QA Checkpoints — QA #2 (the actual check list). Per operator
