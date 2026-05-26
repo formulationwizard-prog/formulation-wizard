@@ -365,6 +365,21 @@ export default function FormulationWizard() {
   // runtime; consumers narrow via `productClass || undefined` when passing
   // to checkCompliance.
   const [productClass, setProductClassState] = useState<ProductClass | ''>('');
+  // Auto-default productClass when the active mode offers exactly one option.
+  // Per operator UX 2026-05-25 — supplements mode has only `'supplement'`;
+  // forcing the user to "choose" the only available option is friction with
+  // no compliance benefit. The Round 10 Path A-2 "no default-uncategorized
+  // state" invariant is preserved on the data layer (productClass is still
+  // explicitly set, never left empty before save); only the UX requirement
+  // to interact is dropped when the choice is unambiguous. F&B mode (7
+  // options) continues to require explicit operator selection.
+  useEffect(() => {
+    const options = productClassesForMode(mode);
+    if (options.length === 1 && productClass !== options[0]) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mode-driven default sync
+      setProductClassState(options[0]);
+    }
+  }, [mode, productClass]);
   // Whether the currently-stored productType references a legacy entry no longer
   // surfaced in the dropdown (Round 2 narrowing). Used to display a fallback option
   // + migration CTA. Note: declared AFTER productType useState because it depends on
@@ -3640,41 +3655,60 @@ export default function FormulationWizard() {
                     compliance findings exist (handleProductClassChange handler).
                     The save-block in saveFormulation() refuses to persist unset
                     state — making this the load-bearing UX gate that enforces
-                    explicit productClass on every saved formulation. */}
-                <div className="mb-3">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Product Class <span className="text-red-500">*</span>{' '}
-                    <span className="text-gray-400">
-                      {mode === 'supplements'
-                        ? '(Dietary Supplement classification — DSHEA / UL safety framework applies; required to save)'
-                        : '(drives chemical-safety compliance routing — required to save)'}
-                    </span>
-                  </label>
-                  <select
-                    value={productClass}
-                    onChange={(e) => handleProductClassChange(e.target.value as ProductClass | '')}
-                    className={`w-full border rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-500 ${
-                      productClass === '' ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                    }`}
-                  >
-                    <option value="">— Select a product class (required) —</option>
-                    {/* Finding #18 (2026-05-15): mode-aware filter via
-                        productClassesForMode. Supplements mode shows only the
-                        Dietary Supplement option (compliance routing is via the
-                        DSHEA/UL stack, not Path A's F&B chemical-safety paths);
-                        F&B-style modes show all 7 non-supplement options. */}
-                    {productClassesForMode(mode).map(pc => (
-                      <option key={pc} value={pc}>{PRODUCT_CLASS_LABEL[pc]}</option>
-                    ))}
-                  </select>
-                  {productClass === '' && (
-                    <p className="text-xs text-red-600 mt-1">
-                      Product Class is required {mode === 'supplements'
-                        ? 'for the Dietary Supplement DSHEA / UL safety framework. Save will be blocked until selected.'
-                        : 'for chemical-safety compliance routing. Save will be blocked until selected.'}
-                    </p>
-                  )}
-                </div>
+                    explicit productClass on every saved formulation.
+
+                    UX 2026-05-25: when the active mode offers exactly one
+                    productClass option (e.g. supplements → 'supplement'),
+                    render as read-only display rather than a one-option
+                    dropdown. The auto-default useEffect above keeps the data
+                    layer invariant intact; only the operator-interaction
+                    requirement is dropped when the choice is unambiguous. */}
+                {(() => {
+                  const options = productClassesForMode(mode);
+                  if (options.length === 1) {
+                    const onlyPc = options[0];
+                    return (
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                          Product Class{' '}
+                          <span className="text-gray-400">
+                            {mode === 'supplements'
+                              ? '(DSHEA / UL safety framework applies)'
+                              : '(drives chemical-safety compliance routing)'}
+                          </span>
+                        </label>
+                        <div className="w-full border border-gray-200 rounded-lg px-4 py-2.5 bg-gray-50 text-gray-700">
+                          {PRODUCT_CLASS_LABEL[onlyPc]}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="mb-3">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Product Class <span className="text-red-500">*</span>{' '}
+                        <span className="text-gray-400">(drives chemical-safety compliance routing — required to save)</span>
+                      </label>
+                      <select
+                        value={productClass}
+                        onChange={(e) => handleProductClassChange(e.target.value as ProductClass | '')}
+                        className={`w-full border rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-500 ${
+                          productClass === '' ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">— Select a product class (required) —</option>
+                        {options.map(pc => (
+                          <option key={pc} value={pc}>{PRODUCT_CLASS_LABEL[pc]}</option>
+                        ))}
+                      </select>
+                      {productClass === '' && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Product Class is required for chemical-safety compliance routing. Save will be blocked until selected.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Legacy CTA — prompts the user to migrate from a hidden product type
                     to one of the v1 buckets. Migration preserves their tracked_specs
                     customization (see onChange handler above). */}
