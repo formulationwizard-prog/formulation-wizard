@@ -131,6 +131,16 @@ export interface Ingredient {
   allergens: string[];
   costPerKg: number;
   supplier: string;
+  /**
+   * Facility-specific raw-material part number — user enters this per
+   * ingredient (their internal ERP / warehouse SKU for the raw material).
+   * Per operator directive 2026-05-25 — "User will have their own
+   * ingredient number, user edits this field"; not derived from the
+   * platform catalog. Optional so legacy formulations without part
+   * numbers remain valid; appears as first column on Batch Sheet
+   * ingredient table for traceability.
+   */
+  partNumber?: string;
 }
 
 // ============================================================
