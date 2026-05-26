@@ -135,6 +135,60 @@ import {
 } from '@/lib/workspaceMode';
 
 // ============================================================
+// EXECUTION CANVAS PLACEHOLDERS
+// ------------------------------------------------------------
+// Shape-cue text for the operator-authored Batch Sheet procedure
+// canvas. Shown when textarea is empty; operator replaces with own
+// content. Mode-aware so supplement operators see USP testing +
+// blending jargon (cGMP 21 CFR 111) and F&B operators see thermal
+// process + pH/Brix capture (FDA acidified-foods / Preventive
+// Controls). Format is illustrative, not parsed by the platform.
+// ============================================================
+const FB_BATCH_TEMPLATE_PLACEHOLDER = `PROCEDURE
+1. Add water to kettle and turn on steam.
+2. While kettle is heating, add tomato paste and turn on agitation.
+3. Add vinegar, peppers, spices and salt.
+4. Heat kettle to 200°F and hold for 5 minutes.
+   Start Time _________  End Time _________  Initials ______  QA Initials ______
+5. Pump to Surge Tank ST03 through PD pump 001.
+
+QA TESTS
+- pH measured:  _________ (target ≤ 4.6)   Initials ______
+- Brix measured: _________ (target 12 ± 2) Initials ______
+
+FINAL APPROVAL
+Batcher:        _____________________  Date / Time _________
+QA:             _____________________  Date / Time _________
+Production Mgr: _____________________  Date / Time _________`;
+
+const SUPPLEMENT_BATCH_TEMPLATE_PLACEHOLDER = `PROCEDURE
+1. Verify ingredient lots against MMR. Record lot + qty + initials.
+   Ingredient _________ Lot _________ Qty _________ Initials ______
+   Ingredient _________ Lot _________ Qty _________ Initials ______
+2. Pre-sieve actives + excipients through #20 mesh into staging vessel. Initials ______
+3. Geometric dilution: combine smallest-mass active with equal mass of largest-mass excipient. Mix 2 min, double, repeat until full mass blended.
+4. Charge blender (V-blend or ribbon). Blend 15 min at 25 RPM.
+   Start Time _________  End Time _________  Initials ______
+5. Encapsulate at target fill weight _____ mg ± 5%.
+   Capsule shell lot _________  Operator _________
+   Start Time _________  End Time _________
+6. Polish / dedust. Bottle with induction seal; verify seal integrity 100%.
+
+IN-PROCESS QC
+- Unit weight check every 30 min (n=10): _________ (target ± 5%)  Initials ______
+- Visual defect check (n=20):            _________               Initials ______
+
+FINAL QC (USP)
+- Content Uniformity per USP <905>:  _________  Initials ______
+- Weight Variation per USP <2091>:   _________  Initials ______
+- Disintegration per USP <701>:      _________ (target ≤ 30 min)  Initials ______
+
+FINAL APPROVAL
+Batcher:        _____________________  Date / Time _________
+QA:             _____________________  Date / Time _________
+Production Mgr: _____________________  Date / Time _________`;
+
+// ============================================================
 // MAIN COMPONENT
 // ============================================================
 export default function FormulationWizard() {
@@ -5323,59 +5377,12 @@ export default function FormulationWizard() {
                 );
               })()}
 
-              {/* ═══════════════════════════════════════════════════════════════════════
-                  EXECUTION CANVAS (Batch Sheet Template) — operator-authored procedures
-                  + QA + signoff conventions. Inherited by every Batch Sheet spawned from
-                  this Base Sheet version. Plain-text textarea per operator-validated
-                  "less is more" doctrine 2026-05-25 — operator's own conventions for
-                  fill-in slots (underscores), hierarchy, section headers; platform
-                  does not parse this content. Persisted to localStorage as bridge
-                  before Supabase save backend (launch-blocker #4) lands.
-                  ═══════════════════════════════════════════════════════════════════════ */}
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
-                  <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                    📝 Execution Canvas
-                    <span className="text-xs font-normal text-gray-500">(Batch Sheet Template)</span>
-                  </h2>
-                  <span className="text-[10px] uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                    Draft — localStorage only
-                  </span>
-                </div>
-                <p className="text-xs text-gray-600 mb-3">
-                  Author your procedures, QA capture format, and signoff slots here.
-                  Inherited by every Batch Sheet spawned from this Base Sheet version
-                  (operator edits per-batch for production capture). Plain text — use
-                  your own conventions for fill-in slots (underscores), step ordering,
-                  inline equipment IDs. Platform does not parse this content.
-                </p>
-                <textarea
-                  value={batchSheetTemplate}
-                  onChange={(e) => setBatchSheetTemplate(e.target.value)}
-                  placeholder={`PROCEDURE
-1. Add water to kettle and turn on steam.
-2. While kettle is heating, add tomato paste and turn on agitation.
-3. Add vinegar, peppers, spices and salt.
-4. Heat kettle to 200°F and hold for 5 minutes.
-   Start Time _________  End Time _________  Initials ______  QA Initials ______
-5. Pump to Surge Tank ST03 through PD pump 001.
-
-QA TESTS
-- pH measured:  _________ (target ≤ 4.6)   Initials ______
-- Brix measured: _________ (target 12 ± 2) Initials ______
-
-FINAL APPROVAL
-Batcher:        _____________________  Date / Time _________
-QA:             _____________________  Date / Time _________
-Production Mgr: _____________________  Date / Time _________`}
-                  rows={20}
-                  className="w-full font-mono text-xs border border-gray-300 rounded-lg p-3 focus:outline-none focus:border-emerald-500"
-                  spellCheck={false}
-                />
-                <p className="text-xs text-gray-400 mt-2">
-                  Saves to your browser as you type. Lost on cache clear. Persistent save (Supabase) lands with launch-blocker #4.
-                </p>
-              </div>
+              {/* Execution Canvas (Batch Sheet Template) lives on the Batch Sheet
+                  tab — see "Execution Canvas" section under Batch Sheet. Build
+                  Base Sheet holds formulation core (ingredients, %, capsule size,
+                  packaging); production procedures + QA + signoff conventions are
+                  authored on the Batch Sheet per cGMP MMR/BPR separation
+                  (21 CFR 111.205 / 111.255). */}
             </div>
 
             {/* RIGHT COLUMN - FDA Label */}
@@ -9470,7 +9477,7 @@ Production Mgr: _____________________  Date / Time _________`}
               <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="text-sm">
                 <span className="font-bold text-amber-900">PREVIEW — Batch Sheet design in active development.</span>
-                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Execution Canvas template on the Build Base Sheet tab DOES persist (localStorage).</span>
+                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Execution Canvas (below) DOES persist via localStorage.</span>
               </div>
             </div>
           </div>
@@ -9767,27 +9774,31 @@ Production Mgr: _____________________  Date / Time _________`}
                   </section>
                 )}
 
-                {/* Execution Record — operator-authored procedures + QA + signoff
-                    conventions inherited from Base Sheet's batchSheetTemplate. Per
-                    operator design 2026-05-25 "platform is the canvas, operator
-                    is the author" — plain text, operator's own format. When save
-                    backend lands, this textarea inherits the locked Base Sheet's
-                    batchSheetTemplate at spawn time + operator edits per-batch
-                    (filling in times, initials, deviations, observations). For
-                    this PREVIEW commit: shows the current Build Base Sheet's
-                    Execution Canvas content (localStorage-persisted). */}
-                {batchSheetTemplate.trim().length > 0 && (
-                  <section className="mb-6">
-                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
-                      <span>Execution Record</span>
-                      <span className="text-[10px] text-amber-600 font-normal normal-case tracking-normal">PREVIEW · inherited from Execution Canvas</span>
-                    </h2>
-                    <pre className="text-xs font-mono whitespace-pre-wrap bg-gray-50 border border-gray-200 rounded p-3 leading-relaxed">{batchSheetTemplate}</pre>
-                    <p className="text-[10px] text-gray-500 italic mt-1">
-                      Inherited from Build Base Sheet → Execution Canvas. When save backend lands (launch-blocker #4), Batch Sheets will inherit at spawn time from the locked Base Sheet version and operator will edit a per-batch copy for production capture.
-                    </p>
-                  </section>
-                )}
+                {/* Execution Canvas — operator-authored procedures + QA + signoff
+                    conventions. Per cGMP MMR/BPR separation (21 CFR 111.205 /
+                    111.255 for supplements; 21 CFR 117 for F&B), the Batch
+                    Production Record is the per-batch capture surface. Plain-text
+                    textarea — operator owns the format (fill-in slots, hierarchy,
+                    inline equipment IDs); platform does not parse content.
+                    Persisted to localStorage as bridge before Supabase save
+                    backend (launch-blocker #4) lands; future version will inherit
+                    the locked Base Sheet template at Batch Sheet spawn time. */}
+                <section className="mb-6 print:break-inside-avoid">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
+                    <span>Execution Canvas <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored procedures · localStorage draft)</span></span>
+                  </h2>
+                  <textarea
+                    value={batchSheetTemplate}
+                    onChange={(e) => setBatchSheetTemplate(e.target.value)}
+                    placeholder={mode === 'supplements' ? SUPPLEMENT_BATCH_TEMPLATE_PLACEHOLDER : FB_BATCH_TEMPLATE_PLACEHOLDER}
+                    rows={20}
+                    className="w-full font-mono text-xs border border-gray-300 rounded p-3 leading-relaxed focus:outline-none focus:border-emerald-500 print:border-0 print:p-0 print:resize-none"
+                    spellCheck={false}
+                  />
+                  <p className="text-[10px] text-gray-500 italic mt-1 print:hidden">
+                    Plain-text — use your own conventions for fill-in slots (underscores), step ordering, inline equipment IDs. Platform does not parse this content. Saves to browser as you type; persistent save (Supabase) lands with launch-blocker #4.
+                  </p>
+                </section>
 
                 {/* Process Instructions — TEMPLATE-DRIVEN (legacy, kept during
                     PREVIEW transition). Per operator design 2026-05-25, this
