@@ -161,6 +161,29 @@ Batcher:        _____________________  Date / Time _________
 QA:             _____________________  Date / Time _________
 Production Mgr: _____________________  Date / Time _________`;
 
+const FB_QA_CHECKPOINTS_PLACEHOLDER = `☐ pH measured at hot-fill (target ≤ 4.6 for acidified)  Initials _____
+☐ Brix measured at hot-fill (target per spec)  Initials _____
+☐ Container fill weight check every 30 min (target ± 2%)  Initials _____
+☐ Seal integrity 100% visual  Initials _____
+☐ Cool-down temperature curve documented (per scheduled process)
+☐ Allergen verification per Allergen Control Plan
+☐ Hold time at temperature ≥ ____ min  Initials _____
+☐ Final batch yield within ± 2% of theoretical  Initials _____
+☐ Retain samples: minimum 2× per lot, label + store per SOP`;
+
+const SUPPLEMENT_QA_CHECKPOINTS_PLACEHOLDER = `☐ Identity test verified per ingredient lot (FTIR / HPLC / DNA per ingredient class)  Initials _____
+☐ COA on file for each ingredient before use  Initials _____
+☐ Two-person verification on critical-ingredient weighings  Initials _____
+☐ Unit weight check every 30 min during encapsulation (n=10, target ± 5%)  Initials _____
+☐ Visual defect check every 30 min (n=20, no splits/cracks)  Initials _____
+☐ Content Uniformity per USP <905> (target RSD ≤ 6%)  Initials _____
+☐ Weight Variation per USP <2091>  Initials _____
+☐ Disintegration per USP <701> (target ≤ 30 min in water)  Initials _____
+☐ Final batch yield within ± 5% of theoretical  Initials _____
+☐ Allergen verification per Allergen Control Plan  Initials _____
+☐ Label spec verified against MMR  Initials _____
+☐ Retain samples: minimum 2× per lot, label + store per SOP`;
+
 const SUPPLEMENT_BATCH_TEMPLATE_PLACEHOLDER = `PROCEDURE
 1. Verify ingredient lots against MMR. Record lot + qty + initials.
    Ingredient _________ Lot _________ Qty _________ Initials ______
@@ -562,6 +585,24 @@ export default function FormulationWizard() {
       if (typeof window !== 'undefined') window.localStorage.setItem('fw_batchSheetTemplate_draft', batchSheetTemplate);
     } catch { /* localStorage unavailable — silent */ }
   }, [batchSheetTemplate]);
+  // Operator-authored QA Checkpoints — per operator 2026-05-25 "QA Checkpoints
+  // are also UI". Mirrors the batchSheetTemplate pattern: plain-text textarea,
+  // operator owns the format (checkbox conventions, ordering, references),
+  // platform does not parse. Persisted to localStorage; replaced by Supabase
+  // when launch-blocker #4 lands.
+  const [qaCheckpointsText, setQaCheckpointsText] = useState<string>('');
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+    try {
+      const stored = typeof window !== 'undefined' ? window.localStorage.getItem('fw_qaCheckpoints_draft') : null;
+      if (stored) setQaCheckpointsText(stored);
+    } catch { /* localStorage unavailable — silent */ }
+  }, []);
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem('fw_qaCheckpoints_draft', qaCheckpointsText);
+    } catch { /* localStorage unavailable — silent */ }
+  }, [qaCheckpointsText]);
   // ----- Supplier Qualification Tracker state ---------------------------
   const [supplierQuals, setSupplierQuals] = useState<SupplierQualification[]>([]);
   /** Sourcing tab sub-view toggle. */
@@ -9547,7 +9588,7 @@ export default function FormulationWizard() {
               <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="text-sm">
                 <span className="font-bold text-amber-900">PREVIEW — Batch Sheet design in active development.</span>
-                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Execution Canvas (below) DOES persist via localStorage.</span>
+                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Process Instructions (below) DOES persist via localStorage.</span>
               </div>
             </div>
           </div>
@@ -9762,15 +9803,20 @@ export default function FormulationWizard() {
                   </table>
                 </section>
 
-                {/* Execution Canvas — BATCHER #2 (procedure). Operator-authored
-                    procedures + QA + signoff conventions. Per cGMP MMR/BPR
-                    separation (21 CFR 111.205 / 111.255 supplements; 21 CFR 117
-                    F&B). Plain-text textarea — operator owns the format.
-                    Persisted to localStorage as bridge before Supabase save
-                    backend (launch-blocker #4) lands. */}
+                {/* Process Instructions — BATCHER #2 (procedure). Operator-
+                    authored procedures + QA + signoff conventions. Per cGMP
+                    MMR/BPR separation (21 CFR 111.205 / 111.255 supplements;
+                    21 CFR 117 F&B). Plain-text textarea — operator owns the
+                    format. Persisted to localStorage as bridge before Supabase
+                    save backend (launch-blocker #4) lands. Internal state
+                    variable name "batchSheetTemplate" retained for code
+                    continuity; user-facing title is "Process Instructions"
+                    per operator vocabulary 2026-05-25 (consolidates with the
+                    legacy template-driven Process Instructions section which
+                    was deleted in the same commit). */}
                 <section className="mb-6 print:break-inside-avoid">
                   <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
-                    <span>Execution Canvas <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored procedures · localStorage draft)</span></span>
+                    <span>Process Instructions <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored · localStorage draft)</span></span>
                   </h2>
                   <textarea
                     value={batchSheetTemplate}
@@ -9862,30 +9908,29 @@ export default function FormulationWizard() {
                   )}
                 </section>
 
-                {/* Process Instructions — QA #2 (legacy template; kept during
-                    PREVIEW transition until full Execution Canvas replacement). */}
-                <section className="mb-6">
+                {/* QA Checkpoints — QA #2 (the actual check list). Per operator
+                    2026-05-25 "QA Checkpoints are also UI" — replaced the
+                    template-driven hardcoded list with an editable textarea so
+                    QA Manager can author facility-specific checkpoints (mode-
+                    aware placeholder seeds the format). Persisted to localStorage
+                    via fw_qaCheckpoints_draft.
+                    Note: legacy template-driven Process Instructions section
+                    also deleted 2026-05-25 — same redundancy pattern. */}
+                <section className="mb-6 print:break-inside-avoid">
                   <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
-                    <span>Process Instructions <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(legacy template — will be replaced by Execution Record)</span></span>
+                    <span>QA Checkpoints <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored · localStorage draft)</span></span>
                   </h2>
-                  <ol className="list-decimal ml-5 space-y-1.5 text-sm">
-                    {processTemplate.steps.map((step, i) => (
-                      <li key={i} className="text-gray-800">{step}</li>
-                    ))}
-                  </ol>
-                </section>
-
-                {/* QA Checkpoints — QA #3 (the actual check list). */}
-                <section className="mb-6">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">QA Checkpoints</h2>
-                  <ul className="space-y-1.5 text-sm">
-                    {processTemplate.qaCheckpoints.map((qa, i) => (
-                      <li key={i} className="flex gap-2">
-                        <span className="font-mono">☐</span>
-                        <span>{qa}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <textarea
+                    value={qaCheckpointsText}
+                    onChange={(e) => setQaCheckpointsText(e.target.value)}
+                    placeholder={mode === 'supplements' ? SUPPLEMENT_QA_CHECKPOINTS_PLACEHOLDER : FB_QA_CHECKPOINTS_PLACEHOLDER}
+                    rows={12}
+                    className="w-full font-mono text-xs border border-gray-300 rounded p-3 leading-relaxed focus:outline-none focus:border-emerald-500 print:border-0 print:p-0 print:resize-none"
+                    spellCheck={false}
+                  />
+                  <p className="text-[10px] text-gray-500 italic mt-1 print:hidden">
+                    Plain-text — QA Manager owns the format (checkbox conventions, ordering, references). Platform does not parse this content. Saves to browser as you type.
+                  </p>
                 </section>
 
                 {/* Compliance Framework Reference — QA #4 (HACCP / cGMP framework +
