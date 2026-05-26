@@ -6944,11 +6944,26 @@ export default function FormulationWizard() {
                       );
                     })()}
 
+                    {/* Regulatory classification + spec coverage summary.
+                        Mode-gate 2026-05-25: the "Regulatory classification"
+                        line consumes specs.regulatoryClass which is computed by
+                        classifyFormulation() in lib/foodScience.ts — that
+                        function returns F&B acidified-foods classification text
+                        (citing 21 CFR 113 LACF / 114 Acidified) for the
+                        insufficient-data state. In supplements mode the
+                        DeterminationEngineCard above already routes correctly
+                        to DSHEA / 21 CFR 111; surfacing the F&B reg cite in
+                        the Spec Analysis card here would mislead a supplement
+                        operator into thinking acidified-foods filing applies.
+                        Spec coverage line + warning stay mode-agnostic
+                        (verified-mass coverage is useful for both modes). */}
                     <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-semibold text-gray-700">Regulatory classification:</span>
-                        <span className="text-emerald-700 font-medium">{specs.regulatoryClass}</span>
-                      </div>
+                      {mode !== 'supplements' && (
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-semibold text-gray-700">Regulatory classification:</span>
+                          <span className="text-emerald-700 font-medium">{specs.regulatoryClass}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-gray-500">
                         <span>Spec coverage:</span>
                         <span>{(specs.coverage * 100).toFixed(0)}% of mass has spec data</span>
@@ -9633,7 +9648,12 @@ export default function FormulationWizard() {
                       )}
                     </div>
                   )}
-                  <p className="text-xs text-gray-500 italic mt-2">{specs.regulatoryClass}</p>
+                  {/* Mode-gate 2026-05-25: regulatoryClass cites F&B 21 CFR 113/114
+                      in insufficient-data state; supplements route through DSHEA /
+                      21 CFR 111 via DeterminationEngineCard, not this string. */}
+                  {mode !== 'supplements' && (
+                    <p className="text-xs text-gray-500 italic mt-2">{specs.regulatoryClass}</p>
+                  )}
                   {processTemplate.targetSpecs && processTemplate.targetSpecs.length > 0 && (
                     <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
                       <span className="font-semibold">Critical targets for {productType}: </span>
