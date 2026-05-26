@@ -1033,7 +1033,7 @@ export default function FormulationWizard() {
 
   // Resolve effective tracked specs — user override if set, else product-type defaults.
   // Drives filtering on Spec Analysis panel and Batch Sheet Target Specs.
-  const effectiveTrackedSpecs = trackedSpecsOverride ?? getTrackedSpecDefaults(productType).tracked;
+  const effectiveTrackedSpecs = trackedSpecsOverride ?? getTrackedSpecDefaults(productType, mode).tracked;
   const trackedSet = new Set<TrackedSpec>(effectiveTrackedSpecs);
   // Auto-derived metrics: A/M ratio shows when both inputs tracked; LAC% shows when pH tracked.
   // Round 11 Finding #25 sub-issue 25b: mode-gate F&B-only spec tiles.
@@ -3624,7 +3624,7 @@ export default function FormulationWizard() {
                         const oldIsLegacy = isLegacyProductType;
                         const newIsBucket = DROPDOWN_PRODUCT_TYPES.some(pt => pt.name === next);
                         if (oldIsLegacy && newIsBucket && trackedSpecsOverride === null) {
-                          const currentEffective = getTrackedSpecDefaults(productType).tracked;
+                          const currentEffective = getTrackedSpecDefaults(productType, mode).tracked;
                           setTrackedSpecsOverride([...currentEffective]);
                         }
                         setProductType(next);
@@ -3724,7 +3724,7 @@ export default function FormulationWizard() {
                     Specs; unselected specs don't render at all. Defaults derive from the
                     product type; user edits persist across product-type changes. */}
                 {(() => {
-                  const defaults = getTrackedSpecDefaults(productType);
+                  const defaults = getTrackedSpecDefaults(productType, mode);
                   const effective = trackedSpecsOverride ?? defaults.tracked;
                   const effectiveSet = new Set(effective);
                   const isOverridden = trackedSpecsOverride !== null;
@@ -9584,16 +9584,31 @@ export default function FormulationWizard() {
           {ingredients.length > 0 && (() => {
             const targetBatchGrams = batchSize * (UNIT_TO_GRAMS[batchSizeUnit] || 1000);
             const scaleFactor = totalBatchGrams > 0 ? targetBatchGrams / totalBatchGrams : 1;
+            // Header identity lookup: stable product fields come from the saved
+            // formulation record (Product # + Version); they're the document's
+            // template identity. dashboardNow is the reactive "now" tick used
+            // for the Date Generated stamp (refreshes once per minute — close
+            // enough to print-click time without calling Date.now() in render).
+            const currentSavedForHeader = savedFormulations.find(f => f.name === formulationName.trim());
+            const currentVersionForHeader = currentSavedForHeader?.currentVersion || '1.0.0';
+            const dateGeneratedForHeader = new Date(dashboardNow).toLocaleString();
             return (
               <div className="bg-white border border-gray-200 rounded-xl p-8 print:p-0 print:border-0 print:rounded-none print:shadow-none">
-                {/* Header */}
+                {/* Header — left: product-stable identity (carries from Base Sheet).
+                    Right: per-batch capture (operator fills in) + generated stamp.
+                    Per cGMP MMR/BPR audience separation 2026-05-25 operator session. */}
                 <div className="border-b-2 border-gray-800 pb-4 mb-6">
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between items-start gap-6">
                     <div>
                       <h1 className="text-3xl font-bold text-gray-900">{formulationName || 'Untitled Formulation'}</h1>
                       <p className="text-gray-600 text-sm mt-1">{productType || 'Product type not set'}</p>
+                      <div className="mt-3 text-sm space-y-0.5">
+                        <div><span className="text-gray-500">Product #</span> <span className="font-bold ml-1">{partNumber || '_______________'}</span></div>
+                        <div><span className="text-gray-500">Version</span> <span className="font-bold ml-1">v{currentVersionForHeader}</span></div>
+                      </div>
                     </div>
-                    <div className="text-right text-sm">
+                    <div className="text-right text-sm shrink-0">
+                      <div className="text-[10px] text-gray-400 mb-2">Generated {dateGeneratedForHeader}</div>
                       <div><span className="text-gray-500">Batch #</span> <span className="font-bold">{batchNumber || '_______________'}</span></div>
                       <div><span className="text-gray-500">Date</span> <span className="font-bold">{productionDate}</span></div>
                       <div><span className="text-gray-500">Operator</span> <span className="font-bold">{operator || '_______________'}</span></div>
@@ -9746,8 +9761,8 @@ export default function FormulationWizard() {
                     <p className="text-[10px] text-gray-500 italic mt-1">
                       FALCPA umbrella + species format per 21 CFR 101.36 / §403(w). Always verify against supplier COA.
                     </p>
-                    <p className="text-xs text-gray-700 mt-3 leading-relaxed">
-                      Your facility&apos;s Allergen Control Plan and Sanitation SSOP define the cleaning + verification protocol for this changeover. Document the execution below; it follows onto the Batch Production Record. (21 CFR 117.135 — Allergen Preventive Controls.)
+                    <p className="text-[10px] text-gray-500 italic mt-2 leading-relaxed">
+                      Per facility&apos;s Allergen Control Plan + Sanitation SSOP. 21 CFR 117.135 — Allergen Preventive Controls.
                     </p>
                     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                       <div>
@@ -9798,9 +9813,10 @@ export default function FormulationWizard() {
                     <span>MMR — Critical Ingredient Verification</span>
                   </h2>
                   <div className="text-xs bg-gray-50 border border-gray-200 rounded p-3 text-gray-700 leading-relaxed">
-                    Some ingredients carry tight safety windows: preservative caps (Na benzoate ≤ 0.1% per 21 CFR 184.1733, K sorbate ≤ 0.1% per 182.3640), cure salts, high-potency micronutrients, pH-critical acidulants for acidified foods. Your Master Manufacturing Record specifies target weights and two-person verification per 21 CFR 111.205 / 117.130. Capture execution below; it follows onto the Batch Production Record.
-                    <br /><br />
-                    <span className="text-amber-700 italic">⚠ PREVIEW — Catalog critical-ingredient flagging mechanism not yet wired. When operator adds a critical ingredient (e.g., Sodium Benzoate, Potassium Sorbate, Sodium Nitrite), a per-ingredient capture row will auto-render here with target weight (from pinned Base Sheet) + actual weight + added-by / verified-by signoff slots.</span>
+                    Tight-safety-window ingredients: preservative caps (Na benzoate ≤ 0.1%, K sorbate ≤ 0.1%), cure salts, high-potency micronutrients.
+                    <p className="text-[10px] text-gray-500 italic mt-1">Per MMR target weights + two-person verification. 21 CFR 111.205 / 117.130.</p>
+                    <br />
+                    <span className="text-amber-700 italic">⚠ PREVIEW — Per-ingredient capture row will auto-render here when a critical ingredient is added (target weight from Base Sheet + actual weight + added-by / verified-by slots).</span>
                   </div>
                 </section>
 
@@ -9816,11 +9832,20 @@ export default function FormulationWizard() {
                   </section>
                 )}
 
-                {/* Suggested HACCP Category */}
+                {/* Compliance Framework Reference — HACCP / cGMP framework + CCPs.
+                    Per operator audience-separation 2026-05-25 — Batcher doesn't
+                    need the regulatory framework rationale (PCQI authored that
+                    plan; Batcher just executes the recipe + checks). Collapsed
+                    by default so production-floor view stays focused on action
+                    content; QA Manager / PCQI can expand for audit reference.
+                    Full Compliance Plan / Food Safety Plan tab is queued for
+                    future architectural work (per strategic session routing). */}
                 {suggestedHaccp && (
-                  <section className="mb-6">
-                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">🛡️ HACCP Category</h2>
-                    <div className="text-sm">
+                  <details className="mb-6">
+                    <summary className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide cursor-pointer hover:text-emerald-700">
+                      🛡️ Compliance Framework Reference <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(click to expand)</span>
+                    </summary>
+                    <div className="text-sm pl-2">
                       <div className="font-bold">{suggestedHaccp.name}</div>
                       <div className="text-xs text-gray-600">{suggestedHaccp.framework}</div>
                       <ul className="text-xs mt-2 space-y-1">
@@ -9829,7 +9854,7 @@ export default function FormulationWizard() {
                         ))}
                       </ul>
                     </div>
-                  </section>
+                  </details>
                 )}
 
                 {/* Execution Canvas — operator-authored procedures + QA + signoff

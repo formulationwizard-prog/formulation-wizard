@@ -168,13 +168,27 @@ const PRODUCT_TYPE_DEFAULTS: Record<string, TrackedSpecDefaults> = {
 };
 
 /**
- * Look up tracked-specs defaults for a product type. Returns the system-wide
- * fallback (pH/aw/brix/moisture, no suggestions) when productType is undefined
- * or not in the table.
+ * Look up tracked-specs defaults for a product type. Mode-aware fallback:
+ * supplements get SET_F (aw + moisture only — no F&B pH/Brix leakage);
+ * F&B and undefined-mode legacy callers get FALLBACK_DEFAULTS (pH/aw/brix/
+ * moisture). Per operator browser-test 2026-05-25 — supplement formulations
+ * with no Product Type selected were rendering pH 7.00 ± 0.50 / Brix —
+ * defaults on the Batch Sheet, which is F&B-mode-leakage.
+ *
+ * `mode` is optional so existing callers don't break; new callers in
+ * supplement-aware surfaces pass mode for correct fallback selection.
  */
-export function getTrackedSpecDefaults(productType: string | undefined): TrackedSpecDefaults {
-  if (!productType) return FALLBACK_DEFAULTS;
-  return PRODUCT_TYPE_DEFAULTS[productType] || FALLBACK_DEFAULTS;
+export function getTrackedSpecDefaults(
+  productType: string | undefined,
+  mode?: string,
+): TrackedSpecDefaults {
+  // Mode-aware fallback: supplements get SET_F (aw + moisture only);
+  // F&B and other modes get FALLBACK_DEFAULTS (pH/aw/brix/moisture).
+  // Typed as string (not ModeId) to keep this lib free of cross-module
+  // type imports — caller passes whatever mode string they have.
+  const fallback = mode === 'supplements' ? SET_F : FALLBACK_DEFAULTS;
+  if (!productType) return fallback;
+  return PRODUCT_TYPE_DEFAULTS[productType] || fallback;
 }
 
 /** Display label for a TrackedSpec — used in the checklist UI and Spec Analysis panel. */
