@@ -5830,7 +5830,7 @@ export default function FormulationWizard() {
                     className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition font-medium"
                     title="Print the label panel or save it as a PDF"
                   >
-                    📄 Save as PDF
+                    📄 Print/Save
                   </button>
                 </div>
                 {/* Print-only header with formulation context */}
@@ -5985,11 +5985,15 @@ export default function FormulationWizard() {
 
                       <div className="border-b-8 border-black" />
 
-                      {/* "Other Ingredients" — excipients only, in descending-weight order (ingredient statement) */}
-                      <p className="text-[10px] mt-2 leading-tight">
-                        <span className="font-bold">Other Ingredients:</span>{' '}
-                        {facts.otherIngredientsStatement || '—'}
-                      </p>
+                      {/* "Other Ingredients" — excipients only, in descending-weight order (ingredient statement).
+                          Omitted entirely when no excipients present (per FDA convention — empty Other Ingredients
+                          line has no regulatory meaning and clutters the panel). */}
+                      {facts.otherIngredientsStatement && (
+                        <p className="text-[10px] mt-2 leading-tight">
+                          <span className="font-bold">Other Ingredients:</span>{' '}
+                          {facts.otherIngredientsStatement}
+                        </p>
+                      )}
 
                       {allergenStatement.length > 0 && (
                         <p className="text-[10px] mt-2 leading-tight font-bold">Contains: {formatAllergenListBody(allergenStatement)}</p>
@@ -6462,8 +6466,8 @@ export default function FormulationWizard() {
                     </div>
                   ) : (
                     <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
-                      <p className="text-amber-900 font-semibold text-sm">Allergen Status: UNDOCUMENTED</p>
-                      <p className="text-amber-700 text-[10px] mt-1">Verify with supplier COA before labeling. Absence of declared allergens does not confirm absence of allergen presence — harm-critical floor doctrine.</p>
+                      <p className="text-amber-900 font-semibold text-sm">Verify no allergens present!</p>
+                      <p className="text-amber-700 text-[10px] mt-1">Auto-detection found none, but supplier COA confirms or denies cross-contact risk.</p>
                     </div>
                   )}
                 </div>
@@ -9490,7 +9494,7 @@ export default function FormulationWizard() {
                 disabled={ingredients.length === 0}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
               >
-                🖨️ Print / Save as PDF
+                🖨️ Print/Save
               </button>
             </div>
             {ingredients.length === 0 ? (
@@ -9872,7 +9876,7 @@ export default function FormulationWizard() {
                 disabled={ingredients.length === 0}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
               >
-                🖨️ Print / Save as PDF
+                🖨️ Print/Save
               </button>
             </div>
             {ingredients.length === 0 ? (

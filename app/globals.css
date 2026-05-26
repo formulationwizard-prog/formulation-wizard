@@ -335,6 +335,20 @@ input:focus, select:focus, textarea:focus {
     padding: 0 !important;
   }
 
+  /* Label-only print mode.
+     Previous implementation produced 8-page ghost-page bug (observed
+     2026-05-25): visibility:hidden keeps non-label content in document
+     flow → body extends to full content height → browser paginates the
+     empty pages with the absolutely-positioned label overlaid only on
+     page 1. Fix: clip the body and all its direct children to a fixed
+     single-page height so document height = one page, regardless of how
+     much invisible content sits inside. The label remains visible and
+     overlays page 1 via position:absolute. Using display:none on
+     non-label content was rejected because #printable-label is nested
+     deep in the React tree; hiding direct body children would hide its
+     ancestors. Using :has()-based ancestor walking with display:revert
+     was rejected because it forces label descendants to UA-default
+     display, breaking Tailwind flex/grid layouts inside the label. */
   body.print-label-only,
   body.print-label-only * {
     visibility: hidden;
@@ -352,10 +366,24 @@ input:focus, select:focus, textarea:focus {
     border: 0;
     border-radius: 0;
     box-shadow: none;
+    background: white;
   }
   body.print-label-only .print\:hidden {
     display: none !important;
     visibility: hidden !important;
+  }
+  /* Clip the body's content height so page count is bounded by the label,
+     not by the (invisible) workspace content height behind it. Without
+     these rules, the workspace body extends to 3000+px → 8-page print. */
+  html:has(body.print-label-only),
+  body.print-label-only {
+    height: auto !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+  }
+  body.print-label-only > * {
+    max-height: 100vh !important;
+    overflow: hidden !important;
   }
 }
 
