@@ -3556,7 +3556,7 @@ export default function FormulationWizard() {
                    safetySum.banned > 0 ? `${safetySum.banned} banned` : safetySum.critical > 0 ? `${safetySum.critical} critical` : safetySum.warning > 0 ? `${safetySum.warning} over UL` : safetySum.caution > 0 ? `${safetySum.caution} caution` : 'All doses safe'),
               pill('stability', 'Stability',
                    over.worstLossPct > 50 ? 'critical' : over.worstLossPct > 30 ? 'warn' : over.worstLossPct > 15 ? 'caution' : 'ok',
-                   over.bottleneck ? `${over.worstLossPct.toFixed(0)}% loss — ${over.bottleneck.ingredientName}` : 'No bottleneck'),
+                   over.bottleneck ? `${over.worstLossPct.toFixed(0)}% loss — ${stripCatalogQaTokens(over.bottleneck.ingredientName)}` : 'No bottleneck'),
               pill('compat', 'Compatibility',
                    compatSum.critical > 0 ? 'critical' : compatSum.warning > 0 ? 'warn' : compatSum.caution > 0 ? 'caution' : 'ok',
                    compatSum.critical + compatSum.warning + compatSum.caution === 0 ? 'No conflicts' : `${compatSum.critical + compatSum.warning + compatSum.caution} issue${compatSum.critical + compatSum.warning + compatSum.caution !== 1 ? 's' : ''}`),
@@ -5761,7 +5761,7 @@ export default function FormulationWizard() {
                               <div className="flex flex-wrap items-center gap-1">
                                 <span className="font-semibold text-gray-800">{f.limitName}</span>
                                 <span className="text-gray-500 text-[11px]">— ingredient:</span>
-                                <span className="font-medium text-gray-700 text-[11px]">{f.ingredientName}</span>
+                                <span className="font-medium text-gray-700 text-[11px]">{stripCatalogQaTokens(f.ingredientName)}</span>
                                 {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
                                   <>
                                     <span className="text-gray-500">·</span>
@@ -5913,7 +5913,7 @@ export default function FormulationWizard() {
                                 <div className="flex items-start gap-2">
                                   <span className="shrink-0 mt-0.5">{mark}</span>
                                   <div className="flex-1">
-                                    <div className="font-semibold text-gray-800">{f.ingredientName}</div>
+                                    <div className="font-semibold text-gray-800">{stripCatalogQaTokens(f.ingredientName)}</div>
                                     <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.advisory}</p>
                                   </div>
                                 </div>
@@ -6075,7 +6075,7 @@ export default function FormulationWizard() {
                       {facts.macroRows.map((row, i) => (
                         <div key={`macro-${i}`} className="border-b border-black py-1 flex justify-between text-sm">
                           <div>
-                            <span className="font-bold">{row.displayName}</span>{' '}
+                            <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                             {formatSupplementAmount(row.amount, row.unit)}{row.unit}
                           </div>
                           <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
@@ -6088,7 +6088,7 @@ export default function FormulationWizard() {
                           {facts.vitaminMineralRows.map((row, i) => (
                             <div key={`vm-${i}`} className="border-b border-black py-1 flex justify-between text-[11px] leading-tight">
                               <div>
-                                <span className="font-bold">{row.displayName}</span>{' '}
+                                <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                                 {formatSupplementAmount(row.amount, row.unit)} {row.unit}
                               </div>
                               <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
@@ -6104,7 +6104,7 @@ export default function FormulationWizard() {
                           {facts.otherActivesRows.map((row, i) => (
                             <div key={`oa-${i}`} className="border-b border-black py-1 flex justify-between text-[11px] leading-tight">
                               <div>
-                                <span className="font-bold">{row.displayName}</span>{' '}
+                                <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                                 {formatSupplementAmount(row.amount, row.unit)} {row.unit}
                               </div>
                               <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
@@ -7201,7 +7201,7 @@ export default function FormulationWizard() {
                     {overage.bottleneck && (
                       <div className="mb-3 text-sm text-gray-700">
                         <span className="font-semibold">Stability bottleneck:</span>{' '}
-                        <span className="font-medium">{overage.bottleneck.ingredientName}</span>{' '}
+                        <span className="font-medium">{stripCatalogQaTokens(overage.bottleneck.ingredientName)}</span>{' '}
                         <span className="text-gray-500">({CATEGORY_LABEL[overage.bottleneck.category]})</span>{' '}
                         <span className="text-gray-500">— </span>
                         <span className={`font-bold ${overage.bottleneck.lossPct > 30 ? 'text-red-700' : overage.bottleneck.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700'}`}>
@@ -7229,7 +7229,7 @@ export default function FormulationWizard() {
                             const lossColor = r.lossPct > 30 ? 'text-red-700' : r.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700';
                             return (
                               <tr key={i} className="border-b border-gray-200">
-                                <td className="py-1.5 pr-2 font-medium text-gray-800">{r.ingredientName}</td>
+                                <td className="py-1.5 pr-2 font-medium text-gray-800">{stripCatalogQaTokens(r.ingredientName)}</td>
                                 <td className="py-1.5 px-2 text-gray-500 text-[11px]">{CATEGORY_LABEL[r.category]}</td>
                                 <td className="py-1.5 px-2 text-right font-mono">{formatDose(r.labelClaimMg)}</td>
                                 <td className={`py-1.5 px-2 text-right font-mono font-bold ${lossColor}`}>{r.lossPct.toFixed(0)}%</td>
