@@ -4379,6 +4379,22 @@ export default function FormulationWizard() {
                               );
                             })()}
                           </div>
+                          {/* Part # — facility-specific raw-material SKU. Per operator
+                              2026-05-26 — operator workflow is "edit before saving" so
+                              this field surfaces on Build Base Sheet (authoring surface),
+                              not just on the Batch Sheet ingredient table render. Updates
+                              the same ing.partNumber field; persists with the formulation. */}
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                            <span>🏷️ Part #:</span>
+                            <input
+                              type="text"
+                              value={ing.partNumber || ''}
+                              onChange={(e) => updateIngredientPartNumber(index, e.target.value)}
+                              placeholder="Facility SKU"
+                              className="w-44 bg-white border border-gray-200 rounded px-2 py-0.5 text-xs font-mono focus:outline-none focus:border-emerald-400"
+                            />
+                            <span className="text-gray-400 text-[10px] italic">your facility&apos;s raw-material SKU</span>
+                          </div>
                           {ing.allergens?.length > 0 && (
                             <div className="flex flex-wrap gap-1 mb-2">{ing.allergens.map(a => <span key={a} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-amber-600" aria-hidden="true" /><span>{a}</span></span>)}</div>
                           )}
