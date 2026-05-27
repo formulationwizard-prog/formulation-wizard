@@ -362,6 +362,22 @@ export default function FormulationWizard() {
   const [lastEditedCountField, setLastEditedCountField] = useState<LastEditedCountField>(null);
   const [totalUnitsOverride, setTotalUnitsOverride] = useState<number | null>(null);
   const [suppPerUnitWeightMg, setSuppPerUnitWeightMg] = useState<number>(500);
+  // Per operator 2026-05-26 — capsule fill weight is operator-editable
+  // (defaults to capsule capacity but operator can lower it depending on
+  // formula density / packing reliability). Sync suppPerUnitWeightMg to
+  // capsuleCapacityMg(suppCapsuleSize) when capsule form selected OR
+  // capsule size changes. Operator's manual edits via setSuppPerUnitWeightMg
+  // persist until size changes again (different size = different sensible
+  // starting target). Tablet/gummy/etc. retain their 500mg default.
+  useEffect(() => {
+    if (mode !== 'supplements') return;
+    if (suppDeliveryForm !== 'capsule' && suppDeliveryForm !== 'softgel') return;
+    const cap = capsuleCapacityMg(suppCapsuleSize);
+    if (cap > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- capsule-size → fill-target default sync
+      setSuppPerUnitWeightMg(cap);
+    }
+  }, [mode, suppDeliveryForm, suppCapsuleSize]);
   /** Intended audience for the supplement — tightens UL thresholds (pregnancy retinol, pediatric iron, etc.). */
   const [suppAudience, setSuppAudience] = useState<SupplementAudience>('general');
   // ----- Supplement stability / overage conditions ---------------------------
@@ -1051,27 +1067,17 @@ export default function FormulationWizard() {
     // and under-stating per-cap fill by a factor of servings. Operator-
     // side Formula 1-4 testing surfaced the resulting "Low fill 2%"
     // advisories on realistic supplement formulations.
-    // SP3 split (revised 2026-05-26 per operator "serving size shouldn't
-    // depend on formula weight"):
-    //  • capacity-derived (capsule/softgel): per-unit weight = SELECTED
-    //    CAPSULE CAPACITY (from suppCapsuleSize). Per-serving mass =
-    //    capsule capacity × units-per-serving. Serving size is now
-    //    independent of formula sum — the formula doses must FIT inside
-    //    the capsules (over-fill flagged when formula > serving capacity).
-    //  • operator-input (tablet/gummy/lozenge/chewable): per-unit weight =
-    //    operator's die-set / mold target. Per-serving mass = target ×
-    //    units-per-serving. Any gap between actives and target = implicit
-    //    excipient mass.
-    // Both branches now derive per-serving mass FROM the per-unit target
-    // (operator-driven), not from the ingredient sum. The formula sum
-    // (totalBatchGrams) is the recipe doses; the platform's job is to
-    // verify the formula fits into the chosen container/capsule, not to
-    // re-derive container size from formula weight.
-    const capsuleCap = capsuleCapacityMg(suppCapsuleSize);
-    const perUnitMg = semantics === 'capacity-derived'
-      ? capsuleCap
-      : suppPerUnitWeightMg;
-
+    // SP3 split (further revised 2026-05-26 per operator clarification
+    // "user should fill their capsule to the weight they need depending
+    // on density"): per-unit weight is OPERATOR-EDITABLE for ALL count
+    // forms. Capsule/softgel default to capsule capacity (via the
+    // suppCapsuleSize → suppPerUnitWeightMg sync useEffect above);
+    // tablet/gummy/lozenge/chewable default to operator's die-set / mold
+    // target. Both branches now consume suppPerUnitWeightMg uniformly.
+    // Capsule capacity remains the physical MAX (validated in the UI's
+    // editable input); operator may target less for density / packing
+    // reliability reasons.
+    const perUnitMg = suppPerUnitWeightMg;
     const newServingMg = perUnitMg * suppUnitsPerServing;
     const newPackageG = (perUnitMg * totalUnits) / 1000;
 
@@ -4507,27 +4513,16 @@ export default function FormulationWizard() {
                     const displayServings = reconciled.servings;
                     const displayTotalUnits = reconciled.totalUnits;
                     // Per-unit weight + derived mass — revised 2026-05-26 per
-                    // operator directive "serving size shouldn't depend on
-                    // formula weight." Ingredient entries are per-serving doses
-                    // (locked-in supplements contract); totalBatchGrams is the
-                    // formula sum per serving, BUT serving size is now
-                    // independent of that — derived from operator's container
-                    // choice (capsule capacity × units, or operator-input target).
-                    //
-                    // SP3 split (decoupled):
-                    //  • capacity-derived (capsule/softgel): per-unit weight =
-                    //    SELECTED CAPSULE CAPACITY (capsuleCapacityMg(suppCapsuleSize)).
-                    //    Per-serving mass = capsule capacity × units-per-serving.
-                    //    Formula doses must FIT inside capsules (over-fill flagged
-                    //    when formula > serving capacity).
-                    //  • operator-input (tablet/gummy/lozenge/chewable): per-unit
-                    //    weight = operator's die-set / mold target. Per-serving
-                    //    mass = target × units-per-serving. Gap = excipient mass.
+                    // operator "user should fill their capsule to the weight
+                    // they need depending on density." Per-unit weight is
+                    // OPERATOR-EDITABLE for all count forms; capsule/softgel
+                    // default to capsule capacity (synced via useEffect at
+                    // mount time), tablet/gummy/lozenge/chewable default to
+                    // operator's die-set / mold target (500mg). Serving size
+                    // mass = per-unit × units-per-serving — independent of
+                    // formula sum (operator's recipe doses must FIT inside).
                     const perServingMgFromFormulation = totalBatchGrams * 1000;
-                    const capsuleCapForServing = capsuleCapacityMg(suppCapsuleSize);
-                    const perUnitMg = semantics === 'capacity-derived'
-                      ? capsuleCapForServing
-                      : suppPerUnitWeightMg;
+                    const perUnitMg = suppPerUnitWeightMg;
                     const derivedServingMassMg = perUnitMg * suppUnitsPerServing;
                     const derivedPackageMassG = (perUnitMg * displayTotalUnits) / 1000;
                     return (
@@ -4596,40 +4591,40 @@ export default function FormulationWizard() {
                               Auto-syncs with Servings × Units Per Serving ({suppUnitsPerServing}).
                             </p>
                           </div>
-                          {/* Per-Unit Weight — derived for capsule/softgel; operator-input for tablet/gummy/lozenge/chewable */}
+                          {/* Per-Unit Weight — operator-editable for all count
+                              forms. Capsule/softgel default to capsule capacity
+                              (from suppCapsuleSize); operator may set lower
+                              based on formula density / packing reliability.
+                              Tablet/gummy/lozenge/chewable use operator's
+                              die-set / mold target. Per operator 2026-05-26 —
+                              "user should fill their capsule to the weight
+                              they need depending on density." */}
                           <div>
                             <label className="block text-sm font-medium text-gray-600 mb-2">
                               Per-{noun.singular} Weight
                             </label>
+                            <div className="flex gap-1">
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={suppPerUnitWeightMg}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value);
+                                  if (!isNaN(v) && v > 0) setSuppPerUnitWeightMg(v);
+                                }}
+                                className="w-full text-center border border-emerald-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
+                              />
+                              <div className="border border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-sm text-gray-600">mg</div>
+                            </div>
                             {semantics === 'capacity-derived' ? (
-                              <>
-                                <div className="w-full text-center border border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-lg font-bold text-emerald-700">
-                                  {formatMassDisplay(perUnitMg)}
-                                </div>
-                                <p className="text-[10px] text-gray-500 mt-1 leading-tight">
-                                  Derived from formulation ÷ total {unitWord.toLowerCase()}.
-                                </p>
-                              </>
+                              <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                                Max {capsuleCapacityMg(suppCapsuleSize)} mg (#{suppCapsuleSize} capacity). Lower if your formula doesn&apos;t pack to full.
+                              </p>
                             ) : (
-                              <>
-                                <div className="flex gap-1">
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    step={1}
-                                    value={suppPerUnitWeightMg}
-                                    onChange={(e) => {
-                                      const v = parseFloat(e.target.value);
-                                      if (!isNaN(v) && v > 0) setSuppPerUnitWeightMg(v);
-                                    }}
-                                    className="w-full text-center border border-emerald-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
-                                  />
-                                  <div className="border border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-sm text-gray-600">mg</div>
-                                </div>
-                                <p className="text-[10px] text-gray-500 mt-1 leading-tight">
-                                  Target {noun.singular.toLowerCase()} weight (die-set / mold).
-                                </p>
-                              </>
+                              <p className="text-[10px] text-gray-500 mt-1 leading-tight">
+                                Target {noun.singular.toLowerCase()} weight (die-set / mold).
+                              </p>
                             )}
                           </div>
                         </div>
@@ -4741,12 +4736,18 @@ export default function FormulationWizard() {
                   Supplement Facts label.
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && (() => {
-                // Fill weight per unit in milligrams (serving / unitsPerServing).
-                // For count-based forms post-5b, servingSizeInGrams is itself
-                // derived from count inputs via the sync useEffect, so this
-                // computation is consistent with the count-based input model.
+                // Fill weight per unit = FORMULA doses per unit (revised
+                // 2026-05-26 after operator decouple-serving-from-formula
+                // fix). Diagnostic job is "does the formula FIT inside the
+                // chosen capsule?" — must compare formula mass to capsule
+                // capacity. Previously read servingSizeInGrams which is now
+                // capsule-capacity-derived (per the decouple fix), so reading
+                // it here would always produce capsuleCap / capsuleCap = 100%
+                // utilization regardless of how much the formula exceeds the
+                // capsule. totalBatchGrams (formula sum per serving) is the
+                // correct comparand for over-fill detection.
                 const fillWeightMg = suppUnitsPerServing > 0
-                  ? (servingSizeInGrams * 1000) / suppUnitsPerServing
+                  ? (totalBatchGrams * 1000) / suppUnitsPerServing
                   : 0;
                 const capsuleCap = capsuleCapacityMg(suppCapsuleSize);
                 const capsuleUsagePct = capsuleCap > 0 ? (fillWeightMg / capsuleCap) * 100 : 0;
