@@ -7053,7 +7053,7 @@ export default function FormulationWizard() {
                           {/* Explainer text specific to current classification */}
                           <p className="text-[10px] text-gray-700 mt-3 leading-relaxed italic">
                             {cls === 'acid' && `Naturally acid food. Low-acid components (${lac.toFixed(1)}%) under the 5% FDA threshold. Hot-fill + GMP only — no scheduled process filing.`}
-                            {cls === 'acidified' && `Low-acid base (${lac.toFixed(1)}%) acidified to pH ${pH.toFixed(2)}. THIS IS A REGULATED PATHWAY. Scheduled Process + Process Authority review mandatory before first commercial batch (21 CFR 114).`}
+                            {cls === 'acidified' && `Low-acid base (${lac.toFixed(1)}%) acidified to pH ${pH.toFixed(2)}. THIS IS A REGULATED PATHWAY. Under 21 CFR 114, your facility must engage a Process Authority for Scheduled Process review before first commercial batch.`}
                             {cls === 'acidified-in-process' && `Acidulant is present and ${lac.toFixed(1)}% low-acid base detected, but finished pH ${pH.toFixed(2)} is above 4.6. Add more acid until equilibrium pH ≤ 4.6 — target ≤ 4.2 for safety margin. Once acidified, 21 CFR 114 filing required.`}
                             {cls === 'lacf' && `Low-acid canned food. pH ${pH.toFixed(2)} > 4.6 AND aw ${aw.toFixed(3)} > 0.85. Requires retort to commercial sterility (F₀ typ. ≥ 6 min) and scheduled process filing under 21 CFR 113. This is the highest-risk FDA process category — C. botulinum control is non-negotiable.`}
                             {cls === 'shelf-stable-dry' && `Shelf-stable by water activity (aw ${aw.toFixed(3)} ≤ 0.85). No FDA scheduled process filing. Follow 21 CFR 117 Preventive Controls + low-moisture environmental Salmonella program.`}
@@ -10154,10 +10154,10 @@ export default function FormulationWizard() {
                     <div className="mt-3 p-3 bg-red-50 border border-red-300 rounded-lg">
                       <p className="text-sm text-red-800 font-semibold inline-flex items-start gap-1.5">
                         <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
-                        <span>Process Authority review &amp; letter REQUIRED before first commercial batch.</span>
+                        <span>Your facility must obtain a Process Authority letter before first commercial batch (required under 21 CFR 113.83 / 114.83).</span>
                       </p>
                       <p className="text-xs text-red-700 mt-1.5">
-                        This classification is computed from your ingredient data and is <strong>advisory</strong>. The actual Scheduled Process filing, critical factors, and thermal process parameters MUST be determined by a qualified Process Authority per 21 CFR 113.83 / 114.83.
+                        This classification is computed from your ingredient data and is <strong>advisory only</strong>. Per 21 CFR 113.83 / 114.83, the actual Scheduled Process filing, critical factors, and thermal process parameters must be determined by a qualified Process Authority — not by this tool.
                       </p>
                       <button
                         onClick={() => setActiveTab('authorities')}
