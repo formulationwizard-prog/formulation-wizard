@@ -161,6 +161,52 @@ Batcher:        _____________________  Date / Time _________
 QA:             _____________________  Date / Time _________
 Production Mgr: _____________________  Date / Time _________`;
 
+// Strip internal catalog-QA tokens from ingredient display names on
+// controlled-document surfaces (BPR, etc.) per operator 2026-05-26 — the
+// catalog has Tier-A/Tier-B PENDING TIER VERIFICATION suffixes on duplicate-
+// SKU entries from the May-20 audit (L-Citrulline Malate, Creatine Monohydrate).
+// These tags are internal QA flags for the catalog-author roadmap; they
+// shouldn't bleed onto production-facing BPR documents handed to Batchers.
+// Path A fix: strip the tokens at render time. Path B (proper resolution
+// of the underlying duplicate-SKU pairs in the catalog itself) remains
+// queued per [[project_catalog_duplicate_sku_audit_ticket]].
+//
+// Scope: applied ONLY to the printable BPR ingredient table render. Build
+// Base Sheet's Current Formulation cards (editing/internal surface) keep
+// the full catalog name visible so the catalog author can spot pending
+// entries. SFP / NFP / ingredient statement strip remains a follow-up if
+// the same tokens surface on consumer-facing label outputs.
+function stripCatalogQaTokens(name: string): string {
+  return name
+    .replace(/,\s*Tier-[AB],\s*PENDING TIER VERIFICATION/g, '')
+    .replace(/,\s*PENDING TIER VERIFICATION/g, '')
+    .replace(/,\s*Tier-[AB]/g, '')
+    .trim();
+}
+
+const FB_QA_CHECKPOINTS_PLACEHOLDER = `☐ pH measured at hot-fill (target ≤ 4.6 for acidified)  Initials _____
+☐ Brix measured at hot-fill (target per spec)  Initials _____
+☐ Container fill weight check every 30 min (target ± 2%)  Initials _____
+☐ Seal integrity 100% visual  Initials _____
+☐ Cool-down temperature curve documented (per scheduled process)
+☐ Allergen verification per Allergen Control Plan
+☐ Hold time at temperature ≥ ____ min  Initials _____
+☐ Final batch yield within ± 2% of theoretical  Initials _____
+☐ Retain samples: minimum 2× per lot, label + store per SOP`;
+
+const SUPPLEMENT_QA_CHECKPOINTS_PLACEHOLDER = `☐ Identity test verified per ingredient lot (FTIR / HPLC / DNA per ingredient class)  Initials _____
+☐ COA on file for each ingredient before use  Initials _____
+☐ Two-person verification on critical-ingredient weighings  Initials _____
+☐ Unit weight check every 30 min during encapsulation (n=10, target ± 5%)  Initials _____
+☐ Visual defect check every 30 min (n=20, no splits/cracks)  Initials _____
+☐ Content Uniformity per USP <905> (target RSD ≤ 6%)  Initials _____
+☐ Weight Variation per USP <2091>  Initials _____
+☐ Disintegration per USP <701> (target ≤ 30 min in water)  Initials _____
+☐ Final batch yield within ± 5% of theoretical  Initials _____
+☐ Allergen verification per Allergen Control Plan  Initials _____
+☐ Label spec verified against MMR  Initials _____
+☐ Retain samples: minimum 2× per lot, label + store per SOP`;
+
 const SUPPLEMENT_BATCH_TEMPLATE_PLACEHOLDER = `PROCEDURE
 1. Verify ingredient lots against MMR. Record lot + qty + initials.
    Ingredient _________ Lot _________ Qty _________ Initials ______
@@ -365,6 +411,21 @@ export default function FormulationWizard() {
   // runtime; consumers narrow via `productClass || undefined` when passing
   // to checkCompliance.
   const [productClass, setProductClassState] = useState<ProductClass | ''>('');
+  // Auto-default productClass when the active mode offers exactly one option.
+  // Per operator UX 2026-05-25 — supplements mode has only `'supplement'`;
+  // forcing the user to "choose" the only available option is friction with
+  // no compliance benefit. The Round 10 Path A-2 "no default-uncategorized
+  // state" invariant is preserved on the data layer (productClass is still
+  // explicitly set, never left empty before save); only the UX requirement
+  // to interact is dropped when the choice is unambiguous. F&B mode (7
+  // options) continues to require explicit operator selection.
+  useEffect(() => {
+    const options = productClassesForMode(mode);
+    if (options.length === 1 && productClass !== options[0]) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mode-driven default sync
+      setProductClassState(options[0]);
+    }
+  }, [mode, productClass]);
   // Whether the currently-stored productType references a legacy entry no longer
   // surfaced in the dropdown (Round 2 narrowing). Used to display a fallback option
   // + migration CTA. Note: declared AFTER productType useState because it depends on
@@ -547,6 +608,24 @@ export default function FormulationWizard() {
       if (typeof window !== 'undefined') window.localStorage.setItem('fw_batchSheetTemplate_draft', batchSheetTemplate);
     } catch { /* localStorage unavailable — silent */ }
   }, [batchSheetTemplate]);
+  // Operator-authored QA Checkpoints — per operator 2026-05-25 "QA Checkpoints
+  // are also UI". Mirrors the batchSheetTemplate pattern: plain-text textarea,
+  // operator owns the format (checkbox conventions, ordering, references),
+  // platform does not parse. Persisted to localStorage; replaced by Supabase
+  // when launch-blocker #4 lands.
+  const [qaCheckpointsText, setQaCheckpointsText] = useState<string>('');
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+    try {
+      const stored = typeof window !== 'undefined' ? window.localStorage.getItem('fw_qaCheckpoints_draft') : null;
+      if (stored) setQaCheckpointsText(stored);
+    } catch { /* localStorage unavailable — silent */ }
+  }, []);
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem('fw_qaCheckpoints_draft', qaCheckpointsText);
+    } catch { /* localStorage unavailable — silent */ }
+  }, [qaCheckpointsText]);
   // ----- Supplier Qualification Tracker state ---------------------------
   const [supplierQuals, setSupplierQuals] = useState<SupplierQualification[]>([]);
   /** Sourcing tab sub-view toggle. */
@@ -619,6 +698,17 @@ export default function FormulationWizard() {
   const [batchNumber, setBatchNumber] = useState('');
   const [productionDate, setProductionDate] = useState(new Date().toISOString().slice(0, 10));
   const [operator, setOperator] = useState('');
+  // Controlled-document header fields per operator 2026-05-25 — Batch Sheets
+  // are controlled documents in cGMP shops. Doc # is the facility's QMS-
+  // assigned identifier (BPR-####); Manufacturer is the legal producing
+  // entity; Brand is the co-packing client name (always visible per operator
+  // direction — not conditional); Product Name is the consumer-facing
+  // product name distinct from internal formulationName. All four are
+  // user-edited, free-text, persist with the formulation record.
+  const [controlledDocNumber, setControlledDocNumber] = useState<string>('');
+  const [manufacturerName, setManufacturerName] = useState<string>('');
+  const [brandName, setBrandName] = useState<string>('');
+  const [productName, setProductName] = useState<string>('');
   const [saveMessage, setSaveMessage] = useState('');
   const [dbCategory, setDbCategory] = useState('All');
   const [dbSearch, setDbSearch] = useState('');
@@ -1018,7 +1108,7 @@ export default function FormulationWizard() {
 
   // Resolve effective tracked specs — user override if set, else product-type defaults.
   // Drives filtering on Spec Analysis panel and Batch Sheet Target Specs.
-  const effectiveTrackedSpecs = trackedSpecsOverride ?? getTrackedSpecDefaults(productType).tracked;
+  const effectiveTrackedSpecs = trackedSpecsOverride ?? getTrackedSpecDefaults(productType, mode).tracked;
   const trackedSet = new Set<TrackedSpec>(effectiveTrackedSpecs);
   // Auto-derived metrics: A/M ratio shows when both inputs tracked; LAC% shows when pH tracked.
   // Round 11 Finding #25 sub-issue 25b: mode-gate F&B-only spec tiles.
@@ -1263,6 +1353,12 @@ export default function FormulationWizard() {
     recalculate(u);
   };
   const updateCost = (i: number, val: string) => { const u = [...ingredients]; if (u[i]) { u[i].costPerKg = parseFloat(val) || 0; setIngredients(u); recalculate(u); } };
+  /** Update the facility-specific raw-material part number for an ingredient.
+   *  User-edited per operator directive 2026-05-25; not catalog-derived. */
+  const updateIngredientPartNumber = (i: number, val: string) => {
+    const u = [...ingredients];
+    if (u[i]) { u[i].partNumber = val; setIngredients(u); }
+  };
   /** Change the supplier name on an ingredient (propagates to subsequent Cost Tool + Sourcing lookups). */
   const updateSupplier = (i: number, supplier: string) => {
     const u = [...ingredients];
@@ -3460,7 +3556,7 @@ export default function FormulationWizard() {
                    safetySum.banned > 0 ? `${safetySum.banned} banned` : safetySum.critical > 0 ? `${safetySum.critical} critical` : safetySum.warning > 0 ? `${safetySum.warning} over UL` : safetySum.caution > 0 ? `${safetySum.caution} caution` : 'All doses safe'),
               pill('stability', 'Stability',
                    over.worstLossPct > 50 ? 'critical' : over.worstLossPct > 30 ? 'warn' : over.worstLossPct > 15 ? 'caution' : 'ok',
-                   over.bottleneck ? `${over.worstLossPct.toFixed(0)}% loss — ${over.bottleneck.ingredientName}` : 'No bottleneck'),
+                   over.bottleneck ? `${over.worstLossPct.toFixed(0)}% loss — ${stripCatalogQaTokens(over.bottleneck.ingredientName)}` : 'No bottleneck'),
               pill('compat', 'Compatibility',
                    compatSum.critical > 0 ? 'critical' : compatSum.warning > 0 ? 'warn' : compatSum.caution > 0 ? 'caution' : 'ok',
                    compatSum.critical + compatSum.warning + compatSum.caution === 0 ? 'No conflicts' : `${compatSum.critical + compatSum.warning + compatSum.caution} issue${compatSum.critical + compatSum.warning + compatSum.caution !== 1 ? 's' : ''}`),
@@ -3609,7 +3705,7 @@ export default function FormulationWizard() {
                         const oldIsLegacy = isLegacyProductType;
                         const newIsBucket = DROPDOWN_PRODUCT_TYPES.some(pt => pt.name === next);
                         if (oldIsLegacy && newIsBucket && trackedSpecsOverride === null) {
-                          const currentEffective = getTrackedSpecDefaults(productType).tracked;
+                          const currentEffective = getTrackedSpecDefaults(productType, mode).tracked;
                           setTrackedSpecsOverride([...currentEffective]);
                         }
                         setProductType(next);
@@ -3640,41 +3736,60 @@ export default function FormulationWizard() {
                     compliance findings exist (handleProductClassChange handler).
                     The save-block in saveFormulation() refuses to persist unset
                     state — making this the load-bearing UX gate that enforces
-                    explicit productClass on every saved formulation. */}
-                <div className="mb-3">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Product Class <span className="text-red-500">*</span>{' '}
-                    <span className="text-gray-400">
-                      {mode === 'supplements'
-                        ? '(Dietary Supplement classification — DSHEA / UL safety framework applies; required to save)'
-                        : '(drives chemical-safety compliance routing — required to save)'}
-                    </span>
-                  </label>
-                  <select
-                    value={productClass}
-                    onChange={(e) => handleProductClassChange(e.target.value as ProductClass | '')}
-                    className={`w-full border rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-500 ${
-                      productClass === '' ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                    }`}
-                  >
-                    <option value="">— Select a product class (required) —</option>
-                    {/* Finding #18 (2026-05-15): mode-aware filter via
-                        productClassesForMode. Supplements mode shows only the
-                        Dietary Supplement option (compliance routing is via the
-                        DSHEA/UL stack, not Path A's F&B chemical-safety paths);
-                        F&B-style modes show all 7 non-supplement options. */}
-                    {productClassesForMode(mode).map(pc => (
-                      <option key={pc} value={pc}>{PRODUCT_CLASS_LABEL[pc]}</option>
-                    ))}
-                  </select>
-                  {productClass === '' && (
-                    <p className="text-xs text-red-600 mt-1">
-                      Product Class is required {mode === 'supplements'
-                        ? 'for the Dietary Supplement DSHEA / UL safety framework. Save will be blocked until selected.'
-                        : 'for chemical-safety compliance routing. Save will be blocked until selected.'}
-                    </p>
-                  )}
-                </div>
+                    explicit productClass on every saved formulation.
+
+                    UX 2026-05-25: when the active mode offers exactly one
+                    productClass option (e.g. supplements → 'supplement'),
+                    render as read-only display rather than a one-option
+                    dropdown. The auto-default useEffect above keeps the data
+                    layer invariant intact; only the operator-interaction
+                    requirement is dropped when the choice is unambiguous. */}
+                {(() => {
+                  const options = productClassesForMode(mode);
+                  if (options.length === 1) {
+                    const onlyPc = options[0];
+                    return (
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                          Product Class{' '}
+                          <span className="text-gray-400">
+                            {mode === 'supplements'
+                              ? '(DSHEA / UL safety framework applies)'
+                              : '(drives chemical-safety compliance routing)'}
+                          </span>
+                        </label>
+                        <div className="w-full border border-gray-200 rounded-lg px-4 py-2.5 bg-gray-50 text-gray-700">
+                          {PRODUCT_CLASS_LABEL[onlyPc]}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="mb-3">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Product Class <span className="text-red-500">*</span>{' '}
+                        <span className="text-gray-400">(drives chemical-safety compliance routing — required to save)</span>
+                      </label>
+                      <select
+                        value={productClass}
+                        onChange={(e) => handleProductClassChange(e.target.value as ProductClass | '')}
+                        className={`w-full border rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-500 ${
+                          productClass === '' ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">— Select a product class (required) —</option>
+                        {options.map(pc => (
+                          <option key={pc} value={pc}>{PRODUCT_CLASS_LABEL[pc]}</option>
+                        ))}
+                      </select>
+                      {productClass === '' && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Product Class is required for chemical-safety compliance routing. Save will be blocked until selected.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Legacy CTA — prompts the user to migrate from a hidden product type
                     to one of the v1 buckets. Migration preserves their tracked_specs
                     customization (see onChange handler above). */}
@@ -3690,7 +3805,7 @@ export default function FormulationWizard() {
                     Specs; unselected specs don't render at all. Defaults derive from the
                     product type; user edits persist across product-type changes. */}
                 {(() => {
-                  const defaults = getTrackedSpecDefaults(productType);
+                  const defaults = getTrackedSpecDefaults(productType, mode);
                   const effective = trackedSpecsOverride ?? defaults.tracked;
                   const effectiveSet = new Set(effective);
                   const isOverridden = trackedSpecsOverride !== null;
@@ -3725,7 +3840,22 @@ export default function FormulationWizard() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-2">
-                        {TRACKED_SPEC_ORDER.map(s => {
+                        {TRACKED_SPEC_ORDER
+                          .filter(s => {
+                            // Hide F&B-only specs in supplements mode per operator
+                            // 2026-05-25 "2 left over from food" — Brix (sugar content
+                            // of liquid foods), Acetic Acid % (vinegar products),
+                            // Bostwick + Brookfield (food viscosity instruments) are
+                            // F&B-only and don't apply to dietary supplements. pH /
+                            // a_w / Moisture % stay visible — they have legitimate
+                            // supplement use cases (liquid forms, hygroscopic powders,
+                            // capsule shell moisture).
+                            if (mode === 'supplements') {
+                              return !['brix', 'aceticAcid', 'bostwick', 'brookfield'].includes(s);
+                            }
+                            return true;
+                          })
+                          .map(s => {
                           const checked = effectiveSet.has(s);
                           const isSuggested = suggestedSet.has(s);
                           return (
@@ -5631,7 +5761,7 @@ export default function FormulationWizard() {
                               <div className="flex flex-wrap items-center gap-1">
                                 <span className="font-semibold text-gray-800">{f.limitName}</span>
                                 <span className="text-gray-500 text-[11px]">— ingredient:</span>
-                                <span className="font-medium text-gray-700 text-[11px]">{f.ingredientName}</span>
+                                <span className="font-medium text-gray-700 text-[11px]">{stripCatalogQaTokens(f.ingredientName)}</span>
                                 {f.amountPerServing !== null && f.effectiveUL !== null && f.percentOfUL !== null && (
                                   <>
                                     <span className="text-gray-500">·</span>
@@ -5783,7 +5913,7 @@ export default function FormulationWizard() {
                                 <div className="flex items-start gap-2">
                                   <span className="shrink-0 mt-0.5">{mark}</span>
                                   <div className="flex-1">
-                                    <div className="font-semibold text-gray-800">{f.ingredientName}</div>
+                                    <div className="font-semibold text-gray-800">{stripCatalogQaTokens(f.ingredientName)}</div>
                                     <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.advisory}</p>
                                   </div>
                                 </div>
@@ -5830,7 +5960,7 @@ export default function FormulationWizard() {
                     className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition font-medium"
                     title="Print the label panel or save it as a PDF"
                   >
-                    📄 Save as PDF
+                    📄 Print/Save
                   </button>
                 </div>
                 {/* Print-only header with formulation context */}
@@ -5945,7 +6075,7 @@ export default function FormulationWizard() {
                       {facts.macroRows.map((row, i) => (
                         <div key={`macro-${i}`} className="border-b border-black py-1 flex justify-between text-sm">
                           <div>
-                            <span className="font-bold">{row.displayName}</span>{' '}
+                            <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                             {formatSupplementAmount(row.amount, row.unit)}{row.unit}
                           </div>
                           <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
@@ -5958,7 +6088,7 @@ export default function FormulationWizard() {
                           {facts.vitaminMineralRows.map((row, i) => (
                             <div key={`vm-${i}`} className="border-b border-black py-1 flex justify-between text-[11px] leading-tight">
                               <div>
-                                <span className="font-bold">{row.displayName}</span>{' '}
+                                <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                                 {formatSupplementAmount(row.amount, row.unit)} {row.unit}
                               </div>
                               <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
@@ -5974,7 +6104,7 @@ export default function FormulationWizard() {
                           {facts.otherActivesRows.map((row, i) => (
                             <div key={`oa-${i}`} className="border-b border-black py-1 flex justify-between text-[11px] leading-tight">
                               <div>
-                                <span className="font-bold">{row.displayName}</span>{' '}
+                                <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                                 {formatSupplementAmount(row.amount, row.unit)} {row.unit}
                               </div>
                               <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
@@ -5985,11 +6115,15 @@ export default function FormulationWizard() {
 
                       <div className="border-b-8 border-black" />
 
-                      {/* "Other Ingredients" — excipients only, in descending-weight order (ingredient statement) */}
-                      <p className="text-[10px] mt-2 leading-tight">
-                        <span className="font-bold">Other Ingredients:</span>{' '}
-                        {facts.otherIngredientsStatement || '—'}
-                      </p>
+                      {/* "Other Ingredients" — excipients only, in descending-weight order (ingredient statement).
+                          Omitted entirely when no excipients present (per FDA convention — empty Other Ingredients
+                          line has no regulatory meaning and clutters the panel). */}
+                      {facts.otherIngredientsStatement && (
+                        <p className="text-[10px] mt-2 leading-tight">
+                          <span className="font-bold">Other Ingredients:</span>{' '}
+                          {facts.otherIngredientsStatement}
+                        </p>
+                      )}
 
                       {allergenStatement.length > 0 && (
                         <p className="text-[10px] mt-2 leading-tight font-bold">Contains: {formatAllergenListBody(allergenStatement)}</p>
@@ -6462,8 +6596,8 @@ export default function FormulationWizard() {
                     </div>
                   ) : (
                     <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
-                      <p className="text-amber-900 font-semibold text-sm">Allergen Status: UNDOCUMENTED</p>
-                      <p className="text-amber-700 text-[10px] mt-1">Verify with supplier COA before labeling. Absence of declared allergens does not confirm absence of allergen presence — harm-critical floor doctrine.</p>
+                      <p className="text-amber-900 font-semibold text-sm">Verify no allergens present!</p>
+                      <p className="text-amber-700 text-[10px] mt-1">Auto-detection found none, but supplier COA confirms or denies cross-contact risk.</p>
                     </div>
                   )}
                 </div>
@@ -6906,11 +7040,26 @@ export default function FormulationWizard() {
                       );
                     })()}
 
+                    {/* Regulatory classification + spec coverage summary.
+                        Mode-gate 2026-05-25: the "Regulatory classification"
+                        line consumes specs.regulatoryClass which is computed by
+                        classifyFormulation() in lib/foodScience.ts — that
+                        function returns F&B acidified-foods classification text
+                        (citing 21 CFR 113 LACF / 114 Acidified) for the
+                        insufficient-data state. In supplements mode the
+                        DeterminationEngineCard above already routes correctly
+                        to DSHEA / 21 CFR 111; surfacing the F&B reg cite in
+                        the Spec Analysis card here would mislead a supplement
+                        operator into thinking acidified-foods filing applies.
+                        Spec coverage line + warning stay mode-agnostic
+                        (verified-mass coverage is useful for both modes). */}
                     <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-semibold text-gray-700">Regulatory classification:</span>
-                        <span className="text-emerald-700 font-medium">{specs.regulatoryClass}</span>
-                      </div>
+                      {mode !== 'supplements' && (
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-semibold text-gray-700">Regulatory classification:</span>
+                          <span className="text-emerald-700 font-medium">{specs.regulatoryClass}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-gray-500">
                         <span>Spec coverage:</span>
                         <span>{(specs.coverage * 100).toFixed(0)}% of mass has spec data</span>
@@ -7052,7 +7201,7 @@ export default function FormulationWizard() {
                     {overage.bottleneck && (
                       <div className="mb-3 text-sm text-gray-700">
                         <span className="font-semibold">Stability bottleneck:</span>{' '}
-                        <span className="font-medium">{overage.bottleneck.ingredientName}</span>{' '}
+                        <span className="font-medium">{stripCatalogQaTokens(overage.bottleneck.ingredientName)}</span>{' '}
                         <span className="text-gray-500">({CATEGORY_LABEL[overage.bottleneck.category]})</span>{' '}
                         <span className="text-gray-500">— </span>
                         <span className={`font-bold ${overage.bottleneck.lossPct > 30 ? 'text-red-700' : overage.bottleneck.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700'}`}>
@@ -7080,7 +7229,7 @@ export default function FormulationWizard() {
                             const lossColor = r.lossPct > 30 ? 'text-red-700' : r.lossPct > 15 ? 'text-amber-700' : 'text-emerald-700';
                             return (
                               <tr key={i} className="border-b border-gray-200">
-                                <td className="py-1.5 pr-2 font-medium text-gray-800">{r.ingredientName}</td>
+                                <td className="py-1.5 pr-2 font-medium text-gray-800">{stripCatalogQaTokens(r.ingredientName)}</td>
                                 <td className="py-1.5 px-2 text-gray-500 text-[11px]">{CATEGORY_LABEL[r.category]}</td>
                                 <td className="py-1.5 px-2 text-right font-mono">{formatDose(r.labelClaimMg)}</td>
                                 <td className={`py-1.5 px-2 text-right font-mono font-bold ${lossColor}`}>{r.lossPct.toFixed(0)}%</td>
@@ -9477,7 +9626,7 @@ export default function FormulationWizard() {
               <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="text-sm">
                 <span className="font-bold text-amber-900">PREVIEW — Batch Sheet design in active development.</span>
-                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Execution Canvas (below) DOES persist via localStorage.</span>
+                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Process Instructions (below) DOES persist via localStorage.</span>
               </div>
             </div>
           </div>
@@ -9490,40 +9639,67 @@ export default function FormulationWizard() {
                 disabled={ingredients.length === 0}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
               >
-                🖨️ Print / Save as PDF
+                🖨️ Print/Save
               </button>
             </div>
             {ingredients.length === 0 ? (
               <div className="text-gray-500 py-8 text-center">Go to the 🔬 Build Base Sheet tab and add some ingredients first.</div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Production Batch Size</label>
-                  <div className="flex gap-1">
-                    <input type="number" value={batchSize} onChange={(e) => setBatchSize(Math.max(0.1, parseFloat(e.target.value) || 10))}
-                      className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-base font-bold focus:outline-none focus:border-emerald-500" />
-                    <select value={batchSizeUnit} onChange={(e) => setBatchSizeUnit(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
-                      {['kg', 'lb', 'L', 'g'].map(u => <option key={u}>{u}</option>)}
-                    </select>
+              <>
+                {/* Controlled-document header fields. Per operator 2026-05-25 —
+                    Batch Sheets are controlled documents; these fields appear on
+                    the printed BPR header for compliance + co-packing traceability. */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Product Name</label>
+                    <input type="text" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Consumer-facing product name"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Brand</label>
+                    <input type="text" value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="Brand owner (co-packing)"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Manufacturer <span className="text-gray-400 font-normal">(full legal name)</span></label>
+                    <input type="text" value={manufacturerName} onChange={(e) => setManufacturerName(e.target.value)} placeholder="Full legal business name (e.g., Inc., LLC, LLP)"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Controlled Doc #</label>
+                    <input type="text" value={controlledDocNumber} onChange={(e) => setControlledDocNumber(e.target.value)} placeholder="QMS doc ID"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500" />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
-                  <input type="text" value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} placeholder="e.g., 20260422-01"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Production Batch Size</label>
+                    <div className="flex gap-1">
+                      <input type="number" value={batchSize} onChange={(e) => setBatchSize(Math.max(0.1, parseFloat(e.target.value) || 10))}
+                        className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-base font-bold focus:outline-none focus:border-emerald-500" />
+                      <select value={batchSizeUnit} onChange={(e) => setBatchSizeUnit(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-1 py-2 text-sm bg-white focus:outline-none">
+                        {['kg', 'lb', 'L', 'g'].map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
+                    <input type="text" value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} placeholder="e.g., 20260422-01"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Production Date</label>
+                    <input type="date" value={productionDate} onChange={(e) => setProductionDate(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Operator</label>
+                    <input type="text" value={operator} onChange={(e) => setOperator(e.target.value)} placeholder="Operator initials"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Production Date</label>
-                  <input type="date" value={productionDate} onChange={(e) => setProductionDate(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Operator</label>
-                  <input type="text" value={operator} onChange={(e) => setOperator(e.target.value)} placeholder="Operator initials"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
-                </div>
-              </div>
+              </>
             )}
           </div>
 
@@ -9531,16 +9707,51 @@ export default function FormulationWizard() {
           {ingredients.length > 0 && (() => {
             const targetBatchGrams = batchSize * (UNIT_TO_GRAMS[batchSizeUnit] || 1000);
             const scaleFactor = totalBatchGrams > 0 ? targetBatchGrams / totalBatchGrams : 1;
+            // Header identity lookup: stable product fields come from the saved
+            // formulation record (Product # + Version); they're the document's
+            // template identity. dashboardNow is the reactive "now" tick used
+            // for the Date Generated stamp (refreshes once per minute — close
+            // enough to print-click time without calling Date.now() in render).
+            const currentSavedForHeader = savedFormulations.find(f => f.name === formulationName.trim());
+            const currentVersionForHeader = currentSavedForHeader?.currentVersion || '1.0.0';
+            const dateGeneratedForHeader = new Date(dashboardNow).toLocaleString();
             return (
               <div className="bg-white border border-gray-200 rounded-xl p-8 print:p-0 print:border-0 print:rounded-none print:shadow-none">
-                {/* Header */}
+                {/* Header — controlled-document strip on top (Manufacturer / Brand /
+                    Doc # / Generated), then product identity + per-batch capture
+                    in two columns. Per operator audience-separation 2026-05-25
+                    (Batch Sheets are controlled documents). */}
                 <div className="border-b-2 border-gray-800 pb-4 mb-6">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h1 className="text-3xl font-bold text-gray-900">{formulationName || 'Untitled Formulation'}</h1>
-                      <p className="text-gray-600 text-sm mt-1">{productType || 'Product type not set'}</p>
+                  {/* Controlled-document strip — manufacturer + brand + doc # */}
+                  {(manufacturerName || brandName || controlledDocNumber) && (
+                    <div className="flex justify-between items-baseline gap-6 text-xs text-gray-600 pb-2 mb-3 border-b border-gray-300 flex-wrap">
+                      <div className="flex gap-4 flex-wrap">
+                        {manufacturerName && (
+                          <div><span className="text-gray-400 uppercase tracking-wide">Manufacturer</span> <span className="font-semibold ml-1">{manufacturerName}</span></div>
+                        )}
+                        {brandName && (
+                          <div><span className="text-gray-400 uppercase tracking-wide">For Brand</span> <span className="font-semibold ml-1">{brandName}</span></div>
+                        )}
+                      </div>
+                      {controlledDocNumber && (
+                        <div><span className="text-gray-400 uppercase tracking-wide">Doc #</span> <span className="font-mono font-semibold ml-1">{controlledDocNumber}</span></div>
+                      )}
                     </div>
-                    <div className="text-right text-sm">
+                  )}
+                  <div className="flex justify-between items-start gap-6">
+                    <div>
+                      <h1 className="text-3xl font-bold text-gray-900">{productName || formulationName || 'Untitled Formulation'}</h1>
+                      <p className="text-gray-600 text-sm mt-1">{productType || 'Product type not set'}</p>
+                      <div className="mt-3 text-sm space-y-0.5">
+                        {productName && formulationName && productName !== formulationName && (
+                          <div><span className="text-gray-500">Internal</span> <span className="font-medium ml-1 text-gray-700">{formulationName}</span></div>
+                        )}
+                        <div><span className="text-gray-500">Product #</span> <span className="font-bold ml-1">{partNumber || '_______________'}</span></div>
+                        <div><span className="text-gray-500">Version</span> <span className="font-bold ml-1">v{currentVersionForHeader}</span></div>
+                      </div>
+                    </div>
+                    <div className="text-right text-sm shrink-0">
+                      <div className="text-[10px] text-gray-400 mb-2">Generated {dateGeneratedForHeader}</div>
                       <div><span className="text-gray-500">Batch #</span> <span className="font-bold">{batchNumber || '_______________'}</span></div>
                       <div><span className="text-gray-500">Date</span> <span className="font-bold">{productionDate}</span></div>
                       <div><span className="text-gray-500">Operator</span> <span className="font-bold">{operator || '_______________'}</span></div>
@@ -9553,9 +9764,135 @@ export default function FormulationWizard() {
                     Unit Economics block (with formula-level confidence rollup). The Batch Sheet
                     is the production document; cost is a Build/procurement concern. */}
 
-                {/* Target Specs — only formulator-tracked specs render. Toggle via the
-                    "Specs to Track" checklist near Product Type on the Build tab. Auto-derived
-                    metrics (A/M ratio, LAC%) appear when their inputs are tracked. */}
+                {/* ═══════════════════════════════════════════════════════════════
+                    BATCHER section — recipe execution + critical checks.
+                    Per operator audience-routing 2026-05-25 (Batcher → QA → Sanitation
+                    order). Batcher's eye-line work happens in these three blocks:
+                    weigh the recipe, follow the procedure, capture two-person
+                    verification on critical ingredients.
+                    ═══════════════════════════════════════════════════════════════ */}
+
+                {/* Ingredients scaled to batch — BATCHER #1 (recipe).
+                    Column order per operator 2026-05-25 — Part # (user-entered
+                    facility SKU) / Ingredient / % wt / Weight (target) / Actual /
+                    Lot # / Operator Initials. Supplier column dropped (redundancy
+                    with Build Base Sheet). COA ✓ replaced by Operator Initials.
+                    Actual + Lot # widened for handwritten entry on printed BPRs. */}
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Ingredients (scaled to {batchSize} {batchSizeUnit})</h2>
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b-2 border-gray-700 text-left">
+                        <th className="py-2 pr-2 min-w-[110px]">Part #</th>
+                        <th className="py-2 pr-2">Ingredient</th>
+                        <th className="py-2 pr-2 text-right">% wt</th>
+                        <th className="py-2 pr-2 text-right">Weight</th>
+                        <th className="py-2 pr-2 text-right">Actual</th>
+                        <th className="py-2 pr-2">Lot #</th>
+                        <th className="py-2 text-center">Initials</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ingredients.map((ing, i) => {
+                        const baseGrams = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                        const scaledGrams = baseGrams * scaleFactor;
+                        const weightPct = totalBatchGrams > 0 ? (baseGrams / totalBatchGrams) * 100 : 0;
+                        const batchUnitFactor = UNIT_TO_GRAMS[batchSizeUnit] || 1;
+                        const scaledInBatchUnit = scaledGrams / batchUnitFactor;
+                        return (
+                          <tr key={i} className="border-b border-gray-200">
+                            <td className="py-2 pr-2 align-top">
+                              <input
+                                type="text"
+                                value={ing.partNumber || ''}
+                                onChange={(e) => updateIngredientPartNumber(i, e.target.value)}
+                                placeholder="Facility SKU"
+                                className="w-full border border-gray-300 rounded px-1.5 py-0.5 text-xs font-mono focus:outline-none focus:border-emerald-500 print:border-0 print:bg-transparent print:p-0"
+                              />
+                            </td>
+                            <td className="py-2 pr-2 align-top">
+                              <div className="font-medium">{stripCatalogQaTokens(ing.name)}</div>
+                              {ing.subIngredients && ing.subIngredients.length > 0 && (
+                                <div className="text-gray-400 text-[10px]">{ing.subIngredients.join(', ')}</div>
+                              )}
+                            </td>
+                            <td className="py-2 pr-2 text-right align-top font-mono">{weightPct.toFixed(2)}%</td>
+                            <td className="py-2 pr-2 text-right align-top font-mono">
+                              {scaledInBatchUnit.toFixed(3)} {batchSizeUnit}
+                            </td>
+                            <td className="py-2 pr-2 align-top border-l border-r border-gray-300 min-w-[130px]"></td>
+                            <td className="py-2 pr-2 align-top border-r border-gray-300 min-w-[150px]"></td>
+                            <td className="py-2 align-top border-r border-gray-300 min-w-[80px]"></td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-b-2 border-gray-700 font-bold">
+                        <td></td>
+                        <td className="py-2">TOTAL</td>
+                        <td className="py-2 pr-2 text-right font-mono">100.00%</td>
+                        <td className="py-2 pr-2 text-right font-mono">
+                          {(targetBatchGrams / (UNIT_TO_GRAMS[batchSizeUnit] || 1)).toFixed(3)} {batchSizeUnit}
+                        </td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Process Instructions — BATCHER #2 (procedure). Operator-
+                    authored procedures + QA + signoff conventions. Per cGMP
+                    MMR/BPR separation (21 CFR 111.205 / 111.255 supplements;
+                    21 CFR 117 F&B). Plain-text textarea — operator owns the
+                    format. Persisted to localStorage as bridge before Supabase
+                    save backend (launch-blocker #4) lands. Internal state
+                    variable name "batchSheetTemplate" retained for code
+                    continuity; user-facing title is "Process Instructions"
+                    per operator vocabulary 2026-05-25 (consolidates with the
+                    legacy template-driven Process Instructions section which
+                    was deleted in the same commit). */}
+                <section className="mb-6 print:break-inside-avoid">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
+                    <span>Process Instructions <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored · localStorage draft)</span></span>
+                  </h2>
+                  <textarea
+                    value={batchSheetTemplate}
+                    onChange={(e) => setBatchSheetTemplate(e.target.value)}
+                    placeholder={mode === 'supplements' ? SUPPLEMENT_BATCH_TEMPLATE_PLACEHOLDER : FB_BATCH_TEMPLATE_PLACEHOLDER}
+                    rows={20}
+                    className="w-full font-mono text-xs border border-gray-300 rounded p-3 leading-relaxed focus:outline-none focus:border-emerald-500 print:border-0 print:p-0 print:resize-none"
+                    spellCheck={false}
+                  />
+                  <p className="text-[10px] text-gray-500 italic mt-1 print:hidden">
+                    Plain-text — use your own conventions for fill-in slots (underscores), step ordering, inline equipment IDs. Platform does not parse this content. Saves to browser as you type; persistent save (Supabase) lands with launch-blocker #4.
+                  </p>
+                </section>
+
+                {/* MMR — Critical Ingredient Verification — BATCHER #3 (two-person
+                    check). Per b00c23d schema extension. Captures FDA 21 CFR
+                    117.130 / 111.205 two-person verification standard. */}
+                <section className="mb-6">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
+                    <span>MMR — Critical Ingredient Verification</span>
+                  </h2>
+                  <div className="text-xs bg-gray-50 border border-gray-200 rounded p-3 text-gray-700 leading-relaxed">
+                    Tight-safety-window ingredients: preservative caps (Na benzoate ≤ 0.1%, K sorbate ≤ 0.1%), cure salts, high-potency micronutrients.
+                    <p className="text-[10px] text-gray-500 italic mt-1">Per MMR target weights + two-person verification. 21 CFR 111.205 / 117.130.</p>
+                    <br />
+                    <span className="text-amber-700 italic">⚠ PREVIEW — Per-ingredient capture row will auto-render here when a critical ingredient is added (target weight from Base Sheet + actual weight + added-by / verified-by slots).</span>
+                  </div>
+                </section>
+
+                {/* ═══════════════════════════════════════════════════════════════
+                    QA section — specs verification, checkpoints, framework
+                    reference, packaging. QA Manager's review surface. */}
+
+                {/* Target Specs — QA #1 (what to check against). Only formulator-
+                    tracked specs render. Toggle via the "Specs to Track" checklist
+                    near Product Type on the Build tab. Auto-derived metrics
+                    (A/M ratio, LAC%) appear when their inputs are tracked. */}
                 <section className="mb-6">
                   <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
                     <span>Target Specs</span>
@@ -9595,101 +9932,99 @@ export default function FormulationWizard() {
                       )}
                     </div>
                   )}
-                  <p className="text-xs text-gray-500 italic mt-2">{specs.regulatoryClass}</p>
-                  {processTemplate.targetSpecs && processTemplate.targetSpecs.length > 0 && (
-                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                      <span className="font-semibold">Critical targets for {productType}: </span>
-                      {processTemplate.targetSpecs.map(t => `${t.name}: ${t.value}`).join(' • ')}
-                    </div>
+                  {/* Mode-gate 2026-05-25: regulatoryClass cites F&B 21 CFR 113/114
+                      in insufficient-data state; supplements route through DSHEA /
+                      21 CFR 111 via DeterminationEngineCard, not this string. */}
+                  {mode !== 'supplements' && (
+                    <p className="text-xs text-gray-500 italic mt-2">{specs.regulatoryClass}</p>
                   )}
+                  {/* "Critical targets for {productType}" callout removed
+                      2026-05-25 — redundant with the editable QA Checkpoints
+                      section below (same identity testing / blend uniformity /
+                      weight variation / heavy metals content, but QA Checkpoints
+                      is operator-authored so the platform-driven callout was
+                      duplicating + locking content the operator should own. */}
                 </section>
 
-                {/* Ingredients scaled to batch */}
-                <section className="mb-6">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Ingredients (scaled to {batchSize} {batchSizeUnit})</h2>
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b-2 border-gray-700 text-left">
-                        <th className="py-2 pr-2 w-6">#</th>
-                        <th className="py-2 pr-2">Ingredient</th>
-                        <th className="py-2 pr-2">Supplier</th>
-                        <th className="py-2 pr-2 text-right">% wt</th>
-                        <th className="py-2 pr-2 text-right">Target</th>
-                        <th className="py-2 pr-2 text-right">Actual</th>
-                        <th className="py-2 pr-2">Lot #</th>
-                        <th className="py-2 text-center">COA ✓</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ingredients.map((ing, i) => {
-                        const baseGrams = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                        const scaledGrams = baseGrams * scaleFactor;
-                        const weightPct = totalBatchGrams > 0 ? (baseGrams / totalBatchGrams) * 100 : 0;
-                        // Round 11 Phase 3 (2026-05-17): display per-ingredient
-                        // scaled mass in the operator's chosen batchSizeUnit
-                        // (kg/lb/g/L per the dropdown at line 9038). Pre-fix
-                        // behavior hard-coded kg/g auto-switch, ignoring the
-                        // operator unit choice — produced "1000 lb batch shows
-                        // 453.592 kg per ingredient" UX failure for lb-mode
-                        // operators.
-                        const batchUnitFactor = UNIT_TO_GRAMS[batchSizeUnit] || 1;
-                        const scaledInBatchUnit = scaledGrams / batchUnitFactor;
-                        return (
-                          <tr key={i} className="border-b border-gray-200">
-                            <td className="py-2 pr-2 align-top">{i + 1}</td>
-                            <td className="py-2 pr-2 align-top">
-                              <div className="font-medium">{ing.name}</div>
-                              {ing.subIngredients && ing.subIngredients.length > 0 && (
-                                <div className="text-gray-400 text-[10px]">{ing.subIngredients.join(', ')}</div>
-                              )}
-                            </td>
-                            <td className="py-2 pr-2 align-top">{ing.supplier || '—'}</td>
-                            <td className="py-2 pr-2 text-right align-top font-mono">{weightPct.toFixed(2)}%</td>
-                            <td className="py-2 pr-2 text-right align-top font-mono">
-                              {scaledInBatchUnit.toFixed(3)} {batchSizeUnit}
-                            </td>
-                            <td className="py-2 pr-2 align-top border-l border-r border-gray-300 min-w-[80px]"></td>
-                            <td className="py-2 pr-2 align-top border-r border-gray-300 min-w-[100px]"></td>
-                            <td className="py-2 text-center align-top">☐</td>
-                          </tr>
-                        );
-                      })}
-                      <tr className="border-b-2 border-gray-700 font-bold">
-                        <td></td>
-                        <td className="py-2">TOTAL</td>
-                        <td></td>
-                        <td className="py-2 pr-2 text-right font-mono">100.00%</td>
-                        <td className="py-2 pr-2 text-right font-mono">
-                          {/* Round 11 Phase 3: TOTAL row honors batchSizeUnit
-                              (matches operator choice instead of hard-coded kg). */}
-                          {(targetBatchGrams / (UNIT_TO_GRAMS[batchSizeUnit] || 1)).toFixed(3)} {batchSizeUnit}
-                        </td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                      </tr>
-                    </tbody>
-                  </table>
+                {/* QA Checkpoints — QA #2 (the actual check list). Per operator
+                    2026-05-25 "QA Checkpoints are also UI" — replaced the
+                    template-driven hardcoded list with an editable textarea so
+                    QA Manager can author facility-specific checkpoints (mode-
+                    aware placeholder seeds the format). Persisted to localStorage
+                    via fw_qaCheckpoints_draft.
+                    Note: legacy template-driven Process Instructions section
+                    also deleted 2026-05-25 — same redundancy pattern. */}
+                <section className="mb-6 print:break-inside-avoid">
+                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
+                    <span>QA Checkpoints <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored · localStorage draft)</span></span>
+                  </h2>
+                  <textarea
+                    value={qaCheckpointsText}
+                    onChange={(e) => setQaCheckpointsText(e.target.value)}
+                    placeholder={mode === 'supplements' ? SUPPLEMENT_QA_CHECKPOINTS_PLACEHOLDER : FB_QA_CHECKPOINTS_PLACEHOLDER}
+                    rows={12}
+                    className="w-full font-mono text-xs border border-gray-300 rounded p-3 leading-relaxed focus:outline-none focus:border-emerald-500 print:border-0 print:p-0 print:resize-none"
+                    spellCheck={false}
+                  />
+                  <p className="text-[10px] text-gray-500 italic mt-1 print:hidden">
+                    Plain-text — QA Manager owns the format (checkbox conventions, ordering, references). Platform does not parse this content. Saves to browser as you type.
+                  </p>
                 </section>
 
-                {/* Allergens — Base Sheet allergens inherit to Batch Sheet per
-                    [[platform-scope-vs-facility-food-safety-plan]] 2026-05-25 (warning
-                    generated at Base Sheet → follows to Batch Sheet; single source of
-                    truth). Cleaning verification capture is the per-batch action; full
-                    structured AllergenCleaningRecord (per b00c23d schema extension)
-                    wires when save backend lands. */}
+                {/* Compliance Framework Reference — QA #4 (HACCP / cGMP framework +
+                    CCPs). Collapsed-by-default so production-floor view stays
+                    focused on action content; QA Manager / PCQI can expand for
+                    audit reference. */}
+                {suggestedHaccp && (
+                  <details className="mb-6">
+                    <summary className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide cursor-pointer hover:text-emerald-700">
+                      🛡️ Compliance Framework Reference <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(click to expand)</span>
+                    </summary>
+                    <div className="text-sm pl-2">
+                      <div className="font-bold">{suggestedHaccp.name}</div>
+                      <div className="text-xs text-gray-600">{suggestedHaccp.framework}</div>
+                      <ul className="text-xs mt-2 space-y-1">
+                        {suggestedHaccp.ccps.map(ccp => (
+                          <li key={ccp.number}><span className="font-semibold">CCP {ccp.number} ({ccp.name}):</span> {ccp.criticalLimit}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </details>
+                )}
+
+                {/* Packaging — QA #5 (verify packaging spec). */}
+                {(selectedPackaging || selectedClosure) && (
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Packaging</h2>
+                    <div className="text-sm space-y-1">
+                      {selectedPackaging && <div><span className="text-gray-500">Container:</span> <span className="font-medium">{selectedPackaging.name}</span> — {selectedPackaging.suppliers[0]}</div>}
+                      {selectedClosure && <div><span className="text-gray-500">Closure:</span> <span className="font-medium">{selectedClosure.name}</span> — {selectedClosure.suppliers[0]}</div>}
+                      <div><span className="text-gray-500">Fill size:</span> <span className="font-medium">{packageSize} {packageUnit}</span> • <span className="text-gray-500">Units produced (target):</span> <span className="font-medium">{packageSize > 0 ? Math.floor(targetBatchGrams / packageSizeInGrams) : '—'}</span></div>
+                    </div>
+                  </section>
+                )}
+
+                {/* ═══════════════════════════════════════════════════════════════
+                    SANITATION section — Allergen cross-contact cleaning record.
+                    Last substantive section per operator audience-routing
+                    2026-05-25 (Batcher → QA → Sanitation order). Conditional —
+                    only renders when allergens detected (changeover-relevant
+                    cleaning required). PCQI authored the protocol; Batcher
+                    + QA capture execution. Single source of truth (warning
+                    generated at Base Sheet → follows to Batch Sheet).
+                    ═══════════════════════════════════════════════════════════════ */}
                 {allergenStatement.length > 0 && (
                   <section className="mb-6">
                     <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-                      <span>Allergens — Cleaning Verification Required</span>
+                      <span>Allergen Control Plan — Cleaning Verification</span>
                     </h2>
                     <p className="text-sm font-bold text-red-700">Contains: {formatAllergenListBody(allergenStatement)}</p>
-                    <p className="text-xs text-gray-600 italic mt-1">
-                      Statement uses FALCPA-compliant umbrella + species format per 21 CFR 101.36 / FALCPA §403(w) — e.g., &ldquo;Crustacean Shellfish (Shrimp, Crab)&rdquo; and &ldquo;Tree Nuts (Coconut)&rdquo;. Always verify against supplier COA before labeling.
+                    <p className="text-[10px] text-gray-500 italic mt-1">
+                      FALCPA umbrella + species format per 21 CFR 101.36 / §403(w). Always verify against supplier COA.
                     </p>
-                    <p className="text-xs text-gray-600 mt-2">
-                      Cross-contact risk if equipment was previously used for products not declaring these allergens. Cleaning + verification required per FDA 21 CFR 117.135 + 117.140 (Preventive Controls — allergen). Document below:
+                    <p className="text-[10px] text-gray-500 italic mt-2 leading-relaxed">
+                      Per facility&apos;s Allergen Control Plan + Sanitation SSOP. 21 CFR 117.135 — Allergen Preventive Controls.
                     </p>
                     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                       <div>
@@ -9726,108 +10061,6 @@ export default function FormulationWizard() {
                     </div>
                   </section>
                 )}
-
-                {/* Harm-Critical Ingredient Verification — per b00c23d schema extension
-                    + [[platform-scope-vs-facility-food-safety-plan]] doctrine. Auto-
-                    rendered placeholder for now; full per-ingredient render wires when
-                    catalog harm-critical flagging mechanism lands. Captures FDA 21 CFR
-                    117.130 two-person verification standard for harm-critical
-                    ingredients (preservatives with regulatory caps, high-potency
-                    micronutrients, pH-critical acidulants, cure ingredients). */}
-                <section className="mb-6">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center gap-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
-                    <span>Harm-Critical Ingredient Verification</span>
-                  </h2>
-                  <div className="text-xs bg-gray-50 border border-gray-200 rounded p-3 italic text-gray-600">
-                    Per-ingredient verified-weight capture for harm-critical ingredients (preservatives with regulatory caps like Na benzoate ≤ 0.1% per 21 CFR 184.1733, K sorbate ≤ 0.1% per 182.3640; high-potency micronutrients; pH-critical acidulants for acidified foods; cure ingredients). Two-person verification required per FDA 21 CFR 117.130.
-                    <br /><br />
-                    <span className="text-amber-700">⚠ PREVIEW — Catalog harm-critical flagging mechanism not yet wired. When operator adds a harm-critical-flagged ingredient (e.g., Sodium Benzoate, Potassium Sorbate, Sodium Nitrite), a per-ingredient capture row will auto-render here with target weight (from pinned Base Sheet) + actual weight + added-by/verified-by signoff slots.</span>
-                  </div>
-                </section>
-
-                {/* Packaging */}
-                {(selectedPackaging || selectedClosure) && (
-                  <section className="mb-6">
-                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">Packaging</h2>
-                    <div className="text-sm space-y-1">
-                      {selectedPackaging && <div><span className="text-gray-500">Container:</span> <span className="font-medium">{selectedPackaging.name}</span> — {selectedPackaging.suppliers[0]}</div>}
-                      {selectedClosure && <div><span className="text-gray-500">Closure:</span> <span className="font-medium">{selectedClosure.name}</span> — {selectedClosure.suppliers[0]}</div>}
-                      <div><span className="text-gray-500">Fill size:</span> <span className="font-medium">{packageSize} {packageUnit}</span> • <span className="text-gray-500">Units produced (target):</span> <span className="font-medium">{packageSize > 0 ? Math.floor(targetBatchGrams / packageSizeInGrams) : '—'}</span></div>
-                    </div>
-                  </section>
-                )}
-
-                {/* Suggested HACCP Category */}
-                {suggestedHaccp && (
-                  <section className="mb-6">
-                    <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">🛡️ HACCP Category</h2>
-                    <div className="text-sm">
-                      <div className="font-bold">{suggestedHaccp.name}</div>
-                      <div className="text-xs text-gray-600">{suggestedHaccp.framework}</div>
-                      <ul className="text-xs mt-2 space-y-1">
-                        {suggestedHaccp.ccps.map(ccp => (
-                          <li key={ccp.number}><span className="font-semibold">CCP {ccp.number} ({ccp.name}):</span> {ccp.criticalLimit}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </section>
-                )}
-
-                {/* Execution Canvas — operator-authored procedures + QA + signoff
-                    conventions. Per cGMP MMR/BPR separation (21 CFR 111.205 /
-                    111.255 for supplements; 21 CFR 117 for F&B), the Batch
-                    Production Record is the per-batch capture surface. Plain-text
-                    textarea — operator owns the format (fill-in slots, hierarchy,
-                    inline equipment IDs); platform does not parse content.
-                    Persisted to localStorage as bridge before Supabase save
-                    backend (launch-blocker #4) lands; future version will inherit
-                    the locked Base Sheet template at Batch Sheet spawn time. */}
-                <section className="mb-6 print:break-inside-avoid">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
-                    <span>Execution Canvas <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored procedures · localStorage draft)</span></span>
-                  </h2>
-                  <textarea
-                    value={batchSheetTemplate}
-                    onChange={(e) => setBatchSheetTemplate(e.target.value)}
-                    placeholder={mode === 'supplements' ? SUPPLEMENT_BATCH_TEMPLATE_PLACEHOLDER : FB_BATCH_TEMPLATE_PLACEHOLDER}
-                    rows={20}
-                    className="w-full font-mono text-xs border border-gray-300 rounded p-3 leading-relaxed focus:outline-none focus:border-emerald-500 print:border-0 print:p-0 print:resize-none"
-                    spellCheck={false}
-                  />
-                  <p className="text-[10px] text-gray-500 italic mt-1 print:hidden">
-                    Plain-text — use your own conventions for fill-in slots (underscores), step ordering, inline equipment IDs. Platform does not parse this content. Saves to browser as you type; persistent save (Supabase) lands with launch-blocker #4.
-                  </p>
-                </section>
-
-                {/* Process Instructions — TEMPLATE-DRIVEN (legacy, kept during
-                    PREVIEW transition). Per operator design 2026-05-25, this
-                    section will be replaced by the operator-authored Execution
-                    Record (above) once schema is fully wired. Current behavior:
-                    renders hardcoded processTemplate.steps per product type. */}
-                <section className="mb-6">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
-                    <span>Process Instructions <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(legacy template — will be replaced by Execution Record)</span></span>
-                  </h2>
-                  <ol className="list-decimal ml-5 space-y-1.5 text-sm">
-                    {processTemplate.steps.map((step, i) => (
-                      <li key={i} className="text-gray-800">{step}</li>
-                    ))}
-                  </ol>
-                </section>
-
-                {/* QA Checkpoints */}
-                <section className="mb-6">
-                  <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide">QA Checkpoints</h2>
-                  <ul className="space-y-1.5 text-sm">
-                    {processTemplate.qaCheckpoints.map((qa, i) => (
-                      <li key={i} className="flex gap-2">
-                        <span className="font-mono">☐</span>
-                        <span>{qa}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
 
                 {/* Signatures */}
                 <section className="mt-8 pt-6 border-t-2 border-gray-800">
@@ -9872,7 +10105,7 @@ export default function FormulationWizard() {
                 disabled={ingredients.length === 0}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
               >
-                🖨️ Print / Save as PDF
+                🖨️ Print/Save
               </button>
             </div>
             {ingredients.length === 0 ? (
@@ -10450,7 +10683,7 @@ ${serviceNotes || '(none)'}
             Advisory tool only — not legal, regulatory, or scientific advice.
             {entryState?.mode === 'supplements' ? (
               <>
-                {' '}Harm-critical floor checks require verification by a qualified
+                {' '}Critical-ingredient checks require verification by a qualified
                 <button onClick={() => setActiveTab('authorities')} className="underline mx-1 hover:text-emerald-300 font-semibold">regulatory reviewer</button>
                 before commercial production.
               </>

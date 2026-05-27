@@ -264,7 +264,7 @@ export function FilingReadinessWidget({ result }: { result: FilingReadinessResul
   // Healthy-pathway popover (AF specified, not floored — score is honest weighted average)
   const renderHealthyPopover = () => (
     <div className="absolute top-full mt-2 left-0 z-40 w-[460px] bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-[12px] text-gray-700">
-      <p className="font-semibold text-gray-800 mb-1">All harm-critical requirements at CALCULATED or higher</p>
+      <p className="font-semibold text-gray-800 mb-1">All critical-ingredient requirements at CALCULATED or higher</p>
       <p className="leading-relaxed">Filing Readiness is not floored. Score reflects the weighted average across all 16 documentation requirements for Acidified Foods.</p>
     </div>
   );
