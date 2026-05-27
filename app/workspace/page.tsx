@@ -1051,19 +1051,28 @@ export default function FormulationWizard() {
     // and under-stating per-cap fill by a factor of servings. Operator-
     // side Formula 1-4 testing surfaced the resulting "Low fill 2%"
     // advisories on realistic supplement formulations.
-    const perServingMg = totalBatchGrams * 1000;
-
-    // SP3 split — capacity-derived for capsule/softgel (per-unit fill =
-    // formulation actives / units-per-serving), operator-input for
-    // tablet/gummy/lozenge/chewable (die-set / mold target; any gap
-    // between actives and target is implicit filler).
+    // SP3 split (revised 2026-05-26 per operator "serving size shouldn't
+    // depend on formula weight"):
+    //  • capacity-derived (capsule/softgel): per-unit weight = SELECTED
+    //    CAPSULE CAPACITY (from suppCapsuleSize). Per-serving mass =
+    //    capsule capacity × units-per-serving. Serving size is now
+    //    independent of formula sum — the formula doses must FIT inside
+    //    the capsules (over-fill flagged when formula > serving capacity).
+    //  • operator-input (tablet/gummy/lozenge/chewable): per-unit weight =
+    //    operator's die-set / mold target. Per-serving mass = target ×
+    //    units-per-serving. Any gap between actives and target = implicit
+    //    excipient mass.
+    // Both branches now derive per-serving mass FROM the per-unit target
+    // (operator-driven), not from the ingredient sum. The formula sum
+    // (totalBatchGrams) is the recipe doses; the platform's job is to
+    // verify the formula fits into the chosen container/capsule, not to
+    // re-derive container size from formula weight.
+    const capsuleCap = capsuleCapacityMg(suppCapsuleSize);
     const perUnitMg = semantics === 'capacity-derived'
-      ? (suppUnitsPerServing > 0 ? perServingMg / suppUnitsPerServing : 0)
+      ? capsuleCap
       : suppPerUnitWeightMg;
 
-    const newServingMg = semantics === 'capacity-derived'
-      ? perServingMg
-      : suppPerUnitWeightMg * suppUnitsPerServing;
+    const newServingMg = perUnitMg * suppUnitsPerServing;
     const newPackageG = (perUnitMg * totalUnits) / 1000;
 
     // Skip sync when derived values are non-meaningful (empty formulation
@@ -4434,6 +4443,28 @@ export default function FormulationWizard() {
                         </div>
                       );
                     })}
+                    {/* Formula TOTAL row — per operator 2026-05-26 "Base Sheet
+                        needs to total in weights and percentage." Per-serving
+                        dose semantic (locked-in supplements contract): sum of
+                        ingredient masses is the per-serving formula weight.
+                        Display switches mg → g → kg based on magnitude. */}
+                    {(() => {
+                      const totalMg = totalBatchGrams * 1000;
+                      const totalStr = totalMg < 1000
+                        ? `${totalMg.toFixed(1)} mg`
+                        : totalMg < 1_000_000
+                          ? `${(totalMg / 1000).toFixed(3)} g`
+                          : `${(totalMg / 1_000_000).toFixed(3)} kg`;
+                      return (
+                        <div className="border-t-2 border-gray-400 pt-3 mt-2 flex items-center justify-between text-sm">
+                          <span className="font-bold text-gray-800 uppercase tracking-wide">Total</span>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono font-bold text-gray-900">{totalStr}</span>
+                            <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">100.00%</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -4475,26 +4506,29 @@ export default function FormulationWizard() {
                       : { servings: 0, totalUnits: 0 };
                     const displayServings = reconciled.servings;
                     const displayTotalUnits = reconciled.totalUnits;
-                    // Per-unit weight + derived mass — Round 11 Phase 3 post-A.5
-                    // follow-up (2026-05-17). Ingredient entries are per-serving
-                    // doses (locked-in supplements contract), so totalBatchGrams
-                    // is the per-serving total in grams.
+                    // Per-unit weight + derived mass — revised 2026-05-26 per
+                    // operator directive "serving size shouldn't depend on
+                    // formula weight." Ingredient entries are per-serving doses
+                    // (locked-in supplements contract); totalBatchGrams is the
+                    // formula sum per serving, BUT serving size is now
+                    // independent of that — derived from operator's container
+                    // choice (capsule capacity × units, or operator-input target).
                     //
-                    // SP3 split:
-                    //  • capacity-derived (capsule/softgel): per-unit fill =
-                    //    per-serving actives ÷ units-per-serving. Total per
-                    //    serving = formulation sum.
+                    // SP3 split (decoupled):
+                    //  • capacity-derived (capsule/softgel): per-unit weight =
+                    //    SELECTED CAPSULE CAPACITY (capsuleCapacityMg(suppCapsuleSize)).
+                    //    Per-serving mass = capsule capacity × units-per-serving.
+                    //    Formula doses must FIT inside capsules (over-fill flagged
+                    //    when formula > serving capacity).
                     //  • operator-input (tablet/gummy/lozenge/chewable): per-unit
-                    //    weight is operator's die-set / mold target. Per-serving
-                    //    total = target × units-per-serving (any gap between
-                    //    actives and target is implicit filler).
+                    //    weight = operator's die-set / mold target. Per-serving
+                    //    mass = target × units-per-serving. Gap = excipient mass.
                     const perServingMgFromFormulation = totalBatchGrams * 1000;
+                    const capsuleCapForServing = capsuleCapacityMg(suppCapsuleSize);
                     const perUnitMg = semantics === 'capacity-derived'
-                      ? (suppUnitsPerServing > 0 ? perServingMgFromFormulation / suppUnitsPerServing : 0)
+                      ? capsuleCapForServing
                       : suppPerUnitWeightMg;
-                    const derivedServingMassMg = semantics === 'capacity-derived'
-                      ? perServingMgFromFormulation
-                      : suppPerUnitWeightMg * suppUnitsPerServing;
+                    const derivedServingMassMg = perUnitMg * suppUnitsPerServing;
                     const derivedPackageMassG = (perUnitMg * displayTotalUnits) / 1000;
                     return (
                       <>
