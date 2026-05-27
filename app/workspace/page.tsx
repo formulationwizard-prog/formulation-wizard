@@ -39,6 +39,7 @@ import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngr
 import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec, mapCostToConfidence, formatRangedValue, rollupCostConfidence, worstConfidence, type SpecMetric } from '@/lib/foodScience';
 import { getTrackedSpecDefaults, TRACKED_SPEC_LABELS, TRACKED_SPEC_ORDER, type TrackedSpec } from '@/lib/trackedSpecs';
 import { ConfidencePill } from '@/components/ConfidencePill';
+import { AutoGrowTextarea } from '@/components/AutoGrowTextarea';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { buildIngredientStatement } from '@/lib/ingredientStatement';
@@ -453,7 +454,7 @@ export default function FormulationWizard() {
   // "Reset to defaults" to re-derive from current productType.
   const [trackedSpecsOverride, setTrackedSpecsOverride] = useState<TrackedSpec[] | null>(null);
   const [savedFormulations, setSavedFormulations] = useState<SavedFormulation[]>([]);
-  const [activeTab, setActiveTab] = useState<'home' | 'build' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'build' | 'packaging' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
   // ----- Workspace entry state: mode preference + per-mode TOS ----------
   // Round 11 Phase 3 Workstream A: segmented per-mode TOS replaces the
   // prior single-boolean tosAccepted model. State machinery lives in
@@ -1951,9 +1952,10 @@ export default function FormulationWizard() {
         // ─── Static tab nav + quick actions ───
         const tabs: { id: typeof activeTab; label: string; icon: string }[] = [
           { id: 'build', label: 'Build Base Sheet', icon: '🔬' },
+          { id: 'batch', label: 'Batch Sheet', icon: '🏭' },
+          { id: 'packaging', label: 'Packaging Data Sheet', icon: '📦' },
           { id: 'cost', label: 'Cost Tool', icon: '💰' },
           { id: 'sourcing', label: 'Sourcing', icon: '🌐' },
-          { id: 'batch', label: 'Batch Sheet', icon: '🏭' },
           { id: 'filing', label: 'Filing', icon: '📋' },
           { id: 'services', label: 'Services', icon: '🤝' },
           { id: 'authorities', label: 'Process Authorities', icon: '⚖️' },
@@ -2226,7 +2228,7 @@ export default function FormulationWizard() {
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {(['home', 'build', 'cost', 'sourcing', 'batch', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
+              {(['home', 'build', 'batch', 'packaging', 'cost', 'sourcing', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
                 .filter(tab => !(mode === 'supplements' && tab === 'filing'))
                 .map(tab => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
@@ -2240,6 +2242,7 @@ export default function FormulationWizard() {
                     : tab === 'sourcing' ? '🌐 Sourcing'
                     : tab === 'authorities' ? '⚖️ Process Authorities'
                     : tab === 'services' ? '🤝 Services'
+                    : tab === 'packaging' ? '📦 Packaging Data Sheet'
                     : '🔬 Build Base Sheet'}
                 </button>
               ))}
@@ -3531,6 +3534,333 @@ export default function FormulationWizard() {
         </div>
       )}
 
+      {/* PACKAGING DATA SHEET TAB
+          Phase 1 of 8 — PRODUCTION-FLOW sequence (per operator 2026-05-27).
+          Sections mirror the physical floor sequence: Cover Page →
+          Filler → Sealing → Post-Seal Processing → Labeling → Cartoning →
+          Palletizing → Production History → Reference Appendix.
+          Each section is one "page" of the multi-page PDS packet.
+
+          Cover Page (Section 0) is functional in Phase 1 — Identity
+          inherited from Base Sheet + workspace state. Stations 1-6 are
+          Phase 3-5 work. Production History (7) auto-populates when Batch
+          Sheet save backend lands (launch-blocker #4). Reference Appendix
+          (8) accumulates as Phases 2-8 complete.
+
+          Mode-adaptive: F&B uses Post-Seal Processing (inversion / hot
+          water bath / rinse). Supplements adapts station 3 to Capsule
+          Polish & Inspection, station 2 to Induction Seal Verification.
+
+          See docs/architecture/packaging-data-sheet-architecture-2026-05-27.md
+          and packaging-data-sheet-implementation-plan-2026-05-27.md.
+          Memory: [[controlled-document-doctrine]], [[upstream-from-pds-doctrine]]. */}
+      {activeTab === 'packaging' && (
+        <div className="max-w-5xl mx-auto px-6 py-8">
+
+          {/* ═══ SECTION 0 — COVER PAGE (FUNCTIONAL — Identity inherited) ═══ */}
+          <div className="mb-6 bg-white border border-emerald-200 rounded-xl p-6">
+            <div className="flex items-start justify-between flex-wrap gap-3 mb-4 pb-4 border-b border-gray-100">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-2xl">📦</span>
+                  <h1 className="text-2xl font-bold text-gray-900">Packaging Data Sheet</h1>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Controlled document &middot; {mode === 'supplements' ? '21 CFR 111.65 + 111.70(g)' : '21 CFR 117 (Preventive Controls) + 21 CFR 114 (acidified foods)'} &middot; Production-flow sequence
+                </p>
+              </div>
+              <div className="text-right text-xs">
+                <div>
+                  <span className="text-gray-400 uppercase tracking-wide">Doc #</span>{' '}
+                  <span className="font-mono font-semibold text-gray-700">PDS-{partNumber || '0000'}-Rev01</span>
+                </div>
+                <div className="mt-1">
+                  <span className="text-gray-400 uppercase tracking-wide">Revision Date</span>{' '}
+                  <span className="font-mono text-gray-500">—</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-3">Identity &middot; inherited from Base Sheet + workspace state</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Brand</div>
+                <div className="font-semibold text-gray-800">{brandName || <span className="italic text-gray-400">(not set)</span>}</div>
+                <button onClick={() => setActiveTab('batch')} className="text-[10px] text-emerald-700 hover:underline mt-0.5">✎ Edit on Batch Sheet</button>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Manufacturer</div>
+                <div className="font-semibold text-gray-800">{manufacturerName || <span className="italic text-gray-400">(not set)</span>}</div>
+                <button onClick={() => setActiveTab('batch')} className="text-[10px] text-emerald-700 hover:underline mt-0.5">✎ Edit on Batch Sheet</button>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Product Name</div>
+                <div className="font-semibold text-gray-800">{productName || formulationName || <span className="italic text-gray-400">(not set)</span>}</div>
+                <button onClick={() => setActiveTab('build')} className="text-[10px] text-emerald-700 hover:underline mt-0.5">✎ Edit on Build Base Sheet</button>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">FG Part #</div>
+                <div className="font-semibold text-gray-800 font-mono">{partNumber || <span className="italic text-gray-400 font-sans">(auto-assigns on save)</span>}</div>
+                <button onClick={() => setActiveTab('build')} className="text-[10px] text-emerald-700 hover:underline mt-0.5">✎ Edit on Build Base Sheet</button>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Product Class</div>
+                <div className="font-semibold text-gray-800">{productClass || <span className="italic text-gray-400">(not set)</span>}</div>
+                <button onClick={() => setActiveTab('build')} className="text-[10px] text-emerald-700 hover:underline mt-0.5">✎ Edit on Build Base Sheet</button>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Ingredients &middot; Total Mass</div>
+                <div className="font-semibold text-gray-800">{ingredients.length} ingredients &middot; {totalBatchGrams > 0 ? (totalBatchGrams >= 1000 ? `${(totalBatchGrams/1000).toFixed(2)} kg` : `${totalBatchGrams.toFixed(2)} g`) : '—'}</div>
+                <button onClick={() => setActiveTab('build')} className="text-[10px] text-emerald-700 hover:underline mt-0.5">✎ Edit on Build Base Sheet</button>
+              </div>
+            </div>
+
+            <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2 pt-3 border-t border-gray-100">Cover Page essentials &middot; future phases</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="border border-dashed border-gray-200 rounded p-2 text-xs">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Approved Lines</div>
+                <span className="text-gray-400 italic">Phase 5 · Coming</span>
+              </div>
+              <div className="border border-dashed border-gray-200 rounded p-2 text-xs">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Lot Code Format</div>
+                <span className="text-gray-400 italic">Phase 1.5 · Coming</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ═══ PRODUCTION FLOW HEADER ═══ */}
+          <div className="mb-3 flex items-baseline justify-between">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Production Flow</h3>
+            <span className="text-[10px] text-gray-400">{mode === 'supplements' ? 'Capsule / softgel sequence' : 'Hot-fill / acidified sequence'}</span>
+          </div>
+
+          <div className="space-y-3 mb-6">
+
+            {/* STEP 1 — FILLER STATION */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">STEP 1 / 6</span>
+                  <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                    <span>🥄</span>
+                    <span>Filler Station</span>
+                  </h3>
+                </div>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 5 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug ml-[88px]">
+                Filler settings · tare weight method · target fill ± · weight + temp checks · packaging verification · foreign material control · operator sign-off
+              </p>
+            </div>
+
+            {/* STEP 2 — SEALING / CAPPING STATION */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">STEP 2 / 6</span>
+                  <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                    <span>🔒</span>
+                    <span>{mode === 'supplements' ? 'Induction Seal Verification' : 'Sealing / Capping Station'}</span>
+                  </h3>
+                </div>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 5 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug ml-[88px]">
+                {mode === 'supplements'
+                  ? 'Induction seal verification protocol · seal integrity check · capper settings · sign-off'
+                  : 'Closure torque spec + acceptance range · seal integrity test method + frequency · capper settings · sign-off'}
+              </p>
+            </div>
+
+            {/* STEP 3 — POST-SEAL PROCESSING (mode-adaptive) */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">STEP 3 / 6</span>
+                  <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                    <span>{mode === 'supplements' ? '✨' : '♨️'}</span>
+                    <span>{mode === 'supplements' ? 'Capsule Polish & Inspection' : 'Post-Seal Processing'}</span>
+                  </h3>
+                </div>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 5 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug ml-[88px]">
+                {mode === 'supplements'
+                  ? 'Capsule polisher settings · visual defect inspection · weight check sampling · sign-off'
+                  : 'Inversion time · hot water bath time + temp check · packaging rinse procedure · sign-off (conditional — hot-fill / acidified)'}
+              </p>
+            </div>
+
+            {/* STEP 4 — LABELING STATION */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">STEP 4 / 6</span>
+                  <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                    <span>🏷️</span>
+                    <span>Labeling Station</span>
+                  </h3>
+                </div>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 3 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug ml-[88px]">
+                Label part # + material + adhesive + placement · Best By date format + placement · lot code application (uses Cover Page format) · neck band Y/N + application · label applicator settings · sign-off
+              </p>
+            </div>
+
+            {/* STEP 5 — CARTONING STATION */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">STEP 5 / 6</span>
+                  <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                    <span>📦</span>
+                    <span>Cartoning Station</span>
+                  </h3>
+                </div>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 4 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug ml-[88px]">
+                Case packer settings · case configuration (units per case) · case material (printed branded vs reused inbound) · case lot coding spec · sign-off
+              </p>
+            </div>
+
+            {/* STEP 6 — PALLETIZING STATION */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">STEP 6 / 6</span>
+                  <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                    <span>🏗️</span>
+                    <span>Palletizing</span>
+                  </h3>
+                </div>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 4 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug ml-[88px]">
+                Pallet wrapper settings · pallet config (Ti-Hi pattern, pallet type) · pallet tag format + placement + tear-off strip · stretch wrap + corner guards · sign-off
+              </p>
+            </div>
+
+          </div>
+
+          {/* ═══ SECTION 7 — PRODUCTION HISTORY ═══ */}
+          <div className="bg-white rounded-xl border border-emerald-100 p-4 mb-3">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                <span>📊</span>
+                <span>Production History</span>
+              </h3>
+              <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded uppercase tracking-wide">Auto · post-#4</span>
+            </div>
+            <p className="text-xs text-gray-500 leading-snug mb-2">
+              Digital tear-off log. Each completed Batch Sheet auto-appends one row per shift: Lot Code + Production Date + Shift + Line + Units Produced + Pallet count + Op Manager sign-off. Drill-through to full Batch Sheet for per-station detail.
+            </p>
+            <div className="border border-dashed border-gray-200 rounded p-2 text-xs text-gray-400 italic text-center">
+              0 runs logged under PDS-{partNumber || '0000'}-Rev01 &middot; will populate when Batch Sheet save backend lands (launch-blocker #4)
+            </div>
+          </div>
+
+          {/* ═══ SECTION 8 — REFERENCE APPENDIX ═══ */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                <span>📚</span>
+                <span>Reference Appendix</span>
+              </h3>
+              <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phases 2-8 · Coming</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+              <div className="border border-dashed border-gray-200 rounded p-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Shelf Life &amp; Storage</div>
+                <span className="text-gray-400 italic">Phase 2</span>
+              </div>
+              <div className="border border-dashed border-gray-200 rounded p-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Net Contents Verification</div>
+                <span className="text-gray-400 italic">Phase 7</span>
+              </div>
+              <div className="border border-dashed border-gray-200 rounded p-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Visual Attachments</div>
+                <span className="text-gray-400 italic">Phase 4</span>
+              </div>
+              <div className="border border-dashed border-gray-200 rounded p-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Revision History</div>
+                <span className="text-gray-400 italic">Phase 8</span>
+              </div>
+              <div className="border border-dashed border-gray-200 rounded p-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">HACCP / SSOP Refs</div>
+                <span className="text-gray-400 italic">Phase 2</span>
+              </div>
+              <div className="border border-dashed border-gray-200 rounded p-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Allergen Control Refs</div>
+                <span className="text-gray-400 italic">Phase 2</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ═══ FINAL SECTION — APPROVAL & SIGN-OFF (two-layer per operator 2026-05-27) ═══
+              PDS is a complex sign-off sheet:
+                (a) PDS Spec Approval — QA Mgr / Ops / Plant Mgr approve the CONTROLLED
+                    DOCUMENT itself (one-time per revision; gates production start)
+                (b) Per-Batch QA Release — QA signs once each completed execution sheet is
+                    verified (recurring; gates shipment)
+              Operator per-station sign-offs (inline keyword in each station card above)
+              are the third layer, captured during execution on the Batch Sheet. */}
+          <div className="mt-6 bg-white rounded-xl border-2 border-emerald-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                <span>✍️</span>
+                <span>Approval &amp; Sign-off</span>
+              </h3>
+              <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 8 · Coming</span>
+            </div>
+            <p className="text-xs text-gray-500 mb-4 leading-snug">
+              The PDS is a complex sign-off sheet. Three sign-off layers gate production + shipment:
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              {/* Layer A — PDS Spec Approval */}
+              <div className="border border-emerald-100 rounded-lg p-3 bg-emerald-50/30">
+                <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold mb-1">A &middot; PDS Spec Approval</div>
+                <p className="text-[11px] text-gray-600 mb-2 leading-snug">One-time per revision. Gates production start. QA / Ops / Plant Manager each sign.</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="border-b border-dashed border-gray-300 pt-3 pb-0.5">
+                    <div className="text-[9px] uppercase tracking-wide text-gray-400">QA Mgr</div>
+                  </div>
+                  <div className="border-b border-dashed border-gray-300 pt-3 pb-0.5">
+                    <div className="text-[9px] uppercase tracking-wide text-gray-400">Ops Mgr</div>
+                  </div>
+                  <div className="border-b border-dashed border-gray-300 pt-3 pb-0.5">
+                    <div className="text-[9px] uppercase tracking-wide text-gray-400">Plant Mgr</div>
+                  </div>
+                </div>
+                <div className="text-[9px] text-gray-400 mt-2 italic">+ Effective Date · Supersedes Rev</div>
+              </div>
+
+              {/* Layer B — Per-Batch QA Release */}
+              <div className="border border-emerald-100 rounded-lg p-3 bg-emerald-50/30">
+                <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold mb-1">B &middot; QA Sheet-Completion Sign-off</div>
+                <p className="text-[11px] text-gray-600 mb-2 leading-snug">Recurring &mdash; QA signs each completed Batch Sheet packet once all station sign-offs are verified. Gates shipment.</p>
+                <div className="border-b border-dashed border-gray-300 pt-3 pb-0.5">
+                  <div className="text-[9px] uppercase tracking-wide text-gray-400">QA &middot; Date &middot; Lot Code released</div>
+                </div>
+                <div className="text-[9px] text-gray-400 mt-2 italic">Per-batch entries auto-link to Production History rows.</div>
+              </div>
+            </div>
+
+            {/* Layer C — operator station sign-offs (inline reference) */}
+            <div className="border border-gray-100 rounded-lg p-2.5 bg-gray-50/60">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-0.5">C &middot; Operator Per-Station Sign-offs <span className="text-gray-400 normal-case font-normal italic ml-1">(captured on Batch Sheet)</span></div>
+              <p className="text-[11px] text-gray-500 leading-snug">
+                Filler · Sealing/Capping · Post-Seal · Labeling · Cartoning · Palletizing — each station&apos;s operator signs during execution. Sequenced per Production Flow above. See station-by-station detail on the Batch Sheet for each run.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+
       {/* BUILD TAB */}
       {activeTab === 'build' && (
         <div className="max-w-7xl mx-auto px-6 py-8">
@@ -4474,6 +4804,7 @@ export default function FormulationWizard() {
                   </div>
                 )}
               </div>
+
 
               {/* Serving & Package Size.
                   Round 11 Phase 3 Workstream A.5 [5b/N] #25l structural fix:
@@ -9737,9 +10068,15 @@ export default function FormulationWizard() {
                     the printed BPR header for compliance + co-packing traceability. */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Product Name</label>
-                    <input type="text" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Consumer-facing product name"
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Product Name {formulationName && <span className="text-[9px] font-normal text-gray-400 normal-case">(override only — defaults to formulation name)</span>}
+                    </label>
+                    <input type="text" value={productName} onChange={(e) => setProductName(e.target.value)}
+                      placeholder={formulationName ? `Inherits "${formulationName}"` : 'Consumer-facing product name'}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" />
+                    {formulationName && !productName && (
+                      <p className="text-[9px] text-gray-400 mt-0.5 italic">Auto-inherits from Build Base Sheet. Type only if consumer-label name differs from formulation name.</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Brand</label>
@@ -9942,11 +10279,12 @@ export default function FormulationWizard() {
                   <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
                     <span>Process Instructions <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored · localStorage draft)</span></span>
                   </h2>
-                  <textarea
+                  <AutoGrowTextarea
                     value={batchSheetTemplate}
                     onChange={(e) => setBatchSheetTemplate(e.target.value)}
                     placeholder={mode === 'supplements' ? SUPPLEMENT_BATCH_TEMPLATE_PLACEHOLDER : FB_BATCH_TEMPLATE_PLACEHOLDER}
-                    rows={20}
+                    minRows={3}
+                    printRows={20}
                     className="w-full font-mono text-xs border border-gray-300 rounded p-3 leading-relaxed focus:outline-none focus:border-emerald-500 print:border-0 print:p-0 print:resize-none"
                     spellCheck={false}
                   />
@@ -10044,11 +10382,12 @@ export default function FormulationWizard() {
                   <h2 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-1 mb-3 uppercase tracking-wide flex items-center justify-between">
                     <span>QA Checkpoints <span className="text-[10px] text-gray-400 font-normal normal-case tracking-normal">(operator-authored · localStorage draft)</span></span>
                   </h2>
-                  <textarea
+                  <AutoGrowTextarea
                     value={qaCheckpointsText}
                     onChange={(e) => setQaCheckpointsText(e.target.value)}
                     placeholder={mode === 'supplements' ? SUPPLEMENT_QA_CHECKPOINTS_PLACEHOLDER : FB_QA_CHECKPOINTS_PLACEHOLDER}
-                    rows={12}
+                    minRows={3}
+                    printRows={12}
                     className="w-full font-mono text-xs border border-gray-300 rounded p-3 leading-relaxed focus:outline-none focus:border-emerald-500 print:border-0 print:p-0 print:resize-none"
                     spellCheck={false}
                   />
