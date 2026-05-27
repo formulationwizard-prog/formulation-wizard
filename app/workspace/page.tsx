@@ -4736,19 +4736,29 @@ export default function FormulationWizard() {
                   Supplement Facts label.
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && (() => {
-                // Fill weight per unit = FORMULA doses per unit (revised
-                // 2026-05-26 after operator decouple-serving-from-formula
-                // fix). Diagnostic job is "does the formula FIT inside the
-                // chosen capsule?" — must compare formula mass to capsule
-                // capacity. Previously read servingSizeInGrams which is now
-                // capsule-capacity-derived (per the decouple fix), so reading
-                // it here would always produce capsuleCap / capsuleCap = 100%
-                // utilization regardless of how much the formula exceeds the
-                // capsule. totalBatchGrams (formula sum per serving) is the
-                // correct comparand for over-fill detection.
-                const fillWeightMg = suppUnitsPerServing > 0
-                  ? (totalBatchGrams * 1000) / suppUnitsPerServing
-                  : 0;
+                // Fill weight = operator's chosen per-capsule weight
+                // (suppPerUnitWeightMg). Per operator 2026-05-26 "math not
+                // match!" — the Capacity / Utilization diagnostic should
+                // reflect the SAME number the operator set in the Per-Capsule
+                // Weight field, not a formula-derived value that diverges.
+                //
+                // The "does the formula FIT in the chosen capsule?" check
+                // is a separate concern handled by the Producibility tile
+                // (Formula Status block, top of page) — that surface uses
+                // formula-derived fillWeight and flags 'over-fill IMPOSSIBLE'
+                // when formula doses physically can't fit. This diagnostic
+                // validates the operator's TARGET FILL against capsule
+                // capacity (a user-input validation surface).
+                //
+                // ARCHITECTURAL QUESTION OPEN — Convention A vs B (ingredient
+                // row qty as per-serving label-claim dose vs recipe proportion)
+                // routed to next session via PDS architecture memo. See
+                // docs/architecture/packaging-data-sheet-architecture-2026-05-27.md
+                // for the three-document model (Base Sheet / Packaging Data
+                // Sheet / BPR) that resolves this question by separation of
+                // concerns — Convention B emerges naturally once Packaging
+                // Data Sheet owns per-cap fill + serving math.
+                const fillWeightMg = suppPerUnitWeightMg;
                 const capsuleCap = capsuleCapacityMg(suppCapsuleSize);
                 const capsuleUsagePct = capsuleCap > 0 ? (fillWeightMg / capsuleCap) * 100 : 0;
                 const isCapsule = suppDeliveryForm === 'capsule' || suppDeliveryForm === 'softgel';
@@ -4884,6 +4894,9 @@ export default function FormulationWizard() {
                             <div className="text-xs font-medium leading-snug mt-0.5">{capAdvice}</div>
                           </div>
                         </div>
+                        <p className="text-[10px] text-gray-500 italic mt-2 leading-relaxed">
+                          Capacity-vs-target-fill check. For formula-fit detection (whether your ingredient doses physically fit in the chosen capsule × units configuration), see the <span className="font-semibold">Producibility</span> tile in the Formula Status block at the top of the page.
+                        </p>
                       </div>
                     )}
 
