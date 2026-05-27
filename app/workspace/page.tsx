@@ -2211,7 +2211,9 @@ export default function FormulationWizard() {
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {(['home', 'build', 'cost', 'sourcing', 'batch', 'filing', 'services', 'authorities', 'saved', 'database'] as const).map(tab => (
+              {(['home', 'build', 'cost', 'sourcing', 'batch', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
+                .filter(tab => !(mode === 'supplements' && tab === 'filing'))
+                .map(tab => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   className={`px-4 py-2 rounded-lg font-medium transition text-sm ${activeTab === tab ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                   {tab === 'home' ? '🏠 Home'
@@ -10093,8 +10095,15 @@ export default function FormulationWizard() {
         </div>
       )}
 
-      {/* FILING TAB — Scheduled Process draft for Process Authority review */}
-      {activeTab === 'filing' && (
+      {/* FILING TAB — Scheduled Process draft for Process Authority review.
+          Mode-gated to F&B-only per audit finding F-A4 2026-05-26 — supplements
+          (DSHEA / 21 CFR 111) do not file Scheduled Process documents; this
+          form is for acidified foods + LACF (21 CFR 113 / 114) only. Filing
+          tab is also filtered out of the navigation in supplement mode (see
+          tab list rendering above); this content-level gate is a defensive
+          safety net for any edge case where activeTab is somehow 'filing'
+          in supplements mode. */}
+      {activeTab === 'filing' && mode !== 'supplements' && (
         <div className="max-w-5xl mx-auto px-6 py-8">
           {/* Header and determination */}
           <div className={`rounded-xl border-2 p-6 mb-6 print:hidden ${filingReq.urgency === 'critical' ? 'bg-red-50 border-red-300' : filingReq.urgency === 'recommended' ? 'bg-amber-50 border-amber-300' : 'bg-emerald-50 border-emerald-300'}`}>
