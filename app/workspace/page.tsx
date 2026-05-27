@@ -6797,7 +6797,17 @@ export default function FormulationWizard() {
                           label="pH"
                           value={specs.pH > 0 ? formatRangedValue('pH', specs.pH, specs.confidence.pH, 2).text : '—'}
                           confidence={specs.pH > 0 ? specs.confidence.pH : undefined}
-                          hint={specs.pH > 0 ? (specs.pH <= 4.0 ? 'High-acid' : specs.pH <= 4.6 ? 'Acidified / Acid' : 'Low-acid') : '—'}
+                          /* Audit finding F-A1: hint strings carry F&B
+                             acidified-foods regulatory framing ('High-acid /
+                             Acidified / Acid / Low-acid' map to 21 CFR 114
+                             classification). Mode-gate to neutral descriptive
+                             hints in supplements mode where pH isn't a
+                             regulatory classification trigger. */
+                          hint={specs.pH > 0
+                            ? (mode === 'supplements'
+                                ? (specs.pH <= 4.0 ? 'Acidic' : specs.pH <= 4.6 ? 'Slightly acidic' : specs.pH <= 7.5 ? 'Near neutral' : 'Alkaline')
+                                : (specs.pH <= 4.0 ? 'High-acid' : specs.pH <= 4.6 ? 'Acidified / Acid' : 'Low-acid'))
+                            : '—'}
                           color={specs.pH <= 4.0 ? 'emerald' : specs.pH <= 4.6 ? 'amber' : 'red'}
                         />
                       )}
@@ -6806,7 +6816,17 @@ export default function FormulationWizard() {
                           label="Water Activity (a_w)"
                           value={specs.aw > 0 ? formatRangedValue('aw', specs.aw, specs.confidence.aw, 3).text : '—'}
                           confidence={specs.aw > 0 ? specs.confidence.aw : undefined}
-                          hint={specs.aw > 0 ? (specs.aw <= 0.85 ? 'Shelf-stable by a_w' : specs.aw <= 0.91 ? 'Intermediate moisture' : 'High moisture') : '—'}
+                          /* Audit finding F-A2: 'Shelf-stable by a_w' framing
+                             is rooted in 21 CFR 113/114 LACF pathways and
+                             doesn't map to supplement regulatory classification.
+                             For supplements, a_w is a stability spec (microbial
+                             growth threshold + hygroscopic powder behavior),
+                             not a regulatory classification trigger. */
+                          hint={specs.aw > 0
+                            ? (mode === 'supplements'
+                                ? (specs.aw <= 0.60 ? 'Low water activity' : specs.aw <= 0.85 ? 'Moderate water activity' : 'High water activity')
+                                : (specs.aw <= 0.85 ? 'Shelf-stable by a_w' : specs.aw <= 0.91 ? 'Intermediate moisture' : 'High moisture'))
+                            : '—'}
                           color={specs.aw <= 0.85 ? 'emerald' : specs.aw <= 0.91 ? 'amber' : 'gray'}
                         />
                       )}
