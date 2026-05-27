@@ -9663,8 +9663,8 @@ export default function FormulationWizard() {
             <div className="flex items-start gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="text-sm">
-                <span className="font-bold text-amber-900">PREVIEW — Batch Sheet design in active development.</span>
-                <span className="text-amber-800"> Schema landed b00c23d 2026-05-25; save backend pending launch-blocker #4 (Supabase persistence). Captures will not persist across page reload until then. Process Instructions (below) DOES persist via localStorage.</span>
+                <span className="font-bold text-amber-900">PREVIEW — Save backend pending.</span>
+                <span className="text-amber-800"> Batch-level captures (Batch #, Operator, Production Date, ingredient actuals/lots, signatures) will not persist across page reload until launch-blocker #4 (Supabase persistence) lands. Process Instructions + QA Checkpoints DO persist via localStorage. Design is stable as of 2026-05-26 polish round.</span>
               </div>
             </div>
           </div>
@@ -9781,7 +9781,7 @@ export default function FormulationWizard() {
                       <h1 className="text-3xl font-bold text-gray-900">{productName || formulationName || 'Untitled Formulation'}</h1>
                       <p className="text-gray-600 text-sm mt-1">{productType || 'Product type not set'}</p>
                       <div className="mt-3 text-sm space-y-0.5">
-                        {productName && formulationName && productName !== formulationName && (
+                        {productName && formulationName && productName.trim().toLowerCase() !== formulationName.trim().toLowerCase() && (
                           <div><span className="text-gray-500">Internal</span> <span className="font-medium ml-1 text-gray-700">{formulationName}</span></div>
                         )}
                         <div><span className="text-gray-500">Product #</span> <span className="font-bold ml-1">{partNumber || '_______________'}</span></div>
