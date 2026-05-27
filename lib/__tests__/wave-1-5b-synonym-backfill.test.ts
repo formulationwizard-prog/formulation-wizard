@@ -43,7 +43,7 @@ import {
 // ──────────────────────────────────────────────────────────────
 
 describe('Wave 1.5b — Vitamin B5 synonym resolution', () => {
-  const expectedName = 'd-Calcium Pantothenate (USP, Tier-A, PENDING TIER VERIFICATION)';
+  const expectedName = 'd-Calcium Pantothenate (USP, Tier-A)';
 
   it('"Pantothenic Acid" resolves to B5 at Tier 1', () => {
     const r = findBestMatchWithTier('Pantothenic Acid', SUPPLEMENT_INGREDIENTS);
@@ -386,7 +386,7 @@ describe('Catalog-wide synonym collision detection (§II.8a)', () => {
 
   it('every backfilled entry from Wave 1.5b has synonyms populated', () => {
     const wave15bEntries = [
-      'd-Calcium Pantothenate (USP, Tier-A, PENDING TIER VERIFICATION)',
+      'd-Calcium Pantothenate (USP, Tier-A)',
       'Vitamin B9 (Folic Acid USP)',
       'Methylfolate (Metafolin / Calcium L-5-MTHF)',
       'Methylfolate (Quatrefolic / Glucosamine L-5-MTHF)',
