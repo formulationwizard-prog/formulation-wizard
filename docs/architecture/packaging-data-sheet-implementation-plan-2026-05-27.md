@@ -15,16 +15,16 @@ This is the build skeleton. Eight phases capture the scope at a level where the 
 **Goal:** Move the cards that already belong on the PDS off the Build Base Sheet UI. Same data, different home.
 
 **Scope:**
-- Add a new tab to `app/workspace/page.tsx` activeTab union — `'packaging'` (or `'pds'`)
-- Move these cards from Build Base Sheet → Packaging Data Sheet:
-  - Serving & Package Size card
-  - Delivery Form & Dosage card
-  - Capsules, Bottles & Closures card
-  - Capsule Capacity / Utilization diagnostic
-- Add the tab button to the workspace nav (mode-aware; supplements mode only — F&B may need different PDS shape, evaluate in Phase 8)
+- Add a new tab to `app/workspace/page.tsx` activeTab union — `'packaging'` (label "Packaging Data Sheet")
+- Move these cards from Build Base Sheet → Packaging Data Sheet (in **both modes** — bilingual from day one):
+  - Serving & Package Size card ([page.tsx:4487](../../app/workspace/page.tsx#L4487))
+  - Delivery Form & Dosage card ([page.tsx:4806](../../app/workspace/page.tsx#L4806)) — includes the Capsule Capacity / Utilization diagnostic embedded at the bottom (not a separate card)
+  - Packaging & Closure card ([page.tsx:4928](../../app/workspace/page.tsx#L4928)) — title-adaptive via `mc.packagingSectionTitle` ("Capsules, Bottles & Closures" in supplements mode)
+- Add the tab button to the workspace nav in **both supplements and F&B modes** — the 3 cards already render mode-gated content, so the relocation is symmetric work. Capsule Capacity diagnostic stays supplements-only (already mode-gated). The real F&B divergence is Phase 6 (machinery), not Phase 1.
 - Preserve all existing state variables and persistence — no schema migration; pure UI relocation
-- Verify the Build Base Sheet's TOTAL row + recipe-level cards continue to render cleanly without the Packaging cards present
+- Verify the Build Base Sheet's TOTAL row + recipe-level cards continue to render cleanly without the Packaging cards present (both modes)
 - Verify the Batch Sheet's Per-Capsule Weight column + Serving math continue to pull from the now-relocated state
+- F&B regression audit at extraction time — Phase 1 will surface any latent mode-gating bugs in the existing cards (feature, not cost)
 
 **Risk:** None to data layer. Pure UI move. Same pattern as the Execution Canvas relocation (Build Base Sheet → Batch Sheet) shipped earlier this session.
 
@@ -170,10 +170,10 @@ Phase 8b requires migration. Options to evaluate at next session:
 Recommended (CC's lean): Option 2 (version-stamped) with Option 3 (review-and-confirm) for ambiguous cases. Preserves existing behavior for old formulations while enabling new behavior for new ones.
 
 ### MVP vs Q4 gating
-For August 2026 launch:
-- **MVP-required**: Phases 1-2 (extraction + identity layer) — closes the architectural conflation visibly without contract risk
-- **MVP-strong-want**: Phase 3 (labeling) + Phase 4 (secondary/tertiary)
-- **Post-launch / Q4 2026**: Phases 5-7 (BOM, machinery, QC) — depth that small-shop operators don't need at launch
+For August 2026 launch (Phases 1-5 + 7 are bilingual at the schema level; Phase 6 machinery is the genuine mode-divergence point):
+- **MVP-required**: Phases 1-2 (extraction + identity layer) — closes the architectural conflation visibly without contract risk; bilingual from day one (supplements + F&B)
+- **MVP-strong-want**: Phase 3 (labeling) + Phase 4 (secondary/tertiary) — bilingual; label content placement differs by mode (SFP vs NFP, DSHEA disclaimer vs none) but schema is shared
+- **Post-launch / Q4 2026**: Phases 5-7 (BOM, machinery, QC) — depth that small-shop operators don't need at launch. **Phase 6 (machinery) is where mode-specific work concentrates** — F&B retort/hot-fill/pasteurizer/acidified-foods filler menus diverge from supplements capsule polisher/blister sealer/bottle filler menus
 - **Post-launch with verification gate**: Phase 8 (Convention B + safety migration) — requires Gates 1-5 closed; safer to defer until post-launch operational learning informs the migration plan
 
 ### Parallelization opportunities
@@ -186,7 +186,7 @@ For August 2026 launch:
 ## Open questions for next session
 
 1. **Phase 1 tab name** — "Packaging Data Sheet" full or "PDS" abbreviated for the tab button? (Affects mobile + small-screen rendering.)
-2. **F&B mode PDS shape** — does Phase 1 add the PDS tab in F&B mode too? F&B has different packaging-spec conventions (acidified-foods filing references container/closure differently). Possibly defer PDS-for-F&B to Q4.
+2. ~~**F&B mode PDS shape** — does Phase 1 add the PDS tab in F&B mode too?~~ **RESOLVED 2026-05-27: bilingual from day one.** Phase 1 adds the PDS tab in both modes. F&B-specific divergence (acidified-foods Form 2541 references, F&B machinery menus) defers to Phase 6 and Q4 work — not Phase 1.
 3. **Print artifact** — when the operator hits "Print/Save" on the PDS, does it generate a single PDF spanning all 7 sections, or one PDF per section? CDMOs typically use single document.
 4. **Linkage to ReviewState machinery** — does the PDS go through the same draft → submitted → approved → version-locked lifecycle as the Base Sheet? If yes, ReviewState extends to track which PDS version a BPR inherits from.
 5. **Schema migration for existing saved formulations** — do they need a PDS auto-attached at first load post-Phase-1, with default values seeded from the old Build Base Sheet state?
