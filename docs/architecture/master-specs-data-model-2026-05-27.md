@@ -1,7 +1,7 @@
 # Master Specs — Data Model & Architecture
 
-**Date:** 2026-05-27
-**Status:** Locked TypeScript model proposal · pending review by operator + Opus + co-founder · gates Phase 1 build
+**Date:** 2026-05-27 · revised post-red-line review pass
+**Status:** Model refined per reviewer red-lines #1-#5 (distribution/bound · Packet Q1 dep · discriminated ComputedStats · overage interface · Phase 1 scope gating) · 4 of 8 open questions locked · 2 unresolved architectural deps surfaced
 **Companion doctrine:** [[living-spec-learning-doctrine]] · [[controlled-document-doctrine]] · [[upstream-from-pds-doctrine]]
 **Companion architecture:** [packaging-data-sheet-architecture-2026-05-27.md](packaging-data-sheet-architecture-2026-05-27.md)
 
@@ -54,9 +54,18 @@ interface SpecMetric {
   icon?: string;                         // Optional emoji or icon hint
   description?: string;                  // Help text shown in wizard
   promotion_thresholds?: {               // Per-metric n thresholds (optional override)
-    verified_at: number;                 // Default: 5
+    verified_at: number;                 // Default: 5; heavy metals + microbial use 10
     well_characterized_at: number;       // Default: 30
   };
+
+  // Statistical model parameters (red-line #1 — distribution + bound direction)
+  // Per-metric defaults locked in seed library; defines correct range
+  // computation for the metric type.
+  distribution_type: 'normal' | 'log-normal' | 'poisson' | 'binomial';
+  bound_direction: 'two-sided' | 'upper-only' | 'lower-only';
+  // Optional per-metric safety factor override (default 2.0 → ~95% coverage;
+  // heavy metals + microbial typically use 3.0+ given asymmetric consequences)
+  safety_factor_default?: number;
 }
 
 type RegulatoryRelevance =
@@ -82,7 +91,21 @@ type RegulatoryRelevance =
 | Industry-common (built-in) | Platform-curated | pH, aw, moisture, Brix, viscosity, color L*a*b*, microbial counts | ~15 |
 | Operator-custom | QA Manager defines | Anything unique to operator's portfolio | Unbounded |
 
-**Phase 1 seed library: 30 predefined metrics.**
+**Phase 1 seed library: 30 predefined metrics** — *composition locked by co-founder's 20-year formulation expertise (see open question #4).*
+
+**Per-metric distribution defaults (locked):**
+
+| Metric category | distribution_type | bound_direction | safety_factor |
+|---|---|---|---|
+| Heavy metals (Pb · As · Cd · Hg) | log-normal | upper-only | 3.0 |
+| Microbial (TPC · Y&M · coliforms · pathogens) | poisson | upper-only | 3.0 |
+| pH (acidified foods · CFR 114.80) | normal | lower-only (≤4.6) | 2.0 |
+| aw (LACF · CFR 113) | normal | upper-only (≤0.85) | 2.0 |
+| pH (general products) | normal | two-sided | 2.0 |
+| Physical specs (Brix · moisture · density · viscosity · color L*a*b*) | normal | two-sided | 2.0 |
+| Potency (HPLC actives) | normal | lower-only (≥ label claim × overage) | 2.0 |
+
+Phase 1 ComputedStats implements `normal + two-sided / upper-only / lower-only` (covers ~25 of 30 seed metrics). `log-normal` and `poisson` exact distributions deferred to Phase 2 — Phase 1 uses normal approximation with a per-metric caveat note ("Confidence interval uses normal approximation; exact distribution Phase 2").
 
 ---
 
@@ -91,7 +114,10 @@ type RegulatoryRelevance =
 ```typescript
 interface MasterSpecEntry {
   id: string;                            // UUID
-  product_id: string;                    // FG Part # (e.g., "2106") — the formulation identifier
+  product_id: string;                    // UUID — canonical product identifier (per red-line #2,
+                                         //   decoupled from FG Part #). FG Part #, brand, product
+                                         //   line, version FKs live on Product entity (resolved
+                                         //   in Packet Q1; see open dependency below).
   revision: string;                      // PDS revision (e.g., "Rev01") — spec accumulates per revision
   metric_id: string;                     // FK → SpecMetric.id
 
@@ -102,6 +128,20 @@ interface MasterSpecEntry {
   authorized_signer: string;                       // User ID or free-text name (pre-RBAC)
   authorized_role: 'qa-manager' | 'lab-manager' | 'rd-manager' | 'operator';
   authorized_date: string;                         // ISO date
+
+  // Overage / label-claim interface (red-line #4 — critical for supplements)
+  // validated_value is the actual concentration at time-zero (e.g., Vit C
+  // added at 110% of label claim to compensate for 6-month stability loss).
+  // label_value = validated_value / (target_at_label_claim_pct / 100).
+  // Default 100 = no overage (validated_value === label_value).
+  target_at_label_claim_pct: number;
+
+  // Cross-revision behavior (red-line picks #5 — per-metric override)
+  // When PDS revision changes (Rev01 → Rev02), observations from prior
+  // revision carry forward into this entry by default. Operator can set
+  // this true per-metric per-revision-change to invalidate carry-forward
+  // (e.g., reformulation altered the metric materially).
+  metric_invalidated_by_revision: boolean;
 
   // Observation log — append-only, source of truth
   observation_log: ObservationLogEntry[];
@@ -128,6 +168,8 @@ interface MasterSpecEntry {
 - Allows spec evolution across PDS revisions (Rev01 vs Rev02 may have different validated values)
 - Allows different metrics per product (Cola tracks color; capsule doesn't)
 - Allows independent observation accumulation per metric
+
+**Packet Q1 dependency (red-line #2):** `product_id` is a UUID; Product entity (resolved in Packet Q1) owns FG Part # + version + brand + product line FKs. Master Specs joins via UUID; when Packet Q1 routes to a different hierarchy, Master Specs doesn't change. Phase 1 build proceeds with Product entity as a forward-declared interface; full Packet Q1 wiring lands when that architectural decision lands.
 
 ---
 
@@ -161,28 +203,82 @@ interface ObservationLogEntry {
 ### 4. `ComputedStats` — derived block (recomputed on observation insert)
 
 ```typescript
-interface ComputedStats {
-  mean: number | null;                   // Arithmetic mean of valid observations
-  std_dev: number | null;                // Sample standard deviation (n-1 denominator)
+// Discriminated union by metric.data_type (red-line #3).
+// Numeric metrics get mean / std_dev / current_range; categorical metrics
+// get counts per category + dominant category; boolean metrics get pass_pct.
+// Tier promotion logic is shared (n-based) across all variants.
+type ComputedStats = ComputedStatsNumeric | ComputedStatsCategorical | ComputedStatsBoolean;
+
+interface ComputedStatsBase {
   n: number;                             // Count of non-superseded observations
-  min: number | null;
-  max: number | null;
   tier: ConfidenceTier;
-  current_best: number | null;           // Best estimate displayed (= mean if n≥1, else validated_value)
-  current_range: number | null;          // ± range displayed (= safety_factor × std_dev if n≥5, else validated_tolerance)
-  safety_factor: number;                 // Default 2.0 (95% coverage); configurable in Phase 2+
   last_observation_at: string | null;    // Most recent observation date
   computed_at: string;                   // When stats were last recomputed
 }
 
+interface ComputedStatsNumeric extends ComputedStatsBase {
+  data_type: 'numeric';
+  mean: number | null;                   // Arithmetic mean of valid observations
+  std_dev: number | null;                // Sample standard deviation (n-1 denominator)
+  min: number | null;
+  max: number | null;
+  current_best: number | null;           // Best estimate displayed (= mean if n≥1, else validated_value)
+  current_range_low: number | null;      // Lower bound of displayed range (null if bound_direction='upper-only')
+  current_range_high: number | null;     // Upper bound of displayed range (null if bound_direction='lower-only')
+  safety_factor: number;                 // Default 2.0; per-metric override possible
+}
+
+interface ComputedStatsCategorical extends ComputedStatsBase {
+  data_type: 'categorical';
+  counts: Record<string, number>;        // Per-category observation counts
+  dominant: string | null;               // Most-observed category
+  dominant_pct: number | null;           // % of observations matching dominant
+}
+
+interface ComputedStatsBoolean extends ComputedStatsBase {
+  data_type: 'boolean';
+  true_count: number;                    // Pass count
+  false_count: number;                   // Fail count
+  pass_pct: number | null;               // true_count / n
+}
+
 type ConfidenceTier =
   | 'estimated'                          // n=0 — platform calculation only
-  | 'validated'                          // n=1-4 — initial lab-set, small sample
-  | 'verified'                           // n=5-29 — statistically meaningful
+  | 'validated'                          // n=1-4 — initial lab-set, small sample (or n<verified_at threshold)
+  | 'verified'                           // n=5-29 — statistically meaningful (or n<well_characterized_at)
   | 'well-characterized';                // n=30+ — statistically robust
 ```
 
-**Tier promotion logic (centralized in helper):**
+**Phase 1 scope on ComputedStats variants:**
+- **Numeric** — implemented in full (covers ~28 of 30 seed metrics)
+- **Categorical** — scaffolded (counts + dominant + tier) with tier promotion logic; UI integration Phase 2
+- **Boolean** — scaffolded (true/false count + pass_pct + tier); UI integration Phase 2
+
+**Range computation now branches on bound_direction + distribution_type:**
+
+```typescript
+function computeRange(
+  stats: ComputedStatsNumeric,
+  metric: SpecMetric,
+  validated_value: number,
+  validated_tolerance: number,
+): { low: number | null; high: number | null } {
+  // When n < verified threshold, use operator-set validated_tolerance
+  if (stats.n < metric.promotion_thresholds!.verified_at) {
+    if (metric.bound_direction === 'upper-only') return { low: null, high: validated_value + validated_tolerance };
+    if (metric.bound_direction === 'lower-only') return { low: validated_value - validated_tolerance, high: null };
+    return { low: validated_value - validated_tolerance, high: validated_value + validated_tolerance };
+  }
+  // When n is meaningful, use statistical range (normal approx for Phase 1)
+  const k = stats.safety_factor;
+  const halfWidth = k * stats.std_dev!;
+  if (metric.bound_direction === 'upper-only') return { low: null, high: stats.mean! + halfWidth };
+  if (metric.bound_direction === 'lower-only') return { low: stats.mean! - halfWidth, high: null };
+  return { low: stats.mean! - halfWidth, high: stats.mean! + halfWidth };
+}
+```
+
+**Tier promotion logic (centralized in helper; shared across data_type variants):**
 
 ```typescript
 function computeTier(n: number, metric: SpecMetric): ConfidenceTier {
@@ -194,16 +290,10 @@ function computeTier(n: number, metric: SpecMetric): ConfidenceTier {
 }
 ```
 
-**Range computation:**
-
-```typescript
-function computeCurrentRange(stats: ComputedStats, validated_tolerance: number): number {
-  // When n is small, use operator-set validated_tolerance
-  if (stats.n < 5) return validated_tolerance;
-  // When n is meaningful, use statistical range: ± k × σ where k = safety_factor (default 2.0 for ~95% coverage)
-  return stats.safety_factor * stats.std_dev!;
-}
-```
+**Per-metric threshold locks (per reviewer pick #2):**
+- Heavy metals (Pb, As, Cd, Hg): `verified_at: 10` (Poisson-like detection-limit behavior)
+- Microbial counts (TPC, Y&M, coliforms, pathogens): `verified_at: 10` (Poisson distribution; small-n unstable)
+- All other metrics: default `verified_at: 5`, `well_characterized_at: 30`
 
 ---
 
@@ -337,53 +427,79 @@ ExportToken — co-pack share links → generates PDF + CSV bundle from MasterSp
 
 ## Statistical math (centralized helper module)
 
-All statistical computation lives in one module (e.g., `lib/masterSpecsStats.ts`):
+All statistical computation lives in one module (`lib/masterSpecsStats.ts`). Per red-line #3, branches on `metric.data_type`; per red-line #1, range computation branches on `metric.bound_direction` and `metric.distribution_type` (Phase 1 uses normal approximation for log-normal/poisson with caveat note).
 
 ```typescript
 export function recomputeStats(
   observations: ObservationLogEntry[],
-  validated_value: number,
-  validated_tolerance: number,
+  entry: Pick<MasterSpecEntry, 'validated_value' | 'validated_tolerance' | 'target_at_label_claim_pct'>,
   metric: SpecMetric,
-  safety_factor: number = 2.0,
 ): ComputedStats {
   const valid = observations.filter(o => !o.superseded_by);
-  const values = valid.map(o => o.value as number);
-  const n = values.length;
+  const n = valid.length;
+  const tier = computeTier(n, metric);
+  const last_observation_at = n > 0 ? valid[n - 1].observation_date : null;
+  const computed_at = new Date().toISOString();
 
-  if (n === 0) {
+  // Branch by data_type
+  if (metric.data_type === 'numeric') {
+    const values = valid.map(o => o.value as number);
+    const safety_factor = metric.safety_factor_default ?? 2.0;
+    if (n === 0) {
+      const range = computeRangeFromTolerance(metric, entry.validated_value as number, entry.validated_tolerance ?? 0);
+      return {
+        data_type: 'numeric',
+        n: 0, tier, mean: null, std_dev: null, min: null, max: null,
+        current_best: entry.validated_value as number,
+        current_range_low: range.low, current_range_high: range.high,
+        safety_factor, last_observation_at, computed_at,
+      };
+    }
+    const mean = values.reduce((a, b) => a + b, 0) / n;
+    const std_dev = n >= 2 ? Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1)) : null;
+    const stats: ComputedStatsNumeric = {
+      data_type: 'numeric',
+      n, tier, mean, std_dev,
+      min: Math.min(...values), max: Math.max(...values),
+      current_best: mean,
+      current_range_low: null, current_range_high: null,
+      safety_factor, last_observation_at, computed_at,
+    };
+    const range = computeRange(stats, metric, entry.validated_value as number, entry.validated_tolerance ?? 0);
+    return { ...stats, current_range_low: range.low, current_range_high: range.high };
+  }
+
+  if (metric.data_type === 'categorical') {
+    const counts: Record<string, number> = {};
+    for (const o of valid) counts[o.value as string] = (counts[o.value as string] ?? 0) + 1;
+    let dominant: string | null = null;
+    let dominantCount = 0;
+    for (const [k, v] of Object.entries(counts)) if (v > dominantCount) { dominant = k; dominantCount = v; }
     return {
-      mean: null, std_dev: null, n: 0, min: null, max: null,
-      tier: 'estimated',
-      current_best: validated_value,
-      current_range: validated_tolerance,
-      safety_factor,
-      last_observation_at: null,
-      computed_at: new Date().toISOString(),
+      data_type: 'categorical', n, tier, counts, dominant,
+      dominant_pct: n > 0 ? dominantCount / n : null,
+      last_observation_at, computed_at,
     };
   }
 
-  const mean = values.reduce((a, b) => a + b, 0) / n;
-  const std_dev = n >= 2
-    ? Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1))
-    : null;
-
-  const tier = computeTier(n, metric);
-  const current_best = mean;
-  const current_range = (std_dev !== null && n >= 5) ? safety_factor * std_dev : validated_tolerance;
-
+  // boolean
+  const true_count = valid.filter(o => o.value === true).length;
+  const false_count = n - true_count;
   return {
-    mean, std_dev, n,
-    min: Math.min(...values),
-    max: Math.max(...values),
-    tier, current_best, current_range, safety_factor,
-    last_observation_at: valid[valid.length - 1].observation_date,
-    computed_at: new Date().toISOString(),
+    data_type: 'boolean', n, tier, true_count, false_count,
+    pass_pct: n > 0 ? true_count / n : null,
+    last_observation_at, computed_at,
   };
 }
 ```
 
-**Unit-testable.** Phase 1 deliverable includes a `__tests__/masterSpecsStats.test.ts` covering edge cases (n=0, n=1, n=2, n=5, n=30, n=100; outliers; superseded observations; categorical metrics).
+**Unit-testable.** Phase 1 deliverable includes `__tests__/masterSpecsStats.test.ts` covering:
+- Numeric edge cases (n=0, n=1, n=2, n=5, n=30, n=100; outliers; superseded observations)
+- bound_direction variants (two-sided / upper-only / lower-only) → correct range
+- Categorical metrics (counts, dominant, dominant_pct)
+- Boolean metrics (pass_pct calculation)
+- Tier promotion thresholds (default + heavy-metals/microbial overrides)
+- Overage interpretation (target_at_label_claim_pct ≠ 100)
 
 ---
 
@@ -404,20 +520,75 @@ Phase 1: all actions assume operator has full access (no enforcement). Labels sh
 
 ---
 
-## Phase 1 vs Phase 2+ scope split
+## Document architecture — Fortune 500 quality bar (red-line addendum 2026-05-27)
 
-### Phase 1 (next session — locks the model + foundational UI)
+Reviewer recalibration: the Fortune 500 quality bar on the printed Master Spec Sheet is **architectural**, not design-domain. The architectural commitment is:
+
+1. **Section ontology** — defined sections that scale from 1-page (small DTC) to 16-page (enterprise spec sheet). Sections are structured entities, not free-form prose.
+2. **Template depth flex** — section visibility gated by `depth_tier: 'minimal' | 'standard' | 'comprehensive'`. Minimal = identity + key specs only; comprehensive = full audit ontology (validation history, method genealogy, statistical visualizations, customer ack signatures, etc.).
+3. **Version control** — every section under explicit revision tracking (which Rev introduced/modified each section). Audit-resistant: never silently mutated.
+4. **Audit linkage** — every section traceable back to AuditLogEntry entries (who authored what, when, with what authorization).
+
+**Section ontology (Phase 1 scaffold; Phase 2-4 populate):**
+
+```typescript
+interface SpecSheetSection {
+  id: string;                            // UUID
+  ordinal: number;                       // Display order (1 = identity, 2 = validated specs, etc.)
+  section_type: SpecSheetSectionType;
+  title: string;                         // Operator-overridable
+  depth_tier: 'minimal' | 'standard' | 'comprehensive';
+  visibility: 'always' | 'when-data-present' | 'optional';
+  audit_anchor_id?: string;              // Link to AuditLogEntry that authored this section
+  revision_introduced: string;           // Which PDS Rev first included this section
+  revision_last_modified: string;
+  content_renderer: SpecSheetRenderer;   // Component reference for how to print this section
+}
+
+type SpecSheetSectionType =
+  | 'identity'                           // Cover page — brand / product / FG # / Rev — minimal+
+  | 'validated-specs'                    // Validated spec table — minimal+
+  | 'observation-history'                // Per-metric observation log — standard+
+  | 'statistical-summary'                // Mean / σ / tier / n per metric — standard+
+  | 'method-genealogy'                   // Test methods + validation evidence — comprehensive
+  | 'override-audit-trail'               // Override history table — standard+
+  | 'production-statistics'              // Cross-batch trend tables — comprehensive
+  | 'customer-acknowledgment'            // Customer sign-off block — comprehensive
+  | 'approval-signatures'                // QA / Ops / Plant Mgr sign-offs — minimal+
+  | 'revision-history'                   // Full revision log — comprehensive
+  | 'regulatory-references'              // FDA / USP / AOAC method citations — standard+
+  | 'cross-doc-references';              // Links to HACCP / SSOP / Allergen Control Plan — comprehensive
+```
+
+Phase 1 deliverable includes the SpecSheetSection scaffold + `depth_tier: 'standard'` PDF output for the 30 seed metrics. Comprehensive depth (method genealogy, customer acknowledgment, cross-doc references) builds out in Phase 2-4. **Critical:** the data model has the section ontology in Phase 1 so future depth flex doesn't require migration.
+
+---
+
+## Phase 1 vs Phase 2+ scope split (revised per red-line #5)
+
+### Phase 1 — INTERNAL DEVELOPMENT SCAFFOLD (operator-facing launch gated on LB#4)
+
+**Phase 1 ships internally only.** Per red-line #5: localStorage as "QA Manager's single validation source of truth" is a compliance non-starter (cleared on browser data clear, no portability, no audit resistance). PDS Validated Specs inheritance does NOT ship to operators until LB#4 lands.
+
+Phase 1 internal scope:
 - Data model implemented (all interfaces above, in `types/masterSpecs.ts`)
-- 30-metric predefined seed library (`lib/data/masterSpecsLibrary.ts`)
-- `lib/masterSpecsStats.ts` helper module with unit tests
-- "Master Specs" tab (or whatever name lands) added to workspace nav
+- 30-metric predefined seed library (`lib/data/masterSpecsLibrary.ts`) — composition pending co-founder review (open question #4)
+- `lib/masterSpecsStats.ts` helper module with unit tests (≥12 cases covering numeric / categorical / boolean / bound_direction / overage / tier promotion)
+- "Master Specs" tab added to workspace nav — hidden behind feature flag for operator-facing visibility
 - Portfolio view (lists all products with summary)
 - Per-product detail view (validated specs table + observation log)
 - Master Spec Wizard (Quick add + Custom add flows)
-- localStorage persistence (until LB#4 save backend lands)
-- PDS Validated Specs section inherits-displays Master Specs data (controlled-doc inherit)
-- "Print Master Spec Sheet" PDF export (designed-looking, customer-shareable)
+- localStorage persistence (internal dev only — explicitly NOT shipped as compliance backbone)
+- SpecSheetSection scaffold (section ontology + depth_tier + audit linkage placeholders)
+- PDS Validated Specs section reads from Master Specs **but disabled behind same feature flag**
+- "Print Master Spec Sheet" PDF export — `depth_tier: 'standard'` (designed-looking, customer-shareable)
 - Audit log captured (display surface deferred)
+
+### Phase 1.5 — OPERATOR-FACING LAUNCH (gated on LB#4 second-half landing)
+- Postgres migration (localStorage → server via the LB#4 Supabase persistence layer)
+- Feature flag flipped on; Master Specs tab visible to operators
+- PDS Validated Specs inheritance live (controlled-doc inherit working end-to-end with durable persistence)
+- Phase 1 ↔ Phase 1.5 cutover via JSON export/import (operators with localStorage Phase 1 internal data migrate cleanly)
 
 ### Phase 2 (after LB#4 save backend lands)
 - Postgres migration (localStorage → server)
@@ -460,44 +631,76 @@ Phase 1: all actions assume operator has full access (no enforcement). Labels sh
 
 ---
 
-## Open questions for reviewer (operator + Opus + co-founder)
+## Open questions for reviewer — status post-review pass
 
-1. **Final tab name** — Master Specs · Living Specs · Spec Library · Quality Library · other?
-2. **Promotion thresholds** — n≥5 (VERIFIED) and n≥30 (WELL-CHARACTERIZED) are statistical conventions; should heavy metals or microbial use higher thresholds in Phase 1 (e.g., n≥10 for VERIFIED) given their Poisson distribution / detection limit behavior?
-3. **Safety factor default** — 2.0 (95% coverage) vs 3.0 (99.7% coverage)? Industry uses both; 2.0 matches Six Sigma defaults.
-4. **Predefined seed library size** — 30 metrics chosen for Phase 1. Want a specific list reviewed before locking?
-5. **Cross-revision spec carry-forward** — When PDS revision changes (Rev01 → Rev02), do observations from Rev01 carry forward into Rev02's spec record? Recommended: yes (revision is metadata; data accumulates) — confirm.
-6. **External lab integration** — Phase 1 logs observations as free-text fields. Should we structure `lab_name` as a FK to a lab vendor table for future integration? Recommended: yes, but keep as string in Phase 1 with a TODO for vendor-table refactor.
-7. **Customer share link permissions** — Phase 1 ships expiring-link only. Should we also support email-gated (recipient must enter email to access)?
-8. **Master Spec Wizard depth** — Phase 1 ships Quick add (predefined) + Custom add (full 5-step). Should Bulk add (paste from spreadsheet) be Phase 2, or deferred further?
+### LOCKED (reviewer pick 2026-05-27)
+
+1. ✅ **Tab name: "Master Specs"** — cGMP register naming is the moat. "Living Specs" is branding-adjacent; "Master Specs" is industry-native.
+2. ✅ **Promotion thresholds** — heavy metals + microbial use `verified_at: 10` (Poisson + detection-limit behavior). All others default `verified_at: 5`, `well_characterized_at: 30`. Per-metric override via `promotion_thresholds` field, populated in seed library.
+3. ✅ **Safety factor default** — 2.0 (95% coverage); heavy metals + microbial override to 3.0+ (per-metric `safety_factor_default` field, populated in seed library).
+5. ✅ **Cross-revision carry-forward** — Yes by default; per-metric `metric_invalidated_by_revision` flag (on MasterSpecEntry) operator sets when reformulation materially affects the metric. Default false (observations carry).
+
+### REMAINING OPEN
+
+4. **Predefined seed library composition** — 30 metrics chosen for Phase 1. **Co-founder review required** — 20-year formulation expertise needed to validate the list matches target operator profile. CC can propose a candidate list; co-founder locks. Blocks Phase 1 metric catalog seeding but NOT data model build.
+6. **External lab integration** — Phase 1 logs `lab_name` as free-text. Recommended: structure as FK to lab vendor table in Phase 2 (after Sourcing tab vendor architecture lands).
+7. **Customer share link permissions** — Phase 1 ships expiring-link only. Email-gated access defers to Phase 2.
+8. **Master Spec Wizard depth** — Phase 1 ships Quick add + Custom add. Bulk add (spreadsheet paste) defers to Phase 2.
+
+### NEW UNRESOLVED ARCHITECTURAL DEPENDENCIES (surfaced by review)
+
+A. **Packet Q1 — Product entity hierarchy** — Master Specs `product_id` is a UUID, but the Product entity (Brand → Product Line → Product → Version) needs to be resolved in the broader Packet Q1 architectural session. Phase 1 build proceeds with Product entity as a forward-declared interface; full FK wiring lands when Packet Q1 routes. **Routing: operator + Opus + co-founder.**
+
+B. **Convention A vs B ↔ Master Specs interface** — Under Convention B (recipe as proportions, dose derived in PDS), what gets stored in Master Specs `validated_value`? The proportion, the derived dose, or both? Affects supplements operators using Master Specs. F&B (Convention A) unaffected — Jimmy's BBQ Sauce can use Master Specs immediately. **Routing: needs resolution before supplements operators use Master Specs;** does NOT block F&B Phase 1.
+
+C. **Fortune 500 quality bar — depth flex commitment** — Section ontology + depth_tier + version control + audit linkage scaffolded in Phase 1 via `SpecSheetSection` interface. Comprehensive depth (method genealogy, customer acknowledgment, cross-doc references) populates in Phase 2-4. **Locked architectural commitment per reviewer recalibration 2026-05-27.**
 
 ---
 
-## Acceptance criteria (Phase 1 ships when)
+## Acceptance criteria
 
-- [ ] All interfaces in `types/masterSpecs.ts` match this doc
-- [ ] `lib/masterSpecsStats.ts` has ≥10 unit test cases covering edge cases
-- [ ] 30-metric predefined library seeded in `lib/data/masterSpecsLibrary.ts`
-- [ ] Master Specs tab visible in workspace nav (mode-aware: both modes)
+### Phase 1 INTERNAL DEV scaffold (ships internally only)
+
+- [ ] All interfaces in `types/masterSpecs.ts` match this doc (SpecMetric / MasterSpecEntry / ObservationLogEntry / ComputedStats discriminated union / OverrideEntry / AuditLogEntry / SpecSheetSection / MetricSuggestion / ExportToken)
+- [ ] `lib/masterSpecsStats.ts` has ≥12 unit test cases covering numeric (n=0/1/2/5/30/100) + categorical + boolean + bound_direction variants + overage interpretation + per-metric promotion thresholds
+- [ ] 30-metric predefined library seeded in `lib/data/masterSpecsLibrary.ts` with locked distribution_type + bound_direction + safety_factor_default per metric (pending co-founder composition review)
+- [ ] Master Specs tab built; **hidden behind feature flag for operator-facing visibility** (internal dev only)
 - [ ] Portfolio view lists all saved formulations with spec counts
 - [ ] Per-product detail view shows validated specs + observation log
 - [ ] Master Spec Wizard works for both Quick add + Custom add
-- [ ] PDS Validated Specs section reads from Master Specs (inheritance verified)
-- [ ] "Print Master Spec Sheet" exports designed PDF
+- [ ] SpecSheetSection scaffold present (section ontology + depth_tier defined)
+- [ ] PDS Validated Specs section reads from Master Specs (inheritance verified) **but disabled behind same feature flag**
+- [ ] "Print Master Spec Sheet" exports designed PDF at `depth_tier: 'standard'`
 - [ ] Audit log captures every state change (display deferred to Phase 2)
-- [ ] localStorage persistence works across page reloads
+- [ ] localStorage persistence works across page reloads (internal dev only — explicit dev banner)
 - [ ] Typecheck PASS, no regressions to existing tabs
+
+### Phase 1.5 OPERATOR-FACING launch (gates flag-flip)
+
+- [ ] LB#4 Supabase persistence landed
+- [ ] localStorage → Postgres migration tested
+- [ ] PDS Validated Specs inheritance enabled
+- [ ] Feature flag removed; Master Specs tab visible to operators
+- [ ] Audit log durably persisted to server
 
 ---
 
-## Reviewer red-line invitation
+## Reviewer red-line review pass — complete 2026-05-27
 
-This doc is **the bet** that everything in Master Specs Phase 1-6 builds on. World-class teams treat the model as its own deliverable. Please red-line:
+This doc has been revised through one full red-line review pass. **Five load-bearing red-lines** were surfaced and incorporated into the model:
 
-- **Architecture** — does the entity model match how cGMP shops actually think?
-- **Statistical conventions** — are the promotion thresholds + safety factor defaults right for our target users?
-- **Permissions model** — is the role taxonomy complete? Missing roles?
-- **Phase scope** — anything in Phase 2+ that should be Phase 1, or vice versa?
-- **Open questions** — pick a side on each, or propose alternatives
+| # | Red-line | Resolution in model |
+|---|---|---|
+| 1 | Statistical model assumed normality + symmetric two-sided tolerance (wrong for heavy metals, microbial, one-sided regulatory limits) | Added `distribution_type` + `bound_direction` to `SpecMetric`; range computation branches on bound_direction; per-metric defaults locked in seed library |
+| 2 | `product_id` + `revision` were unresolved Packet Q1 dependencies | `product_id` is now a UUID; FG Part # + brand + product line FKs live on Product entity (resolved in Packet Q1); Master Specs joins via UUID with no rework needed |
+| 3 | Categorical / boolean metrics broke ComputedStats (assumed numeric throughout) | `ComputedStats` is now a discriminated union by `data_type`; categorical gets counts + dominant; boolean gets pass_pct; tier promotion shared across all variants |
+| 4 | Overage / label-claim interface undefined (critical for supplements — Vit C overage means validated_value ≠ label_value) | Added `target_at_label_claim_pct` to `MasterSpecEntry`; label_value = validated_value / (pct/100); default 100 = no overage |
+| 5 | Phase 1 localStorage as "QA Manager's single validation source of truth" is a compliance non-starter | Phase 1 scope split: internal dev scaffold only (feature flag); operator-facing launch (Phase 1.5) gated on LB#4 Supabase persistence; PDS Validated Specs inheritance gated on same flag |
 
-Once approved, I build against this locked model with confidence that the foundation is right.
+**Plus reviewer recalibration:** Fortune 500 quality bar on printed Master Spec Sheet is **architectural commitment** (not design-domain). Added `SpecSheetSection` entity with section ontology + depth_tier + version control + audit linkage. Design-adjacent pieces (visual hierarchy / typography / layout density) remain D's domain.
+
+**4 of 8 open questions locked** by reviewer pick (#1 tab name, #2 promotion thresholds, #3 safety factor, #5 cross-revision carry-forward). 4 remain open (#4 seed library composition needs co-founder review; #6/#7/#8 deferred to Phase 2).
+
+**3 new architectural dependencies surfaced** (Packet Q1 Product entity, Convention A vs B ↔ Master Specs interface, Fortune 500 depth-flex commitment).
+
+**Build status:** model is locked enough to proceed with Phase 1 internal dev scaffold. Co-founder review of seed library composition (#4) blocks Phase 1 metric catalog seeding but NOT the data model build. Convention A vs B (B) does NOT block F&B Phase 1.
