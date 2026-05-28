@@ -37,7 +37,9 @@ export async function POST(request: Request) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 24 * 30,
+    // Access cookie expires after 1 day — re-enter the passcode daily.
+    // (Was 30 days; changed per operator 2026-05-27.)
+    maxAge: 60 * 60 * 24,
   });
 
   return NextResponse.json({
