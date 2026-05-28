@@ -20,6 +20,7 @@ import type {
 } from '@/types';
 import {
   UNIT_TO_GRAMS,
+  coerceUnitToAllowed,
   emptyNutrition,
   isIndustrial,
   fdaRoundCalories,
@@ -1632,10 +1633,17 @@ export default function FormulationWizard() {
   const applyParsedRows = () => {
     const toAdd = parsedRows.filter(r => r.accepted && r.matchedItem);
     if (toAdd.length === 0) return;
-    const newIngs: Ingredient[] = toAdd.map(r => ({
+    const newIngs: Ingredient[] = toAdd.map(r => {
+      // LB #3 (Option C) — coerce units the current mode's dropdown can't show
+      // (e.g., "0.5 lb" in supplements mode) into a supported unit + a visible
+      // badge, so the controlled <select> never silently displays a mismatched
+      // unit. Mass → g, volume → ml; metric units pass through untouched.
+      const coerced = coerceUnitToAllowed(r.parsedQty, r.parsedUnit, mc.units);
+      return {
       name: r.matchedItem!.name,
-      qty: r.parsedQty,
-      unit: r.parsedUnit,
+      qty: coerced.qty,
+      unit: coerced.unit,
+      unitConversionNote: coerced.note ?? undefined,
       foodData: {
         type: 'industrial',
         data: r.matchedItem,
@@ -1649,7 +1657,8 @@ export default function FormulationWizard() {
       allergens: r.matchedItem!.allergens,
       costPerKg: r.matchedItem!.costPerKg,
       supplier: r.matchedItem!.suppliers[0],
-    }));
+      };
+    });
     // If replace is on AND there's an existing formulation, start fresh.
     const base = (replaceOnPaste && ingredients.length > 0) ? [] : ingredients;
     const updated = [...base, ...newIngs];
@@ -4840,6 +4849,12 @@ export default function FormulationWizard() {
                           {isVolume && (
                             <p className="text-xs text-amber-700 mb-1.5">
                               ⚖️ Volume unit — click <span className="font-semibold">Normalize volumes → grams</span> above to convert to density-correct mass (currently computed as if water).
+                            </p>
+                          )}
+                          {ing.unitConversionNote && (
+                            <p className="text-xs text-sky-700 mb-1.5 inline-flex items-center gap-1">
+                              <span aria-hidden="true">🔁</span>
+                              <span>{ing.unitConversionNote} — auto-converted to {ing.unit} (unit not offered in this mode)</span>
                             </p>
                           )}
                           {finding && (

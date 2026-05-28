@@ -141,6 +141,13 @@ export interface Ingredient {
    * ingredient table for traceability.
    */
   partNumber?: string;
+  /**
+   * Transient "Converted from {qty} {unit}" note set when bulk paste coerced an
+   * unsupported unit into the mode's allowed set (LB #3 Option C — auto-convert
+   * + visible badge). Display-only; surfaces a badge on the ingredient row so
+   * the transformation is never silent.
+   */
+  unitConversionNote?: string;
 }
 
 // ============================================================

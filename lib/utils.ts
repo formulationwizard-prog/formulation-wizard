@@ -26,6 +26,68 @@ export const UNIT_TO_GRAMS: Record<string, number> = {
   cup: 236.588,
 };
 
+// Mass vs volume classification — used to pick the correct conversion target
+// when coercing an unsupported unit into a mode's allowed set.
+const MASS_UNITS = new Set(['mcg', 'mg', 'g', 'kg', 'oz', 'lb']);
+const VOLUME_UNITS = new Set(['ml', 'L', 'fl oz', 'tsp', 'tbsp', 'cup']);
+
+// Volume→ml factors. These mirror the volume entries in UNIT_TO_GRAMS (which
+// treat 1 ml ≈ 1 g), but converting volume→volume is density-independent —
+// fl oz → ml is exact regardless of the product. (Distinct from the
+// volume→mass density question tracked separately.)
+const UNIT_TO_ML: Record<string, number> = {
+  ml: 1,
+  L: 1000,
+  'fl oz': 29.5735,
+  tsp: 4.92892,
+  tbsp: 14.7868,
+  cup: 236.588,
+};
+
+export interface UnitCoercion {
+  qty: number;
+  unit: string;
+  /** Set only when a conversion happened — drives the visible "Converted from …" badge. */
+  note: string | null;
+}
+
+/**
+ * Coerce a (qty, unit) pair into a mode's allowed unit set (LB #3 fix, Option C).
+ *
+ * When bulk paste resolves an ingredient in a unit the current mode's dropdown
+ * doesn't offer (e.g., "0.5 lb" in supplements mode, which only lists
+ * mcg/mg/g/kg/ml/L), the controlled <select> would silently display the first
+ * option (mcg) while state holds 'lb' — a harm-critical mismatch. Instead we
+ * auto-convert to a supported unit (mass → g, volume → ml) AND return a note so
+ * the transformation is VISIBLE (no silent change). Per operator design call
+ * 2026-05-28 (Option C: auto-convert + visible badge).
+ *
+ * If the unit is already allowed, returns it unchanged with note=null.
+ * If no conversion target is available, returns unchanged with note=null
+ * (caller keeps the original — fail-open, never silently wrong).
+ */
+export function coerceUnitToAllowed(
+  qty: number,
+  unit: string,
+  allowedUnits: string[],
+): UnitCoercion {
+  if (allowedUnits.includes(unit)) return { qty, unit, note: null };
+
+  const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+
+  if (MASS_UNITS.has(unit) && allowedUnits.includes('g')) {
+    const grams = round4(qty * (UNIT_TO_GRAMS[unit] ?? 1));
+    return { qty: grams, unit: 'g', note: `Converted from ${qty} ${unit}` };
+  }
+
+  if (VOLUME_UNITS.has(unit) && allowedUnits.includes('ml')) {
+    const ml = round4(qty * (UNIT_TO_ML[unit] ?? 1));
+    return { qty: ml, unit: 'ml', note: `Converted from ${qty} ${unit}` };
+  }
+
+  return { qty, unit, note: null };
+}
+
 // ----- Categories (ingredient database) ---------------------------------------
 // Order matters: "All" always first, then grouped so related categories sit together.
 export const CATEGORIES = [
