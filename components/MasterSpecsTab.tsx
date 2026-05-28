@@ -7,8 +7,12 @@ import type {
   ComputedStatsCategorical,
   ComputedStatsNumeric,
   MasterSpecEntry,
+  ObservationLogEntry,
+  SpecCategory,
   SpecMetric,
 } from '@/types/masterSpecs';
+import { SPEC_CATEGORY_LABELS, SPEC_CATEGORY_ORDER } from '@/types/masterSpecs';
+import { MasterSpecTestReport } from './MasterSpecTestReport';
 import {
   appendAuditLog,
   generateId,
@@ -47,6 +51,9 @@ interface MasterSpecsTabProps {
   currentProductId: string;
   currentProductName: string;
   currentProductRevision: string;
+  /** Workspace identity for the export report header. */
+  currentBrand?: string;
+  currentManufacturer?: string;
 }
 
 type ViewMode = 'portfolio' | 'detail';
@@ -56,6 +63,8 @@ export function MasterSpecsTab({
   currentProductId,
   currentProductName,
   currentProductRevision,
+  currentBrand,
+  currentManufacturer,
 }: MasterSpecsTabProps) {
   // ─── State (hydrated from localStorage) ────────────────────────────
   const [catalog, setCatalog] = useState<SpecMetric[]>([]);
@@ -63,19 +72,80 @@ export function MasterSpecsTab({
   const [viewMode, setViewMode] = useState<ViewMode>('portfolio');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Export report state — title + the (filtered) entries to include.
+  const [report, setReport] = useState<{ title: string; entries: MasterSpecEntry[] } | null>(null);
 
   // ─── Hydrate on mount ───────────────────────────────────────────────
   useEffect(() => {
-    const existingCatalog = loadMetricCatalog();
-    // Seed the predefined library if storage is empty.
-    if (existingCatalog.length === 0) {
-      saveMetricCatalog(PREDEFINED_METRICS);
-      setCatalog(PREDEFINED_METRICS);
-    } else {
-      setCatalog(existingCatalog);
-    }
-    setEntries(loadEntries());
+    // Always refresh predefined metrics from the library so schema additions
+    // (e.g. tracked_spec_key, category) propagate to dev localStorage seeded
+    // earlier. Operator-defined custom metrics are preserved. Phase 1.5
+    // (Postgres) replaces this with a proper migration.
+    const stored = loadMetricCatalog();
+    const customMetrics = stored.filter((m) => m.source === 'custom');
+    const merged = [...PREDEFINED_METRICS, ...customMetrics];
+    saveMetricCatalog(merged);
+    setCatalog(merged);
+    // Recompute stats on load — migration that fixes stale computed.tier on
+    // entries created before the isAuthored tier fix (ESTIMATED → VALIDATED).
+    const metricById = new Map(merged.map((m) => [m.id, m]));
+    const loaded = loadEntries().map((e) => {
+      const metric = metricById.get(e.metric_id);
+      return metric ? { ...e, computed: recomputeStats(e.observation_log, e, metric) } : e;
+    });
+    setEntries(loaded);
+    saveEntries(loaded);
   }, []);
+
+  // ─── Append a test result (observation) to a test-type entry ─────────
+  const handleAddResult = (
+    entryId: string,
+    obs: { date: string; value: number | string | boolean; lot: string; lab?: string; signer: string },
+  ) => {
+    const metricById = new Map(catalog.map((m) => [m.id, m]));
+    const updated = entries.map((e) => {
+      if (e.id !== entryId) return e;
+      const metric = metricById.get(e.metric_id);
+      if (!metric) return e;
+      const newObs: ObservationLogEntry = {
+        id: generateId(),
+        batch_id: obs.lot,
+        observation_date: obs.date,
+        value: obs.value,
+        method_used: e.method || metric.method_default || '',
+        signer: obs.signer,
+        signer_role: 'lab-tech',
+        lab_name: obs.lab,
+        created_at: now(),
+        created_by: 'operator',
+      };
+      const newLog = [...e.observation_log, newObs];
+      return { ...e, observation_log: newLog, computed: recomputeStats(newLog, e, metric), updated_at: now() };
+    });
+    setEntries(updated);
+    saveEntries(updated);
+    appendAuditLog({
+      id: generateId(), timestamp: now(), actor_id: 'operator', actor_role: 'lab-tech',
+      action: 'observation.add', target_type: 'observation', target_id: entryId,
+      reason: `Result logged: ${obs.value} (lot ${obs.lot})`,
+    });
+  };
+
+  // ─── Archive (soft-delete) a test-type entry ─────────────────────────
+  const handleArchiveSpec = (entryId: string) => {
+    const updated = entries.map((e) =>
+      e.id === entryId
+        ? { ...e, archived: true, archived_at: now(), archived_by: 'operator', archived_reason: 'Removed via Master Specs UI' }
+        : e,
+    );
+    setEntries(updated);
+    saveEntries(updated);
+    appendAuditLog({
+      id: generateId(), timestamp: now(), actor_id: 'operator', actor_role: 'qa-manager',
+      action: 'spec.archive', target_type: 'master-spec', target_id: entryId,
+      reason: 'Archived via Master Specs UI',
+    });
+  };
 
   // ─── Derived — entries grouped by product ──────────────────────────
   const entriesByProduct = useMemo(() => {
@@ -229,6 +299,10 @@ export function MasterSpecsTab({
           catalog={catalog}
           onBack={handleBackToPortfolio}
           onAddSpec={() => setWizardOpen(true)}
+          onExportMetric={(entry, metricName) => setReport({ title: `${metricName} Test Report`, entries: [entry] })}
+          onExportCategory={(category, categoryEntries) => setReport({ title: `${SPEC_CATEGORY_LABELS[category]} Report`, entries: categoryEntries })}
+          onAddResult={handleAddResult}
+          onArchive={handleArchiveSpec}
         />
       )}
 
@@ -237,8 +311,25 @@ export function MasterSpecsTab({
           catalog={catalog}
           productId={selectedProductId || currentProductId}
           revision={currentProductRevision}
+          existingMetricIds={new Set(selectedEntries.map((e) => e.metric_id))}
           onCancel={() => setWizardOpen(false)}
           onSave={handleSaveNewSpec}
+        />
+      )}
+
+      {report && selectedRow && (
+        <MasterSpecTestReport
+          title={report.title}
+          product={{
+            productName: selectedRow.product_name,
+            productId: selectedRow.product_id,
+            revision: currentProductRevision,
+            brand: currentBrand,
+            manufacturer: currentManufacturer,
+          }}
+          entries={report.entries}
+          catalog={catalog}
+          onClose={() => setReport(null)}
         />
       )}
     </div>
@@ -310,13 +401,23 @@ function DetailView({
   catalog,
   onBack,
   onAddSpec,
+  onExportMetric,
+  onExportCategory,
+  onAddResult,
+  onArchive,
 }: {
   row: PortfolioRow | undefined;
   entries: MasterSpecEntry[];
   catalog: SpecMetric[];
   onBack: () => void;
   onAddSpec: () => void;
+  onExportMetric: (entry: MasterSpecEntry, metricName: string) => void;
+  onExportCategory: (category: SpecCategory, entries: MasterSpecEntry[]) => void;
+  onAddResult: (entryId: string, obs: { date: string; value: number | string | boolean; lot: string; lab?: string; signer: string }) => void;
+  onArchive: (entryId: string) => void;
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
   if (!row) {
     return (
       <div className="text-center text-sm text-gray-500 p-6">
@@ -325,11 +426,26 @@ function DetailView({
     );
   }
 
-  const metricMap = useMemo(() => {
-    const m = new Map<string, SpecMetric>();
-    for (const c of catalog) m.set(c.id, c);
-    return m;
-  }, [catalog]);
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const metricMap = new Map<string, SpecMetric>();
+  for (const c of catalog) metricMap.set(c.id, c);
+
+  // Group entries by their metric's category (test type stays together by type).
+  const byCategory = new Map<SpecCategory, MasterSpecEntry[]>();
+  for (const entry of entries) {
+    const metric = metricMap.get(entry.metric_id);
+    const category: SpecCategory = metric?.category ?? 'other';
+    const list = byCategory.get(category) ?? [];
+    list.push(entry);
+    byCategory.set(category, list);
+  }
 
   return (
     <div>
@@ -346,82 +462,213 @@ function DetailView({
           onClick={onAddSpec}
           className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700"
         >
-          + Add spec
+          + Add test type
         </button>
       </div>
 
       {entries.length === 0 ? (
         <div className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 text-center">
           <div className="text-3xl mb-2">🧪</div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-1">No validated specs yet</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">No test types tracked yet</h3>
           <p className="text-xs text-gray-500 max-w-sm mx-auto mb-3">
-            Click &ldquo;+ Add spec&rdquo; to launch the Master Spec Wizard. Pick from {catalog.length} predefined metrics or define your own.
+            Add a test type (pH, Brix, microbial, heavy metals…) — then log results from each production run. Tests stay grouped by type and the block grows as you add results.
           </p>
           <button
             onClick={onAddSpec}
             className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700"
           >
-            + Add first spec
+            + Add first test type
           </button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Metric</th>
-                <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Validated value</th>
-                <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Current best</th>
-                <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Tier</th>
-                <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Observations</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => {
-                const metric = metricMap.get(entry.metric_id);
-                return (
-                  <SpecRow key={entry.id} entry={entry} metric={metric} />
-                );
-              })}
-            </tbody>
-          </table>
+        // Itemized by test type — category sections wrap expandable per-metric
+        // blocks. Each block accumulates results (date · value · lot#) and
+        // expands as results are logged. Per operator mockup 2026-05-27.
+        <div className="space-y-5">
+          {SPEC_CATEGORY_ORDER.filter((cat) => byCategory.has(cat)).map((cat) => {
+            const catEntries = byCategory.get(cat)!;
+            return (
+              <div key={cat}>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    {SPEC_CATEGORY_LABELS[cat]} <span className="text-gray-400 font-normal">· {catEntries.length}</span>
+                  </h3>
+                  <button
+                    onClick={() => onExportCategory(cat, catEntries)}
+                    className="text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded hover:bg-sky-100"
+                    title={`Export all ${SPEC_CATEGORY_LABELS[cat]} for PA / inspector`}
+                  >
+                    📄 Export {SPEC_CATEGORY_LABELS[cat]}
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {catEntries.map((entry) => {
+                    const metric = metricMap.get(entry.metric_id);
+                    if (!metric) {
+                      return (
+                        <div key={entry.id} className="bg-white rounded-xl border border-gray-200 p-3 text-xs text-gray-400 italic">
+                          (Metric {entry.metric_id} not found in catalog)
+                        </div>
+                      );
+                    }
+                    return (
+                      <MetricBlock
+                        key={entry.id}
+                        entry={entry}
+                        metric={metric}
+                        isExpanded={expanded.has(entry.id)}
+                        onToggle={() => toggle(entry.id)}
+                        onAddResult={(obs) => onAddResult(entry.id, obs)}
+                        onArchive={() => onArchive(entry.id)}
+                        onExport={() => onExportMetric(entry, metric.name)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function SpecRow({ entry, metric }: { entry: MasterSpecEntry; metric: SpecMetric | undefined }) {
-  if (!metric) {
-    return (
-      <tr>
-        <td colSpan={5} className="px-4 py-2 text-xs text-gray-400 italic">
-          (Metric {entry.metric_id} not found in catalog)
-        </td>
-      </tr>
-    );
-  }
+// ─── Metric block — one test type; expands to its results log ──────────
 
-  const validated = formatValue(entry.validated_value, metric.unit, entry.validated_tolerance, metric.bound_direction);
+function MetricBlock({
+  entry, metric, isExpanded, onToggle, onAddResult, onArchive, onExport,
+}: {
+  entry: MasterSpecEntry;
+  metric: SpecMetric;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onAddResult: (obs: { date: string; value: number | string | boolean; lot: string; lab?: string; signer: string }) => void;
+  onArchive: () => void;
+  onExport: () => void;
+}) {
   const best = formatBest(entry.computed, metric.unit);
   const tier = entry.computed.tier;
   const n = entry.computed.n;
+  const validObs = entry.observation_log.filter((o) => !o.superseded_by);
 
   return (
-    <tr className="border-b border-gray-100 last:border-0">
-      <td className="px-4 py-2.5">
-        <div className="font-medium text-gray-800">{metric.icon} {metric.name}</div>
-        <div className="text-[10px] text-gray-400 mt-0.5">{metric.method_default}</div>
-      </td>
-      <td className="px-4 py-2.5 font-mono text-xs text-gray-700">{validated}</td>
-      <td className="px-4 py-2.5 font-mono text-xs text-gray-700">{best}</td>
-      <td className="px-4 py-2.5">
-        <TierBadge tier={tier} n={n} />
-      </td>
-      <td className="px-4 py-2.5 text-xs text-gray-600">
-        {n} {n === 1 ? 'observation' : 'observations'}
-      </td>
-    </tr>
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Header — collapsed summary */}
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <button onClick={onToggle} className="flex items-center gap-2 text-left flex-1 min-w-0">
+          <span className="text-gray-400 text-xs w-4 shrink-0">{isExpanded ? '▾' : '▸'}</span>
+          <span className="font-medium text-gray-800 truncate">{metric.icon} {metric.name}</span>
+          <span className="font-mono text-xs text-gray-600 shrink-0">{best}</span>
+          <TierBadge tier={tier} n={n} />
+        </button>
+        <div className="flex items-center gap-3 shrink-0 ml-2">
+          <button onClick={onExport} className="text-[10px] font-medium text-sky-700 hover:underline" title={`Export ${metric.name} for PA / inspector`}>
+            📄 Export
+          </button>
+          <button onClick={onArchive} className="text-[10px] text-gray-400 hover:text-rose-600" title="Archive this test type">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {/* Body — fixed input line at top, results history flows down (newest first).
+          Per operator 2026-05-27: the input stays in one clear place; the
+          newest result appears directly under it and history moves down. */}
+      {isExpanded && (
+        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
+          <div className="text-[10px] text-gray-500 mb-2">
+            Method: {entry.method || metric.method_default || '—'} · Target: {formatValue(entry.validated_value, metric.unit, entry.validated_tolerance, metric.bound_direction)}
+          </div>
+          {/* Always-visible input line — the clear place to put data */}
+          <AddResultForm metric={metric} onSubmit={onAddResult} />
+          {/* Results history — newest first, directly under the input line */}
+          {validObs.length === 0 ? (
+            <p className="text-xs text-gray-400 italic mt-2">No results logged yet — enter the first production-run result above.</p>
+          ) : (
+            <table className="w-full text-xs mt-2">
+              <thead>
+                <tr className="text-left text-gray-400 border-b border-gray-200">
+                  <th className="py-1 pr-3 font-semibold uppercase tracking-wide text-[9px]">Date</th>
+                  <th className="py-1 pr-3 font-semibold uppercase tracking-wide text-[9px]">Result</th>
+                  <th className="py-1 font-semibold uppercase tracking-wide text-[9px]">Lot #</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...validObs].reverse().map((o) => (
+                  <tr key={o.id} className="border-b border-gray-100 last:border-0">
+                    <td className="py-1 pr-3 text-gray-700">{new Date(o.observation_date).toLocaleDateString()}</td>
+                    <td className="py-1 pr-3 font-mono text-gray-800">{String(o.value)} {metric.unit}</td>
+                    <td className="py-1 font-mono text-gray-600">{o.batch_id || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Inline add-result form ────────────────────────────────────────────
+
+function AddResultForm({
+  metric, onSubmit,
+}: {
+  metric: SpecMetric;
+  onSubmit: (obs: { date: string; value: number | string | boolean; lot: string; lab?: string; signer: string }) => void;
+}) {
+  // Always-visible input line — the fixed clear place to put data. After Add,
+  // clears value + lot and keeps focus here so the operator can log the next
+  // production run immediately; the newest result appears in the history below.
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [value, setValue] = useState('');
+  const [lot, setLot] = useState('');
+  const [signer, setSigner] = useState('');
+
+  const submit = () => {
+    if (!value.trim()) return;
+    let parsed: number | string | boolean = value;
+    if (metric.data_type === 'numeric') parsed = Number(value);
+    else if (metric.data_type === 'boolean') parsed = value.trim().toLowerCase() === 'true' || value.trim().toLowerCase() === 'pass';
+    onSubmit({ date, value: parsed, lot: lot.trim(), lab: undefined, signer: signer.trim() || 'Unsigned' });
+    setValue('');
+    setLot('');
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') submit();
+  };
+
+  return (
+    <div className="flex flex-wrap items-end gap-2 p-2 border border-emerald-200 rounded-lg bg-emerald-50/40">
+      <div>
+        <label className="block text-[9px] uppercase tracking-wide text-gray-500 mb-0.5">Date</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500" />
+      </div>
+      <div>
+        <label className="block text-[9px] uppercase tracking-wide text-gray-500 mb-0.5">Result ({metric.unit})</label>
+        <input
+          type={metric.data_type === 'numeric' ? 'number' : 'text'}
+          step="any"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={metric.data_type === 'boolean' ? 'pass / fail' : 'value'}
+          className="w-24 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+        />
+      </div>
+      <div>
+        <label className="block text-[9px] uppercase tracking-wide text-gray-500 mb-0.5">Lot #</label>
+        <input type="text" value={lot} onChange={(e) => setLot(e.target.value)} onKeyDown={onKeyDown} placeholder="lot code" className="w-36 border border-gray-300 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-emerald-500" />
+      </div>
+      <div>
+        <label className="block text-[9px] uppercase tracking-wide text-gray-500 mb-0.5">Signer</label>
+        <input type="text" value={signer} onChange={(e) => setSigner(e.target.value)} onKeyDown={onKeyDown} placeholder="initials" className="w-20 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-emerald-500" />
+      </div>
+      <button onClick={submit} disabled={!value.trim()} className="px-3 py-1 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed">+ Add result</button>
+    </div>
   );
 }
 
@@ -447,6 +694,8 @@ function formatBest(computed: MasterSpecEntry['computed'], unit: string): string
     if (low === null && high !== null) return `≤ ${high.toFixed(3).replace(/\.?0+$/, '')} ${unit}`;
     if (low !== null && high === null) return `≥ ${low.toFixed(3).replace(/\.?0+$/, '')} ${unit}`;
     const halfWidth = (high! - low!) / 2;
+    // Suppress "± 0" — when tolerance is zero there's no meaningful range to show
+    if (halfWidth === 0) return `${bestStr} ${unit}`;
     return `${bestStr} ± ${halfWidth.toFixed(3).replace(/\.?0+$/, '')} ${unit}`;
   }
   if (computed.data_type === 'categorical') {

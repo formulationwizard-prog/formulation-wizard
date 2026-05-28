@@ -6,8 +6,10 @@ import type {
   DataType,
   DistributionType,
   MasterSpecEntry,
+  SpecCategory,
   SpecMetric,
 } from '@/types/masterSpecs';
+import { SPEC_CATEGORY_LABELS, SPEC_CATEGORY_ORDER } from '@/types/masterSpecs';
 import { generateId, now } from '@/lib/masterSpecsStorage';
 import { recomputeStats } from '@/lib/masterSpecsStats';
 
@@ -25,6 +27,8 @@ interface MasterSpecWizardProps {
   catalog: SpecMetric[];
   productId: string;
   revision: string;
+  /** Metric ids already tracked for this product × revision — used to warn about duplicates. */
+  existingMetricIds?: Set<string>;
   onCancel: () => void;
   onSave: (entry: MasterSpecEntry, newMetricIfCustom?: SpecMetric) => void;
 }
@@ -37,7 +41,7 @@ type StepId =
   | 'validated-value'
   | 'confirm';
 
-export function MasterSpecWizard({ catalog, productId, revision, onCancel, onSave }: MasterSpecWizardProps) {
+export function MasterSpecWizard({ catalog, productId, revision, existingMetricIds, onCancel, onSave }: MasterSpecWizardProps) {
   const [mode, setMode] = useState<WizardMode>('select');
   const [step, setStep] = useState<StepId>('select');
   const [search, setSearch] = useState('');
@@ -49,6 +53,7 @@ export function MasterSpecWizard({ catalog, productId, revision, onCancel, onSav
   const [customDataType, setCustomDataType] = useState<DataType>('numeric');
   const [customDistribution, setCustomDistribution] = useState<DistributionType>('normal');
   const [customBound, setCustomBound] = useState<BoundDirection>('two-sided');
+  const [customCategory, setCustomCategory] = useState<SpecCategory>('other');
   const [customMethodDefault, setCustomMethodDefault] = useState('');
   const [customRangeMin, setCustomRangeMin] = useState<string>('');
   const [customRangeMax, setCustomRangeMax] = useState<string>('');
@@ -83,6 +88,7 @@ export function MasterSpecWizard({ catalog, productId, revision, onCancel, onSav
         method_default: customMethodDefault,
         distribution_type: customDistribution,
         bound_direction: customBound,
+        category: customCategory,
         range_min: customRangeMin ? Number(customRangeMin) : undefined,
         range_max: customRangeMax ? Number(customRangeMax) : undefined,
         description: customDescription,
@@ -90,7 +96,7 @@ export function MasterSpecWizard({ catalog, productId, revision, onCancel, onSav
       } as SpecMetric;
     }
     return catalog.find((c) => c.id === selectedMetricId) ?? null;
-  }, [mode, customName, customUnit, customDataType, customMethodDefault, customDistribution, customBound, customRangeMin, customRangeMax, customDescription, catalog, selectedMetricId]);
+  }, [mode, customName, customUnit, customDataType, customMethodDefault, customDistribution, customBound, customCategory, customRangeMin, customRangeMax, customDescription, catalog, selectedMetricId]);
 
   // ─── Step navigation ───────────────────────────────────────────────
   function pickPredefined(id: string) {
@@ -199,6 +205,7 @@ export function MasterSpecWizard({ catalog, productId, revision, onCancel, onSav
               search={search}
               setSearch={setSearch}
               metrics={filteredMetrics}
+              existingMetricIds={existingMetricIds}
               onPick={pickPredefined}
               onStartCustom={startCustom}
             />
@@ -210,6 +217,7 @@ export function MasterSpecWizard({ catalog, productId, revision, onCancel, onSav
               dataType={customDataType} setDataType={setCustomDataType}
               distribution={customDistribution} setDistribution={setCustomDistribution}
               bound={customBound} setBound={setCustomBound}
+              category={customCategory} setCategory={setCustomCategory}
               description={customDescription} setDescription={setCustomDescription}
             />
           )}
@@ -337,11 +345,12 @@ function prevStep(current: StepId, mode: WizardMode): StepId {
 // ─── Step components ─────────────────────────────────────────────────
 
 function StepSelect({
-  search, setSearch, metrics, onPick, onStartCustom,
+  search, setSearch, metrics, existingMetricIds, onPick, onStartCustom,
 }: {
   search: string;
   setSearch: (v: string) => void;
   metrics: SpecMetric[];
+  existingMetricIds?: Set<string>;
   onPick: (id: string) => void;
   onStartCustom: () => void;
 }) {
@@ -356,22 +365,36 @@ function StepSelect({
       />
       <div className="max-h-96 overflow-y-auto pr-1">
         <div className="space-y-1.5">
-          {metrics.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => onPick(m.id)}
-              className="w-full text-left border border-gray-200 rounded-lg p-3 hover:border-emerald-400 hover:bg-emerald-50/30 transition"
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <div className="font-medium text-gray-800 text-sm">
-                  <span className="mr-1.5">{m.icon}</span>
-                  {m.name}
+          {metrics.map((m) => {
+            const alreadyTracked = existingMetricIds?.has(m.id) ?? false;
+            return (
+              <button
+                key={m.id}
+                onClick={() => { if (!alreadyTracked) onPick(m.id); }}
+                disabled={alreadyTracked}
+                title={alreadyTracked ? 'Already tracked for this product — one spec per metric per revision' : undefined}
+                className={`w-full text-left border rounded-lg p-3 transition ${
+                  alreadyTracked
+                    ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed'
+                    : 'border-gray-200 hover:border-emerald-400 hover:bg-emerald-50/30'
+                }`}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="font-medium text-gray-800 text-sm">
+                    <span className="mr-1.5">{m.icon}</span>
+                    {m.name}
+                    {alreadyTracked && (
+                      <span className="ml-2 text-[9px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                        Already tracked
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-gray-500 font-mono whitespace-nowrap">{m.unit}</div>
                 </div>
-                <div className="text-[10px] text-gray-500 font-mono whitespace-nowrap">{m.unit}</div>
-              </div>
-              {m.description && <div className="text-[11px] text-gray-500 mt-0.5 leading-snug">{m.description}</div>}
-            </button>
-          ))}
+                {m.description && <div className="text-[11px] text-gray-500 mt-0.5 leading-snug">{m.description}</div>}
+              </button>
+            );
+          })}
         </div>
         {metrics.length === 0 && (
           <div className="text-center text-sm text-gray-500 py-6">No predefined metrics matched. Define a custom metric below.</div>
@@ -391,7 +414,7 @@ function StepSelect({
 
 function StepDefineCustom({
   name, setName, unit, setUnit, dataType, setDataType,
-  distribution, setDistribution, bound, setBound,
+  distribution, setDistribution, bound, setBound, category, setCategory,
   description, setDescription,
 }: {
   name: string; setName: (v: string) => void;
@@ -399,19 +422,34 @@ function StepDefineCustom({
   dataType: DataType; setDataType: (v: DataType) => void;
   distribution: DistributionType; setDistribution: (v: DistributionType) => void;
   bound: BoundDirection; setBound: (v: BoundDirection) => void;
+  category: SpecCategory; setCategory: (v: SpecCategory) => void;
   description: string; setDescription: (v: string) => void;
 }) {
   return (
     <div className="space-y-4">
-      <div>
-        <label className="block text-xs text-gray-600 mb-1">Name *</label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Vanilla aroma intensity"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Name *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Vanilla aroma intensity"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Test category *</label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as SpecCategory)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-emerald-500"
+          >
+            {SPEC_CATEGORY_ORDER.map((c) => (
+              <option key={c} value={c}>{SPEC_CATEGORY_LABELS[c]}</option>
+            ))}
+          </select>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
