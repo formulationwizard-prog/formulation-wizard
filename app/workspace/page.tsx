@@ -41,7 +41,8 @@ import { getTrackedSpecDefaults, TRACKED_SPEC_LABELS, TRACKED_SPEC_ORDER, type T
 import { ConfidencePill } from '@/components/ConfidencePill';
 import { AutoGrowTextarea } from '@/components/AutoGrowTextarea';
 import { MasterSpecsTab } from '@/components/MasterSpecsTab';
-import { MASTER_SPECS_FEATURE_FLAG } from '@/lib/masterSpecsStorage';
+import { MASTER_SPECS_FEATURE_FLAG, loadEntries as loadMasterSpecEntries, loadMetricCatalog as loadMasterSpecCatalog } from '@/lib/masterSpecsStorage';
+import type { MasterSpecEntry as MSEntry, SpecMetric as MSMetric, ComputedStatsNumeric as MSComputedNumeric } from '@/types/masterSpecs';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { buildIngredientStatement } from '@/lib/ingredientStatement';
@@ -236,6 +237,43 @@ FINAL APPROVAL
 Batcher:        _____________________  Date / Time _________
 QA:             _____________________  Date / Time _________
 Production Mgr: _____________________  Date / Time _________`;
+
+// ─── Master Specs inheritance display helpers (Phase 1b) ────────────────
+// Format a validated Master Specs override for Target Specs / PDS display.
+function formatMasterSpecOverride(
+  ms: { best: number; low: number | null; high: number | null },
+  decimals: number,
+  suffix = '',
+): string {
+  const fmt = (n: number) => n.toFixed(decimals);
+  if (ms.low === null && ms.high === null) return `${fmt(ms.best)}${suffix}`;
+  if (ms.low === null && ms.high !== null) return `≤ ${fmt(ms.high)}${suffix}`;
+  if (ms.low !== null && ms.high === null) return `≥ ${fmt(ms.low)}${suffix}`;
+  const half = (ms.high! - ms.low!) / 2;
+  if (half === 0) return `${fmt(ms.best)}${suffix}`;
+  return `${fmt(ms.best)} ± ${fmt(half)}${suffix}`;
+}
+
+// Tiny tier tag for inherited Master Specs values on Target Specs / PDS.
+function MasterSpecTierTag({ tier, n }: { tier: string; n: number }) {
+  const styles: Record<string, string> = {
+    estimated: 'bg-gray-100 text-gray-600 border-gray-200',
+    validated: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    verified: 'bg-sky-50 text-sky-700 border-sky-200',
+    'well-characterized': 'bg-violet-50 text-violet-700 border-violet-200',
+  };
+  const labels: Record<string, string> = {
+    estimated: 'EST',
+    validated: 'VALIDATED',
+    verified: 'VERIFIED',
+    'well-characterized': 'WELL-CHAR',
+  };
+  return (
+    <span className={`ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide border align-middle ${styles[tier] ?? styles.validated}`}>
+      {labels[tier] ?? tier}{n > 0 ? ` n=${n}` : ''}
+    </span>
+  );
+}
 
 // ============================================================
 // MAIN COMPONENT
@@ -457,6 +495,12 @@ export default function FormulationWizard() {
   const [trackedSpecsOverride, setTrackedSpecsOverride] = useState<TrackedSpec[] | null>(null);
   const [savedFormulations, setSavedFormulations] = useState<SavedFormulation[]>([]);
   const [activeTab, setActiveTab] = useState<'home' | 'build' | 'packaging' | 'masterSpecs' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
+  // Master Specs inheritance (Phase 1b) — loaded from localStorage when the
+  // feature flag is on. Refreshed when switching INTO the Batch Sheet so
+  // validated specs authored on the Master Specs tab flow through. Feature-
+  // flagged: production (flag off) keeps platform-ESTIMATED Target Specs.
+  const [msEntries, setMsEntries] = useState<MSEntry[]>([]);
+  const [msCatalog, setMsCatalog] = useState<MSMetric[]>([]);
   // ----- Workspace entry state: mode preference + per-mode TOS ----------
   // Round 11 Phase 3 Workstream A: segmented per-mode TOS replaces the
   // prior single-boolean tosAccepted model. State machinery lives in
@@ -1134,6 +1178,31 @@ export default function FormulationWizard() {
   // Drives filtering on Spec Analysis panel and Batch Sheet Target Specs.
   const effectiveTrackedSpecs = trackedSpecsOverride ?? getTrackedSpecDefaults(productType, mode).tracked;
   const trackedSet = new Set<TrackedSpec>(effectiveTrackedSpecs);
+
+  // ─── Master Specs inheritance (Phase 1b, feature-flagged) ───────────────
+  // Refresh Master Specs data when switching into the Batch Sheet so validated
+  // specs authored on the Master Specs tab flow through to Target Specs.
+  useEffect(() => {
+    if (!MASTER_SPECS_FEATURE_FLAG) return;
+    if (activeTab === 'batch' || activeTab === 'packaging') {
+      setMsEntries(loadMasterSpecEntries());
+      setMsCatalog(loadMasterSpecCatalog());
+    }
+  }, [activeTab]);
+
+  // Lookup: given a tracked-spec key ('pH' | 'brix' | 'moisture' | 'aw'),
+  // return the VALIDATED+ Master Specs override for the current product, or null.
+  // Matches on metric.tracked_spec_key + entry.product_id (current partNumber).
+  const masterSpecOverride = (trackedKey: string): { best: number; low: number | null; high: number | null; tier: string; n: number } | null => {
+    if (!MASTER_SPECS_FEATURE_FLAG || !partNumber) return null;
+    const metricIds = new Set(msCatalog.filter(m => m.tracked_spec_key === trackedKey).map(m => m.id));
+    if (metricIds.size === 0) return null;
+    const entry = msEntries.find(e => !e.archived && e.product_id === partNumber && metricIds.has(e.metric_id));
+    if (!entry || entry.computed.data_type !== 'numeric') return null;
+    const c = entry.computed as MSComputedNumeric;
+    if (c.current_best === null) return null;
+    return { best: c.current_best, low: c.current_range_low, high: c.current_range_high, tier: c.tier, n: c.n };
+  };
   // Auto-derived metrics: A/M ratio shows when both inputs tracked; LAC% shows when pH tracked.
   // Round 11 Finding #25 sub-issue 25b: mode-gate F&B-only spec tiles.
   // A/M ratio and Low-Acid Components are 21 CFR 113/114 / acidified-foods
@@ -4012,6 +4081,8 @@ export default function FormulationWizard() {
           currentProductId={partNumber || ''}
           currentProductName={formulationName || ''}
           currentProductRevision="Rev01"
+          currentBrand={brandName || undefined}
+          currentManufacturer={manufacturerName || undefined}
         />
       )}
 
@@ -10480,18 +10551,30 @@ export default function FormulationWizard() {
                     <p className="text-xs text-gray-500 italic">No specs tracked. Open the &ldquo;Specs to Track&rdquo; checklist on the Build tab to select which specs should appear here.</p>
                   ) : (
                     <div className="grid grid-cols-4 gap-4 text-sm">
-                      {trackedSet.has('pH') && (
-                        <div><span className="text-gray-500">pH</span><br /><span className="font-bold text-lg">{specs.pH > 0 ? formatRangedValue('pH', specs.pH, specs.confidence.pH, 2).text : '—'}</span></div>
-                      )}
-                      {trackedSet.has('brix') && (
-                        <div><span className="text-gray-500">Brix</span><br /><span className="font-bold text-lg">{specs.brix > 0 ? formatRangedValue('brix', specs.brix, specs.confidence.brix, 1, '°').text : '—'}</span></div>
-                      )}
-                      {trackedSet.has('moisture') && (
-                        <div><span className="text-gray-500">Moisture</span><br /><span className="font-bold text-lg">{specs.moisture > 0 ? formatRangedValue('moisture', specs.moisture, specs.confidence.moisture, 1, '%').text : '—'}</span></div>
-                      )}
-                      {trackedSet.has('aw') && (
-                        <div><span className="text-gray-500">a_w</span><br /><span className="font-bold text-lg">{specs.aw > 0 ? formatRangedValue('aw', specs.aw, specs.confidence.aw, 3).text : '—'}</span></div>
-                      )}
+                      {trackedSet.has('pH') && (() => {
+                        const ms = masterSpecOverride('pH');
+                        return (
+                          <div><span className="text-gray-500">pH</span><br /><span className="font-bold text-lg">{ms ? formatMasterSpecOverride(ms, 2) : (specs.pH > 0 ? formatRangedValue('pH', specs.pH, specs.confidence.pH, 2).text : '—')}</span>{ms && <MasterSpecTierTag tier={ms.tier} n={ms.n} />}</div>
+                        );
+                      })()}
+                      {trackedSet.has('brix') && (() => {
+                        const ms = masterSpecOverride('brix');
+                        return (
+                          <div><span className="text-gray-500">Brix</span><br /><span className="font-bold text-lg">{ms ? formatMasterSpecOverride(ms, 1, '°') : (specs.brix > 0 ? formatRangedValue('brix', specs.brix, specs.confidence.brix, 1, '°').text : '—')}</span>{ms && <MasterSpecTierTag tier={ms.tier} n={ms.n} />}</div>
+                        );
+                      })()}
+                      {trackedSet.has('moisture') && (() => {
+                        const ms = masterSpecOverride('moisture');
+                        return (
+                          <div><span className="text-gray-500">Moisture</span><br /><span className="font-bold text-lg">{ms ? formatMasterSpecOverride(ms, 1, '%') : (specs.moisture > 0 ? formatRangedValue('moisture', specs.moisture, specs.confidence.moisture, 1, '%').text : '—')}</span>{ms && <MasterSpecTierTag tier={ms.tier} n={ms.n} />}</div>
+                        );
+                      })()}
+                      {trackedSet.has('aw') && (() => {
+                        const ms = masterSpecOverride('aw');
+                        return (
+                          <div><span className="text-gray-500">a_w</span><br /><span className="font-bold text-lg">{ms ? formatMasterSpecOverride(ms, 3) : (specs.aw > 0 ? formatRangedValue('aw', specs.aw, specs.confidence.aw, 3).text : '—')}</span>{ms && <MasterSpecTierTag tier={ms.tier} n={ms.n} />}</div>
+                        );
+                      })()}
                       {trackedSet.has('bostwick') && (
                         <div><span className="text-gray-500">Bostwick</span><br /><span className="font-bold text-lg">{specs.bostwickCmPer30s.toFixed(1)} cm/30s</span></div>
                       )}

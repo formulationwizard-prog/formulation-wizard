@@ -336,6 +336,15 @@ input:focus, select:focus, textarea:focus {
      via the `print:break-inside-avoid` Tailwind utility on small atomic
      blocks (signature blocks, controlled-doc header strips). Large content
      sections break naturally across pages. */
+  /* Master Spec Test Report (components/MasterSpecTestReport.tsx) — isolate
+     the report for printing. The report is portaled to document.body with
+     class .ms-report-portal; hide every other direct body child so the
+     printed PDF contains only the test report. Per operator directive
+     2026-05-27 (PA / third-party-inspector export). */
+  body.printing-master-spec-report > *:not(.ms-report-portal) {
+    display: none !important;
+  }
+
   /* AutoGrowTextarea (components/AutoGrowTextarea.tsx) — on screen, the
      inline `style.height` shrinks/grows with content. For printed BPRs
      (Batch Sheets meant to be filled in by hand on the floor), inflate
