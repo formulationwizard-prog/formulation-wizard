@@ -40,6 +40,8 @@ import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec
 import { getTrackedSpecDefaults, TRACKED_SPEC_LABELS, TRACKED_SPEC_ORDER, type TrackedSpec } from '@/lib/trackedSpecs';
 import { ConfidencePill } from '@/components/ConfidencePill';
 import { AutoGrowTextarea } from '@/components/AutoGrowTextarea';
+import { MasterSpecsTab } from '@/components/MasterSpecsTab';
+import { MASTER_SPECS_FEATURE_FLAG } from '@/lib/masterSpecsStorage';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
 import { buildIngredientStatement } from '@/lib/ingredientStatement';
@@ -454,7 +456,7 @@ export default function FormulationWizard() {
   // "Reset to defaults" to re-derive from current productType.
   const [trackedSpecsOverride, setTrackedSpecsOverride] = useState<TrackedSpec[] | null>(null);
   const [savedFormulations, setSavedFormulations] = useState<SavedFormulation[]>([]);
-  const [activeTab, setActiveTab] = useState<'home' | 'build' | 'packaging' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'build' | 'packaging' | 'masterSpecs' | 'saved' | 'database' | 'batch' | 'filing' | 'cost' | 'sourcing' | 'authorities' | 'services'>('home');
   // ----- Workspace entry state: mode preference + per-mode TOS ----------
   // Round 11 Phase 3 Workstream A: segmented per-mode TOS replaces the
   // prior single-boolean tosAccepted model. State machinery lives in
@@ -1960,6 +1962,7 @@ export default function FormulationWizard() {
           { id: 'build', label: 'Build Base Sheet', icon: '🔬' },
           { id: 'batch', label: 'Batch Sheet', icon: '🏭' },
           { id: 'packaging', label: 'Packaging Data Sheet', icon: '📦' },
+          ...(MASTER_SPECS_FEATURE_FLAG ? [{ id: 'masterSpecs' as const, label: 'Master Specs', icon: '🧪' }] : []),
           { id: 'cost', label: 'Cost Tool', icon: '💰' },
           { id: 'sourcing', label: 'Sourcing', icon: '🌐' },
           { id: 'filing', label: 'Filing', icon: '📋' },
@@ -2234,7 +2237,7 @@ export default function FormulationWizard() {
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {(['home', 'build', 'batch', 'packaging', 'cost', 'sourcing', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
+              {(['home', 'build', 'batch', 'packaging', ...(MASTER_SPECS_FEATURE_FLAG ? ['masterSpecs' as const] : []), 'cost', 'sourcing', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
                 .filter(tab => !(mode === 'supplements' && tab === 'filing'))
                 .map(tab => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
@@ -2249,6 +2252,7 @@ export default function FormulationWizard() {
                     : tab === 'authorities' ? '⚖️ Process Authorities'
                     : tab === 'services' ? '🤝 Services'
                     : tab === 'packaging' ? '📦 Packaging Data Sheet'
+                    : tab === 'masterSpecs' ? '🧪 Master Specs'
                     : '🔬 Build Base Sheet'}
                 </button>
               ))}
@@ -3992,6 +3996,24 @@ export default function FormulationWizard() {
         </div>
       )}
 
+      {/* MASTER SPECS TAB — Phase 1 internal dev scaffold (feature-flagged).
+          Per docs/architecture/master-specs-data-model-2026-05-27.md.
+          UI lives in components/MasterSpecsTab.tsx + components/MasterSpecWizard.tsx.
+          Operator-facing launch (Phase 1.5) gated on LB#4 Supabase persistence
+          + co-founder seed-library lock. Feature flag set via
+          NEXT_PUBLIC_MASTER_SPECS_ENABLED env var (default false). */}
+      {activeTab === 'masterSpecs' && MASTER_SPECS_FEATURE_FLAG && (
+        <MasterSpecsTab
+          savedFormulations={savedFormulations.map(f => ({
+            partNumber: f.partNumber || '',
+            formulationName: f.name,
+            productClass: (f.productClass as string) || '',
+          }))}
+          currentProductId={partNumber || ''}
+          currentProductName={formulationName || ''}
+          currentProductRevision="Rev01"
+        />
+      )}
 
       {/* BUILD TAB */}
       {activeTab === 'build' && (
