@@ -22,17 +22,21 @@ import type {
 // ─── Feature flag (Phase 1 INTERNAL DEV scaffold gate) ─────────────────
 
 /**
- * Feature flag — operator-facing Master Specs UI hidden until this flips.
- * Flip ONLY when:
+ * Feature flag — operator-facing Master Specs UI hidden in production
+ * until Phase 1.5 launch criteria are met:
  *   1. LB#4 Supabase persistence has landed
  *   2. Co-founder has reviewed + locked the 30-metric seed library
  *   3. localStorage → Postgres migration has been tested
  *
- * Set via env var NEXT_PUBLIC_MASTER_SPECS_ENABLED='true' for dev override.
- * Defaults to false in production until Phase 1.5 launch criteria met.
+ * In DEV mode (process.env.NODE_ENV === 'development'), the flag defaults
+ * to ON so internal testing doesn't require .env.local changes.
+ *
+ * In PROD, defaults to OFF; set NEXT_PUBLIC_MASTER_SPECS_ENABLED='true'
+ * to force-enable (used by deploy preview branches if needed).
  */
 export const MASTER_SPECS_FEATURE_FLAG: boolean =
-  typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_MASTER_SPECS_ENABLED === 'true';
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') ||
+  (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_MASTER_SPECS_ENABLED === 'true');
 
 // ─── Storage keys ──────────────────────────────────────────────────────
 

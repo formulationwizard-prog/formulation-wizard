@@ -23,12 +23,30 @@ import type {
 export const DEFAULT_VERIFIED_AT = 5;
 export const DEFAULT_WELL_CHARACTERIZED_AT = 30;
 
-export function computeTier(n: number, metric: SpecMetric): ConfidenceTier {
+/**
+ * Tier promotion.
+ *
+ * `isAuthored` distinguishes a QA-authored Master Specs entry (which has a
+ * validated_value + authorized_signer) from a downstream platform fallback:
+ *   - ESTIMATED — n=0 AND NOT authored — platform calculation only; only ever
+ *     shown by downstream consumers (Batch Sheet / PDS) when NO Master Specs
+ *     entry exists to inherit from.
+ *   - VALIDATED — n=0 with authored value (QA attested, awaiting batch
+ *     observations) OR n in [1, verified_at).
+ *   - VERIFIED — n in [verified_at, well_characterized_at).
+ *   - WELL-CHARACTERIZED — n ≥ well_characterized_at.
+ *
+ * recomputeStats() always passes isAuthored=true because it only ever runs on
+ * a real MasterSpecEntry (which by definition has an authored validated_value).
+ * The bare ESTIMATED state belongs to downstream fallback rendering, not to a
+ * stored entry.
+ */
+export function computeTier(n: number, metric: SpecMetric, isAuthored = false): ConfidenceTier {
   const thresholds = metric.promotion_thresholds ?? {
     verified_at: DEFAULT_VERIFIED_AT,
     well_characterized_at: DEFAULT_WELL_CHARACTERIZED_AT,
   };
-  if (n === 0) return 'estimated';
+  if (n === 0) return isAuthored ? 'validated' : 'estimated';
   if (n < thresholds.verified_at) return 'validated';
   if (n < thresholds.well_characterized_at) return 'verified';
   return 'well-characterized';
@@ -95,7 +113,9 @@ export function recomputeStats(
 ): ComputedStats {
   const valid = observations.filter((o) => !o.superseded_by);
   const n = valid.length;
-  const tier = computeTier(n, metric);
+  // isAuthored=true — recomputeStats only runs on real MasterSpecEntry records
+  // (always have an authored validated_value), so n=0 → VALIDATED, not ESTIMATED.
+  const tier = computeTier(n, metric, true);
   const last_observation_at = n > 0 ? valid[n - 1].observation_date : null;
   const computed_at = new Date().toISOString();
 

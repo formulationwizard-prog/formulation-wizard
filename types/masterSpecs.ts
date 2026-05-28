@@ -41,6 +41,34 @@ export type DistributionType = 'normal' | 'log-normal' | 'poisson' | 'binomial';
 
 export type BoundDirection = 'two-sided' | 'upper-only' | 'lower-only';
 
+// Test-type grouping — organizes the per-product detail view AND scopes
+// the PA / third-party-inspector export ("pull just the pH testing").
+export type SpecCategory =
+  | 'physical' // pH, aw, moisture, Brix, viscosity, density, color
+  | 'microbial' // TPC, Y&M, coliforms, pathogens
+  | 'heavy-metals' // Pb, As, Cd, Hg
+  | 'potency' // HPLC actives
+  | 'sensory' // organoleptic, aroma, texture
+  | 'other';
+
+export const SPEC_CATEGORY_LABELS: Record<SpecCategory, string> = {
+  physical: 'Physical Tests',
+  microbial: 'Microbial Tests',
+  'heavy-metals': 'Heavy Metals',
+  potency: 'Potency',
+  sensory: 'Sensory',
+  other: 'Other',
+};
+
+export const SPEC_CATEGORY_ORDER: SpecCategory[] = [
+  'physical',
+  'microbial',
+  'heavy-metals',
+  'potency',
+  'sensory',
+  'other',
+];
+
 // ─── Entity 1: SpecMetric (the catalog — what CAN be tracked) ───────────
 
 export interface SpecMetric {
@@ -54,6 +82,7 @@ export interface SpecMetric {
   regulatory_relevance?: RegulatoryRelevance[];
   applicable_product_classes?: ProductClass[];
   source: 'predefined' | 'custom';
+  category: SpecCategory; // Test-type grouping (detail view sections + export scoping)
   created_by?: string;
   created_at?: string;
   icon?: string;
@@ -66,6 +95,12 @@ export interface SpecMetric {
   distribution_type: DistributionType;
   bound_direction: BoundDirection;
   safety_factor_default?: number; // Default 2.0; heavy metals + microbial override 3.0+
+
+  // Bridge to the workspace's tracked-spec system (Batch Sheet Target Specs +
+  // Build Base Sheet Spec Analysis). When set, a VALIDATED+ Master Specs entry
+  // for this metric overrides the platform-ESTIMATED value for that tracked
+  // spec key (e.g., 'pH' | 'brix' | 'moisture' | 'aw'). Phase 1b inheritance.
+  tracked_spec_key?: string;
 }
 
 // ─── Entity 2: MasterSpecEntry (Product × Metric junction) ──────────────

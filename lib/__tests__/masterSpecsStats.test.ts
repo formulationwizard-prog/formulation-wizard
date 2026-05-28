@@ -33,6 +33,7 @@ const pHMetric: SpecMetric = {
   unit: 'pH',
   data_type: 'numeric',
   source: 'predefined',
+  category: 'physical',
   distribution_type: 'normal',
   bound_direction: 'lower-only',
   safety_factor_default: 2.0,
@@ -44,6 +45,7 @@ const colorMetric: SpecMetric = {
   unit: 'L*',
   data_type: 'numeric',
   source: 'predefined',
+  category: 'physical',
   distribution_type: 'normal',
   bound_direction: 'two-sided',
   safety_factor_default: 2.0,
@@ -55,6 +57,7 @@ const heavyMetalMetric: SpecMetric = {
   unit: 'ppm',
   data_type: 'numeric',
   source: 'predefined',
+  category: 'heavy-metals',
   distribution_type: 'log-normal',
   bound_direction: 'upper-only',
   safety_factor_default: 3.0,
@@ -67,6 +70,7 @@ const visualDefectMetric: SpecMetric = {
   unit: 'class',
   data_type: 'categorical',
   source: 'predefined',
+  category: 'sensory',
   distribution_type: 'normal',
   bound_direction: 'two-sided',
 };
@@ -77,6 +81,7 @@ const sealIntegrityMetric: SpecMetric = {
   unit: 'pass/fail',
   data_type: 'boolean',
   source: 'predefined',
+  category: 'physical',
   distribution_type: 'binomial',
   bound_direction: 'two-sided',
 };
@@ -106,8 +111,13 @@ function obs(value: number | string | boolean, dateOffset = 0): ObservationLogEn
 // ─── 1. Tier promotion — default thresholds ────────────────
 
 describe('computeTier — default thresholds', () => {
-  it('n=0 → estimated', () => {
+  it('n=0 NOT authored → estimated (downstream fallback)', () => {
     expect(computeTier(0, colorMetric)).toBe('estimated');
+    expect(computeTier(0, colorMetric, false)).toBe('estimated');
+  });
+
+  it('n=0 authored → validated (QA-attested entry awaiting observations)', () => {
+    expect(computeTier(0, colorMetric, true)).toBe('validated');
   });
 
   it('n=1 → validated', () => {
@@ -168,11 +178,12 @@ describe('computeRangeFromTolerance — bound_direction variants', () => {
 // ─── 4. Numeric stats — empty observations (n=0) ───────────
 
 describe('recomputeStats — numeric, n=0', () => {
-  it('returns ESTIMATED tier + validated_value as best estimate', () => {
+  it('returns VALIDATED tier (authored entry) + validated_value as best estimate', () => {
     const stats = recomputeStats([], baseEntry, pHMetric) as ComputedStatsNumeric;
     expect(stats.data_type).toBe('numeric');
     expect(stats.n).toBe(0);
-    expect(stats.tier).toBe('estimated');
+    // recomputeStats runs on a real (authored) entry → n=0 promotes to VALIDATED, not ESTIMATED
+    expect(stats.tier).toBe('validated');
     expect(stats.mean).toBeNull();
     expect(stats.std_dev).toBeNull();
     expect(stats.current_best).toBe(3.85);
