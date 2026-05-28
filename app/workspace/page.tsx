@@ -3615,17 +3615,6 @@ export default function FormulationWizard() {
               </div>
             </div>
 
-            <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2 pt-3 border-t border-gray-100">Cover Page essentials &middot; future phases</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <div className="border border-dashed border-gray-200 rounded p-2 text-xs">
-                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Approved Lines</div>
-                <span className="text-gray-400 italic">Phase 5 · Coming</span>
-              </div>
-              <div className="border border-dashed border-gray-200 rounded p-2 text-xs">
-                <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Lot Code Format</div>
-                <span className="text-gray-400 italic">Phase 1.5 · Coming</span>
-              </div>
-            </div>
           </div>
 
           {/* ═══ PRODUCTION FLOW HEADER ═══ */}
@@ -3739,6 +3728,94 @@ export default function FormulationWizard() {
               </div>
               <p className="text-xs text-gray-500 leading-snug ml-[88px]">
                 Pallet wrapper settings · pallet config (Ti-Hi pattern, pallet type) · pallet tag format + placement + tear-off strip · stretch wrap + corner guards · sign-off
+              </p>
+            </div>
+
+          </div>
+
+          {/* ═══ APPROVED PRODUCTION LINES (elevated from Cover Page chip 2026-05-27) ═══ */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-3">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                <span>🏭</span>
+                <span>Approved Production Lines</span>
+              </h3>
+              <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 5 · Coming</span>
+            </div>
+            <p className="text-xs text-gray-500 leading-snug">
+              Which production lines at which facilities are qualified to run this product. Gates Batch Sheet line selection — runs can only execute on PDS-approved lines. Drives equipment qualification + cross-contact controls + per-line machinery setting variations.
+            </p>
+          </div>
+
+          {/* ═══ PROCESS AUTHORITY FILING (F&B-only conditional; non-optional for acidified foods) ═══ */}
+          {mode !== 'supplements' && (
+            <div className="bg-white rounded-xl border border-rose-200 p-4 mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                  <span>⚖️</span>
+                  <span>Process Authority Filing</span>
+                </h3>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 5 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug mb-2">
+                FDA Form 2541 number · Process Authority name + signature reference · scheduled process number · schedule date · regulatory determination linkage. Non-optional for acidified foods (21 CFR 114) + low-acid canned foods (21 CFR 113).
+              </p>
+              <button
+                onClick={() => setActiveTab('authorities')}
+                className="text-[10px] text-emerald-700 hover:underline"
+              >
+                → Open Process Authorities tab
+              </button>
+            </div>
+          )}
+
+          {/* ═══ TEMPLATES & ARTIFACTS GROUP ═══ */}
+          <div className="mb-3 flex items-baseline justify-between mt-5">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Templates &amp; Artifacts</h3>
+            <span className="text-[10px] text-gray-400">Reusable spec templates referenced per batch</span>
+          </div>
+
+          <div className="space-y-3 mb-6">
+
+            {/* PALLET TAG TEMPLATE */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                  <span>🎫</span>
+                  <span>Pallet Tag Template</span>
+                </h3>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 4 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug">
+                Template layout · fields shown (Lot Code, FG Part #, Net Weight, Production Date, Best By, Plant Code, Customer ref) · tear-off strip spec (pastes back to PDS for production tracking) · placement on pallet (face / top / side) · tag material (paper / vinyl / weather-resistant) · adhesive · print method (thermal / inkjet / pre-printed)
+              </p>
+            </div>
+
+            {/* LABEL TEMPLATE */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                  <span>🏷️</span>
+                  <span>Label Template</span>
+                </h3>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 3 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug">
+                Label part # · dimensions · material · adhesive · approved artwork file ref + revision · content placement spec (where {mode === 'supplements' ? 'SFP + DSHEA disclaimer + manufacturer info' : 'NFP + allergen statement + ingredient statement'} prints · where lot code prints · where UPC/GTIN prints) · printer spec · Pantone color references
+              </p>
+            </div>
+
+            {/* LOT CODE FORMAT (elevated from Cover Page chip) */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                  <span>🔢</span>
+                  <span>Lot Code Format</span>
+                </h3>
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">Phase 1.5 · Coming</span>
+              </div>
+              <p className="text-xs text-gray-500 leading-snug">
+                Format template (e.g., <span className="font-mono bg-gray-50 px-1 rounded">YYYYMMDD-Plant-Line-Shift</span>) · facility / line / shift encoding · Best By date calculation rule (Production Date + shelf-life rule) · how lot codes are generated for each batch run · placement on package (jar shoulder / cap top / label / closure side)
               </p>
             </div>
 
