@@ -726,6 +726,12 @@ export default function FormulationWizard() {
   const [manufacturerName, setManufacturerName] = useState<string>('');
   const [brandName, setBrandName] = useState<string>('');
   const [productName, setProductName] = useState<string>('');
+  // PDS production process — F&B-only meta-spec. Operator-selected on the
+  // Packaging Data Sheet, per directive 2026-05-27. Drives Step 3 (Post-Seal
+  // Processing) conditionality + downstream filling spec selection +
+  // microbial requirements + shelf-life calculation pathway. Empty = not
+  // yet specified.
+  const [pdsProcess, setPdsProcess] = useState<'' | 'hot-fill' | 'cold-fill' | 'other'>('');
   const [saveMessage, setSaveMessage] = useState('');
   const [dbCategory, setDbCategory] = useState('All');
   const [dbSearch, setDbSearch] = useState('');
@@ -3617,10 +3623,59 @@ export default function FormulationWizard() {
 
           </div>
 
+          {/* ═══ PRODUCTION PROCESS SELECTOR (F&B-only — per operator 2026-05-27)
+              Hot Fill / Cold Fill / Other drives Step 3 (Post-Seal Processing)
+              conditionality, downstream filling spec, microbial requirements,
+              shelf-life calculation pathway. Functional now; downstream
+              consumers wire up in Phase 1.5. ═══ */}
+          {mode !== 'supplements' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 mb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+                    <span>🌡️</span>
+                    <span>Production Process</span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500 leading-snug mt-0.5">Drives Step 3 conditionality + microbial spec + shelf-life pathway.</p>
+                </div>
+                <div className="flex gap-1.5">
+                  {[
+                    { value: 'hot-fill' as const, label: 'Hot Fill', icon: '♨️' },
+                    { value: 'cold-fill' as const, label: 'Cold Fill', icon: '❄️' },
+                    { value: 'other' as const, label: 'Other', icon: '⚙️' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setPdsProcess(opt.value === pdsProcess ? '' : opt.value)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                        pdsProcess === opt.value
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-emerald-400'
+                      }`}
+                    >
+                      <span className="mr-1">{opt.icon}</span>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {!pdsProcess && (
+                <p className="text-[10px] text-amber-700 italic mt-2">Not set &mdash; Step 3 (Post-Seal Processing) shows generic guidance until selected.</p>
+              )}
+            </div>
+          )}
+
           {/* ═══ PRODUCTION FLOW HEADER ═══ */}
           <div className="mb-3 flex items-baseline justify-between">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Production Flow</h3>
-            <span className="text-[10px] text-gray-400">{mode === 'supplements' ? 'Capsule / softgel sequence' : 'Hot-fill / acidified sequence'}</span>
+            <span className="text-[10px] text-gray-400">
+              {mode === 'supplements'
+                ? 'Capsule / softgel sequence'
+                : pdsProcess === 'hot-fill' ? 'Hot-fill / acidified sequence'
+                : pdsProcess === 'cold-fill' ? 'Cold-fill sequence'
+                : pdsProcess === 'other' ? 'Custom process sequence'
+                : 'F&B sequence (process not set)'}
+            </span>
           </div>
 
           <div className="space-y-3 mb-6">
