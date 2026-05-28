@@ -323,12 +323,19 @@ input:focus, select:focus, textarea:focus {
     size: letter;
     margin: 0.5in;
   }
-  table, tr, td, th {
+  /* Keep individual rows / cells from splitting, but ALLOW tables to break
+     across pages (large ingredient tables on Batch Sheet were getting
+     pushed entirely to a new page by the prior `table { page-break-inside:
+     avoid }` rule, leaving page 1 mostly empty). 2026-05-27 print spacing fix. */
+  tr, td, th {
     page-break-inside: avoid;
   }
-  section {
-    page-break-inside: avoid;
-  }
+  /* `section { page-break-inside: avoid }` removed 2026-05-27 — was too
+     aggressive (forced each section onto its own page when content didn't
+     fit alongside the BPR header). Per-section break control now opt-in
+     via the `print:break-inside-avoid` Tailwind utility on small atomic
+     blocks (signature blocks, controlled-doc header strips). Large content
+     sections break naturally across pages. */
   input, select, textarea {
     border: 0 !important;
     background: transparent !important;
