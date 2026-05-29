@@ -44,6 +44,8 @@ import { ConfidencePill } from '@/components/ConfidencePill';
 import { AutoGrowTextarea } from '@/components/AutoGrowTextarea';
 import { MasterSpecsTab } from '@/components/MasterSpecsTab';
 import { MASTER_SPECS_FEATURE_FLAG, loadEntries as loadMasterSpecEntries, loadMetricCatalog as loadMasterSpecCatalog } from '@/lib/masterSpecsStorage';
+import { buildSupplementCompositionSpec } from '@/lib/supplementCompositionSpec';
+import { saveCompositionSpec } from '@/lib/supplementCompositionStorage';
 import type { MasterSpecEntry as MSEntry, SpecMetric as MSMetric, ComputedStatsNumeric as MSComputedNumeric } from '@/types/masterSpecs';
 import { getSustainabilityProfile, computeFormulationSustainability, computeOrganicCompliance, convertIngredientToOrganic, upgradeToOrganicTier, convertIngredientToConventional, revertAllToConventional, type OrganicClaimTier } from '@/lib/sustainability';
 import { validateClaim, suggestAvailableClaims } from '@/lib/nutritionClaims';
@@ -1774,6 +1776,26 @@ export default function FormulationWizard() {
     const now = new Date().toISOString();
     const nowHuman = new Date().toLocaleDateString();
 
+    // Wizard-generated finished-product composition spec (Convention B) → Master
+    // Specs. Fires on every supplement save with a defined serving; re-derives
+    // the same % × fill × units math the workspace shows (no operator input).
+    // Returns null (no-op) for F&B or when no serving is set yet.
+    const writeCompositionSpec = (productId: string) => {
+      if (mode !== 'supplements' || !productId) return;
+      const isCount = categorizeDeliveryForm(suppDeliveryForm) === 'count';
+      const spec = buildSupplementCompositionSpec({
+        productId,
+        productName: formulationName.trim(),
+        deliveryForm: suppDeliveryForm,
+        unitsPerServing: isCount ? suppUnitsPerServing : 1,
+        perUnitFillMg: isCount ? suppPerUnitWeightMg : servingSizeInGrams * 1000,
+        totalBatchGrams,
+        ingredients: ingredients.map(i => ({ name: i.name, grams: i.qty * (UNIT_TO_GRAMS[i.unit] || 1) })),
+        generatedAt: now,
+      });
+      if (spec) saveCompositionSpec(spec);
+    };
+
     if (existing) {
       // Create a new version — preserve any existing status, user may update via UI
       const lastVersion = existing.currentVersion || '1.0.0';
@@ -1824,6 +1846,7 @@ export default function FormulationWizard() {
         partNumber: partNumber.trim() || existing.partNumber,
       };
       persistSavedFormulations(savedFormulations.map(f => f.id === existing.id ? updated : f));
+      writeCompositionSpec(updated.partNumber || '');
       setSaveMessage(`✅ "${formulationName}" updated to v${newVersion} (${level})`);
       setTimeout(() => setSaveMessage(''), 4000);
       return;
@@ -1869,6 +1892,7 @@ export default function FormulationWizard() {
       catalogSnapshot: legacyCatalogSnapshot,
     };
     persistSavedFormulations([...savedFormulations, newSave]);
+    writeCompositionSpec(assignedPartNumber);
     setPartNumber(assignedPartNumber);
     setSaveMessage(`✅ "${formulationName}" saved as ${assignedPartNumber} (v1.0.0)`);
     setTimeout(() => setSaveMessage(''), 3000);

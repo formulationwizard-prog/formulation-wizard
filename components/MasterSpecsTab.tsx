@@ -10,7 +10,9 @@ import type {
   ObservationLogEntry,
   SpecCategory,
   SpecMetric,
+  SupplementCompositionSpec,
 } from '@/types/masterSpecs';
+import { loadCompositionSpecs } from '@/lib/supplementCompositionStorage';
 import { SPEC_CATEGORY_LABELS, SPEC_CATEGORY_ORDER } from '@/types/masterSpecs';
 import { MasterSpecTestReport } from './MasterSpecTestReport';
 import {
@@ -69,6 +71,9 @@ export function MasterSpecsTab({
   // ─── State (hydrated from localStorage) ────────────────────────────
   const [catalog, setCatalog] = useState<SpecMetric[]>([]);
   const [entries, setEntries] = useState<MasterSpecEntry[]>([]);
+  // Wizard-generated supplement composition specs, keyed by FG Part #. These are
+  // derived (not observation-logged) — written on save by the workspace.
+  const [compositionSpecs, setCompositionSpecs] = useState<Record<string, SupplementCompositionSpec>>({});
   const [viewMode, setViewMode] = useState<ViewMode>('portfolio');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -95,6 +100,7 @@ export function MasterSpecsTab({
     });
     setEntries(loaded);
     saveEntries(loaded);
+    setCompositionSpecs(loadCompositionSpecs());
   }, []);
 
   // ─── Append a test result (observation) to a test-type entry ─────────
@@ -166,6 +172,7 @@ export function MasterSpecsTab({
       product_name: string;
       product_class: string;
       spec_count: number;
+      has_composition: boolean;
       last_modified: string | null;
     }> = [];
     const seen = new Set<string>();
@@ -178,10 +185,11 @@ export function MasterSpecsTab({
         product_name: currentProductName || 'Untitled',
         product_class: '',
         spec_count: productEntries.length,
+        has_composition: !!compositionSpecs[currentProductId],
         last_modified:
           productEntries.length > 0
             ? productEntries.map((e) => e.updated_at).sort().reverse()[0]
-            : null,
+            : compositionSpecs[currentProductId]?.generated_at ?? null,
       });
       seen.add(currentProductId);
     }
@@ -195,15 +203,16 @@ export function MasterSpecsTab({
         product_name: sf.formulationName || 'Untitled',
         product_class: sf.productClass || '',
         spec_count: productEntries.length,
+        has_composition: !!compositionSpecs[sf.partNumber],
         last_modified:
           productEntries.length > 0
             ? productEntries.map((e) => e.updated_at).sort().reverse()[0]
-            : null,
+            : compositionSpecs[sf.partNumber]?.generated_at ?? null,
       });
       seen.add(sf.partNumber);
     }
     return rows;
-  }, [entriesByProduct, savedFormulations, currentProductId, currentProductName]);
+  }, [entriesByProduct, savedFormulations, currentProductId, currentProductName, compositionSpecs]);
 
   const selectedEntries = selectedProductId
     ? entriesByProduct.get(selectedProductId) ?? []
@@ -297,6 +306,7 @@ export function MasterSpecsTab({
           row={selectedRow}
           entries={selectedEntries}
           catalog={catalog}
+          compositionSpec={selectedProductId ? compositionSpecs[selectedProductId] ?? null : null}
           onBack={handleBackToPortfolio}
           onAddSpec={() => setWizardOpen(true)}
           onExportMetric={(entry, metricName) => setReport({ title: `${metricName} Test Report`, entries: [entry] })}
@@ -343,6 +353,7 @@ interface PortfolioRow {
   product_name: string;
   product_class: string;
   spec_count: number;
+  has_composition: boolean;
   last_modified: string | null;
 }
 
@@ -377,8 +388,13 @@ function PortfolioView({ rows, onOpen }: { rows: PortfolioRow[]; onOpen: (id: st
               </p>
             </div>
             <div className="text-right text-xs">
+              {row.has_composition && (
+                <span className="inline-block text-[9px] font-bold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded mb-1">
+                  🧬 Composition spec
+                </span>
+              )}
               <div className="font-semibold text-gray-700">
-                {row.spec_count} {row.spec_count === 1 ? 'spec' : 'specs'} tracked
+                {row.spec_count} {row.spec_count === 1 ? 'test type' : 'test types'} tracked
               </div>
               {row.last_modified && (
                 <div className="text-[10px] text-gray-400 mt-0.5">
@@ -399,6 +415,7 @@ function DetailView({
   row,
   entries,
   catalog,
+  compositionSpec,
   onBack,
   onAddSpec,
   onExportMetric,
@@ -409,6 +426,7 @@ function DetailView({
   row: PortfolioRow | undefined;
   entries: MasterSpecEntry[];
   catalog: SpecMetric[];
+  compositionSpec: SupplementCompositionSpec | null;
   onBack: () => void;
   onAddSpec: () => void;
   onExportMetric: (entry: MasterSpecEntry, metricName: string) => void;
@@ -465,6 +483,12 @@ function DetailView({
           + Add test type
         </button>
       </div>
+
+      {/* Wizard-generated composition spec (supplements). Read-only — derived
+          from the formula on save, never operator-logged. Sits above the
+          measured-test tracker; both can coexist (composition = targets,
+          logged tests = validation). */}
+      {compositionSpec && <CompositionSpecSection spec={compositionSpec} />}
 
       {entries.length === 0 ? (
         <div className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 text-center">
@@ -530,6 +554,117 @@ function DetailView({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Composition Spec (supplements) — wizard-generated, read-only ──────
+
+function fmtNum(v: number, maxFrac = 2): string {
+  const rounded = Math.round(v * 10 ** maxFrac) / 10 ** maxFrac;
+  return rounded.toLocaleString(undefined, { maximumFractionDigits: maxFrac });
+}
+
+function unitWord(deliveryForm: string): string {
+  const map: Record<string, string> = {
+    capsule: 'capsule', softgel: 'softgel', tablet: 'tablet', caplet: 'caplet',
+    gummy: 'gummy', lozenge: 'lozenge', chewable: 'chewable', powder: 'scoop', liquid: 'serving',
+  };
+  return map[deliveryForm] || 'unit';
+}
+
+function CompositionSpecSection({ spec }: { spec: SupplementCompositionSpec }) {
+  const unit = unitWord(spec.serving.deliveryForm);
+  const isSingleUnit = spec.serving.unitsPerServing === 1;
+  const totalPct = spec.rows.reduce((s, r) => s + r.pct, 0);
+
+  return (
+    <div className="mb-6 bg-white rounded-xl border border-violet-200 overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 bg-violet-50/60 border-b border-violet-100 flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-lg">🧬</span>
+            <h3 className="text-sm font-bold text-gray-800">Composition Spec</h3>
+            <span className="text-[9px] font-bold uppercase tracking-wide text-violet-700 bg-violet-100 border border-violet-200 px-2 py-0.5 rounded">
+              Wizard-generated
+            </span>
+            <span className="text-[9px] font-bold uppercase tracking-wide text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded">
+              Convention B
+            </span>
+            <TierBadge tier={spec.confidence} n={0} />
+          </div>
+          <p className="text-[11px] text-gray-500 mt-1">
+            Exact mg of each compound per {unit} and per serving — derived from the formula, not logged.
+          </p>
+        </div>
+        <div className="text-right text-[10px] text-gray-400 shrink-0">
+          generated {new Date(spec.generated_at).toLocaleDateString()}
+        </div>
+      </div>
+
+      {/* Serving definition — the dial that drives every mg below */}
+      <div className="px-4 py-2 text-xs text-gray-600 border-b border-gray-100 bg-gray-50/40">
+        <span className="font-semibold text-gray-700">Serving:</span>{' '}
+        {isSingleUnit ? (
+          <>1 {unit} = <span className="font-semibold">{fmtNum(spec.serving.servingMassMg)} mg</span></>
+        ) : (
+          <>
+            {spec.serving.unitsPerServing} {unit}s × {fmtNum(spec.serving.perUnitFillMg)} mg fill ={' '}
+            <span className="font-semibold">{fmtNum(spec.serving.servingMassMg)} mg</span>
+          </>
+        )}
+      </div>
+
+      {/* Composition table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-gray-400 border-b border-gray-200">
+              <th className="px-4 py-1.5 font-semibold uppercase tracking-wide text-[9px]">Ingredient</th>
+              <th className="px-2 py-1.5 font-semibold uppercase tracking-wide text-[9px] text-right">% of fill</th>
+              <th className="px-2 py-1.5 font-semibold uppercase tracking-wide text-[9px] text-right">mg / {unit}</th>
+              <th className="px-2 py-1.5 font-semibold uppercase tracking-wide text-[9px] text-right">mg / serving</th>
+              <th className="px-4 py-1.5 font-semibold uppercase tracking-wide text-[9px] text-right">Active / serving</th>
+            </tr>
+          </thead>
+          <tbody>
+            {spec.rows.map((r) => (
+              <tr key={r.name} className="border-b border-gray-100 last:border-0">
+                <td className="px-4 py-1.5 text-gray-800">{r.name}</td>
+                <td className="px-2 py-1.5 font-mono text-gray-600 text-right">{fmtNum(r.pct)}%</td>
+                <td className="px-2 py-1.5 font-mono text-gray-700 text-right">{fmtNum(r.mgPerUnit)}</td>
+                <td className="px-2 py-1.5 font-mono text-gray-900 font-medium text-right">{fmtNum(r.mgPerServing)}</td>
+                <td className="px-4 py-1.5 font-mono text-right">
+                  {r.hasElementalDistinction ? (
+                    <span className="text-gray-800" title={`elemental/active factor ×${r.elementalFactor}`}>
+                      {fmtNum(r.activeMgPerServing)} <span className="text-gray-400">(×{r.elementalFactor})</span>
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">full mass</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-gray-200 font-semibold text-gray-700 bg-gray-50/40">
+              <td className="px-4 py-1.5">Total</td>
+              <td className="px-2 py-1.5 font-mono text-right">{fmtNum(totalPct)}%</td>
+              <td className="px-2 py-1.5 font-mono text-right">{fmtNum(spec.serving.perUnitFillMg)}</td>
+              <td className="px-2 py-1.5 font-mono text-right">{fmtNum(spec.totalMgPerServing)}</td>
+              <td className="px-4 py-1.5" />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Provenance footnote */}
+      <p className="px-4 py-2 text-[10px] text-gray-400 italic border-t border-gray-100 leading-snug">
+        Wizard-generated from the formula (% of fill × fill weight × {unit}s per serving). Elemental/active
+        factors are typical values (ESTIMATED) — attach a supplier COA to upgrade to VERIFIED. Regenerates on
+        each save.
+      </p>
     </div>
   );
 }

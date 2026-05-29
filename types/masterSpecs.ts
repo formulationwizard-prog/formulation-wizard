@@ -312,3 +312,69 @@ export interface SpecSheetSection {
   // and not part of the storable model (separate registry maps section_type
   // → React component on the render side).
 }
+
+// ─── Entity 10: SupplementCompositionSpec (wizard-generated, Convention B) ──
+//
+// Master Specs is MODE-AWARE. F&B products track MEASURED tests (MasterSpecEntry
+// + observation_log — values the operator logs from production). Supplement
+// products instead carry a WIZARD-GENERATED composition spec: the exact mg of
+// each compound per unit (capsule/tablet/…) and per serving, derived
+// deterministically from the formula via Convention B —
+//   mg per unit    = (ingredient % of fill) × fill weight
+//   mg per serving = mg per unit × units per serving
+// The operator NEVER types these; they fall out of the recipe + the fill-weight
+// dial. Generated when a formula is saved WITH a serving; regenerated on each
+// re-save (a controlled-document snapshot of the saved version).
+//
+// Per-value confidence ladder mirrors the rest of Master Specs:
+//   ESTIMATED  — elemental factor is a typical value (no COA yet)
+//   VERIFIED   — elemental factor sourced from a supplier COA (later layer)
+//   VALIDATED  — confirmed by production assay (later layer; user-logged QC
+//                observations validate the wizard targets)
+// Phase 1 ships ESTIMATED only. The elemental factor uses the SAME
+// resolveElementalFactor() that drives the label %DV and the UL gate, so the
+// spec can never disagree with the Supplement Facts panel by construction.
+
+export interface SupplementCompositionRow {
+  name: string;
+  /** Ingredient's share of the capsule fill, percent (e.g. 2.3 for 2.3%). */
+  pct: number;
+  /** Compound mass per single unit (capsule/tablet/softgel), mg. */
+  mgPerUnit: number;
+  /** Compound mass per serving, mg — what you weigh out / buy. */
+  mgPerServing: number;
+  /** Elemental/active fraction applied (1.0 when the whole mass is the active). */
+  elementalFactor: number;
+  /** Active/elemental mass per serving, mg — the dosage-/%DV-relevant number. */
+  activeMgPerServing: number;
+  /** TRUE when elementalFactor < 1 (salt / chelate / standardized extract). */
+  hasElementalDistinction: boolean;
+  /** Provenance of the elemental factor. Phase 1 is always 'typical'. */
+  factorBasis: 'typical' | 'coa' | 'lot-coa';
+}
+
+export interface SupplementCompositionSpec {
+  /** FG Part # — same key MasterSpecEntry.product_id uses. */
+  product_id: string;
+  product_name: string;
+  /** Math contract. Always 'B' for specs generated after the 2026-05-29 flip. */
+  convention: 'B';
+  /** ISO timestamp this snapshot was generated (on save). */
+  generated_at: string;
+  /** The serving definition that drives every mg below. */
+  serving: {
+    /** capsule / tablet / softgel / gummy / powder / liquid … */
+    deliveryForm: string;
+    /** Capsules per serving (1 for a powder/liquid scoop). */
+    unitsPerServing: number;
+    /** Per-unit fill weight in mg — the operator-modifiable driving dial. */
+    perUnitFillMg: number;
+    /** perUnitFillMg × unitsPerServing. */
+    servingMassMg: number;
+  };
+  rows: SupplementCompositionRow[];
+  /** Σ compound mg/serving across all rows (≈ servingMassMg when % sum to 100). */
+  totalMgPerServing: number;
+  /** Phase-1 confidence: all elemental factors typical → 'estimated'. */
+  confidence: ConfidenceTier;
+}
