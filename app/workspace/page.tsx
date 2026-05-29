@@ -1097,6 +1097,19 @@ export default function FormulationWizard() {
   const totalWeightKg = ingredients.reduce((sum, ing) => sum + (ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000, 0);
   const totalBatchGrams = totalWeightKg * 1000;
 
+  // Convention B reliable per-serving fill mass (grams). Count forms derive it
+  // from the operator's per-unit fill weight × units/serving (the TRUE driver —
+  // not the conditionally-synced servingSize field, whose misread-as-grams is
+  // what produced the Vit C 500mg→1942mg bug); powder/liquid use the entered
+  // scoop/volume serving. 0 until a serving is defined → supplement per-serving
+  // math falls back to Convention A identity (matches "spec generated when
+  // saved WITH a serving"). Passed to computePerServingScale as supplementServingMassG.
+  const suppServingMassG = mode !== 'supplements'
+    ? 0
+    : categorizeDeliveryForm(suppDeliveryForm) === 'count'
+      ? (suppPerUnitWeightMg > 0 && suppUnitsPerServing > 0 ? (suppPerUnitWeightMg * suppUnitsPerServing) / 1000 : 0)
+      : servingSizeInGrams;
+
   // ----- #25l count-based form sync (Round 11 Phase 3 Workstream A.5 [5b/N]) ---
   // For count-based supplement delivery forms (capsule/tablet/softgel/gummy/
   // lozenge/chewable), the operator inputs count-based values via the new
@@ -1349,7 +1362,7 @@ export default function FormulationWizard() {
 
     // Supplement-mode rule sets
     if (mode === 'supplements' && ingredients.length > 0) {
-      const scaleSupp = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
+      const scaleSupp = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
       const pmByName = new Map<string, number>();
       for (const ing of ingredients) {
         const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -1450,7 +1463,7 @@ export default function FormulationWizard() {
   // Nutrition values in `nutrition` are summed totals for the entire batch
   // (each ingredient contributes its per-100g × (qty/100)).
   // To render per-serving on the FDA label, scale by servingSize / batchWeight.
-  const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
+  const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
   /** Raw per-serving amount for a nutrient (no rounding — use fdaRound* for display). */
   const perServing = (val: number) => val * scale;
   /** Raw %DV (0-100+) for a nutrient with a valid DV. Returns 0 when DV is 0. */
@@ -4141,7 +4154,7 @@ export default function FormulationWizard() {
               their state is green; default-expand when there are findings.
               ═══════════════════════════════════════════════════════════════ */}
           {mode === 'supplements' && ingredients.length > 0 && (() => {
-            const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
+            const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
             const pmByName = new Map<string, number>();
             for (const ing of ingredients) {
               const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -6259,7 +6272,7 @@ export default function FormulationWizard() {
               {mode === 'supplements' && ingredients.length > 0 && (() => {
                 // Compute per-serving mg for every ingredient so the checker can
                 // compare against UL thresholds. Serving-scale the batch mass.
-                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
+                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
                 const perServingMgByName = new Map<string, number>();
                 for (const ing of ingredients) {
                   const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -6652,6 +6665,7 @@ export default function FormulationWizard() {
                     mode,
                     servingSizeInGrams,
                     totalBatchGrams,
+                    supplementServingMassG: suppServingMassG,
                     servingsPerContainer,
                     servingSizeLabel,
                     caloriesPerServing: perServing(nutrition.calories),
@@ -7230,7 +7244,7 @@ export default function FormulationWizard() {
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && ingredients.length > 0 && (() => {
                 // Build %DV table from Supplement Facts data for nutrient content claims
-                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
+                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
                 const perServingMgByName = new Map<string, number>();
                 for (const ing of ingredients) {
                   const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -7247,6 +7261,7 @@ export default function FormulationWizard() {
                   mode,
                   servingSizeInGrams,
                   totalBatchGrams,
+                  supplementServingMassG: suppServingMassG,
                   servingsPerContainer,
                   servingSizeLabel: `${servingSize}${servingUnit}`,
                   caloriesPerServing: perServing(nutrition.calories),
@@ -7741,7 +7756,7 @@ export default function FormulationWizard() {
                 // code applied raw F&B ratio in supplements mode — produced
                 // wrong overage projections (under-stated by factor of
                 // servings). All 5 sites now route through the helper.
-                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams });
+                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
                 const perServingMgByName = new Map<string, number>();
                 for (const ing of ingredients) {
                   const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);

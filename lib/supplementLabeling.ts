@@ -250,12 +250,16 @@ export function buildSupplementFacts(params: {
   mode?: ModeId;
   servingSizeInGrams: number;
   totalBatchGrams: number;
+  /** Convention B (supplements): reliable per-serving fill mass in grams from
+   *  the operator's fill weight × units (count) or scoop/volume. When > 0,
+   *  per-serving = ingredient's % of this mass. Omitted/0 → identity fallback. */
+  supplementServingMassG?: number;
   servingsPerContainer: number | string;
   servingSizeLabel: string;
   caloriesPerServing: number;
   macroPerServing: { totalFat: number; totalCarbs: number; protein: number; sodium: number; totalSugars: number };
 }): SupplementFactsData {
-  const { ingredients, mode, servingSizeInGrams, totalBatchGrams, servingsPerContainer, servingSizeLabel,
+  const { ingredients, mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG, servingsPerContainer, servingSizeLabel,
           caloriesPerServing, macroPerServing } = params;
 
   // Per-serving scaling — routes through the shared helper so the SFP
@@ -269,7 +273,7 @@ export function buildSupplementFacts(params: {
   // SFP (wrong). Defaults to identity scale when mode is omitted — preserves
   // backwards compatibility for callers that don't yet thread mode through.
   const scale = mode
-    ? computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams })
+    ? computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG })
     : (totalBatchGrams > 0 ? servingSizeInGrams / totalBatchGrams : 0);
   const vitaminMineralRows: SupplementFactRow[] = [];
   const otherActivesRows: SupplementFactRow[] = [];

@@ -98,15 +98,34 @@ interface PerServingScaleParams {
   servingSizeInGrams: number;
   /** Rolled-up batch mass in grams across all ingredients. */
   totalBatchGrams: number;
+  /**
+   * CONVENTION B (supplements only): the RELIABLE per-serving fill mass in
+   * grams, computed UPSTREAM from the operator's capsule fill weight × units
+   * per serving (count forms) or the entered scoop/volume (powder/liquid).
+   *
+   * When provided and > 0, supplement per-serving math scales each ingredient
+   * by its % of this mass (the formula is a recipe of percentages; the fill
+   * weight is the dial that turns % into real mg). When absent or 0, supplement
+   * mode falls back to identity (Convention A) — no serving defined yet, which
+   * matches the "spec generated when saved WITH a serving" rule.
+   *
+   * Deliberately NOT derived from servingSizeInGrams: that field only syncs
+   * when the operator has entered count inputs, and reading a raw "2 capsules"
+   * field as grams is exactly what produced the Vit C 500mg→1942mg bug. This
+   * param is the operator's true driver, so the scale is safe by construction.
+   */
+  supplementServingMassG?: number;
 }
 
 /**
  * Compute the per-serving scaling factor for the active mode.
  *
  * In supplement mode:
- *   returns 1.0 — ingredient amounts are entered as per-serving
- *   doses (e.g., "Vitamin C 500 mg" = 500 mg per serving), so the
- *   display value equals the entered value. Identity scale.
+ *   CONVENTION B — when supplementServingMassG > 0, returns
+ *   supplementServingMassG / totalBatchGrams, so displayMass =
+ *   ingredientAmount × scale = (ingredient's % of formula) × serving mass.
+ *   When no serving is defined (supplementServingMassG absent/0), returns 1.0
+ *   (Convention A identity — the entered amounts stand until a serving is set).
  *
  * In any other mode (F&B and friends):
  *   returns servingSizeInGrams / totalBatchGrams with a zero-guard.
@@ -115,6 +134,9 @@ interface PerServingScaleParams {
  */
 export function computePerServingScale(params: PerServingScaleParams): number {
   if (params.mode === 'supplements') {
+    if (params.supplementServingMassG && params.supplementServingMassG > 0 && params.totalBatchGrams > 0) {
+      return params.supplementServingMassG / params.totalBatchGrams;
+    }
     return 1.0;
   }
   return params.totalBatchGrams > 0
