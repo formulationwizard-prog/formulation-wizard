@@ -34,7 +34,7 @@ describe('computeUnitEconomics — capsule supplement (per-serving model)', () =
   it('cost per capsule = serving cost / units per serving', () => {
     expect(r.perUnit).toBeCloseTo(0.030, 6);
   });
-  it('cost per serving = summed ingredient cost (rows are one serving)', () => {
+  it('cost per serving = summed ingredient cost at identity scale (pre-Convention-B default)', () => {
     expect(r.perServing).toBeCloseTo(0.060, 6);
   });
   it('ingredient cost per bottle = per serving × servings per container', () => {
@@ -46,6 +46,31 @@ describe('computeUnitEconomics — capsule supplement (per-serving model)', () =
   it('NEVER flags serving/package > batch for capsules (the pre-fix bug)', () => {
     expect(r.servingExceedsBatch).toBe(false);
     expect(r.packageExceedsBatch).toBe(false);
+  });
+});
+
+describe('computeUnitEconomics — Convention B per-serving scaling', () => {
+  // Entered recipe (batch) material cost $0.10; the serving fills to 1.5× the
+  // batch mass (e.g. 2 × 750mg caps = 1500mg vs a 1000mg recipe). The per-serving
+  // cost must scale to the actual fill, not stay at the entered-recipe cost —
+  // matching the SFP/dosage which scale by the same factor. Without this, cost
+  // per serving was understated by the fill factor (the bug operator caught
+  // 2026-05-29 on "sleepy time": $0.268 shown vs ~$0.364 true at 1.36× fill).
+  const scaled: UnitEconomicsInput = { ...capA, totalCost: 0.10, perServingScale: 1.5 };
+  const r = computeUnitEconomics(scaled);
+  it('per serving = batch cost × per-serving scale', () => {
+    expect(r.perServing).toBeCloseTo(0.15, 6); // 0.10 × 1.5
+  });
+  it('per capsule = scaled serving cost / units per serving', () => {
+    expect(r.perUnit).toBeCloseTo(0.075, 6); // 0.15 / 2
+  });
+  it('per bottle scales too (scaled per-serving × servings + packaging)', () => {
+    expect(r.ingredientCostPerPackage).toBeCloseTo(4.5, 6); // 0.15 × 30
+    expect(r.perPackage).toBeCloseTo(4.9, 6); // + $0.40 packaging
+  });
+  it('falls back to identity (Convention A) when no scale is supplied', () => {
+    const id = computeUnitEconomics({ ...scaled, perServingScale: undefined });
+    expect(id.perServing).toBeCloseTo(0.10, 6);
   });
 });
 

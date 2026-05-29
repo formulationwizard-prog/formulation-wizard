@@ -1,13 +1,16 @@
 // ============================================================
 // Unit-economics cost math — count-based supplements vs mass-based F&B.
 // ------------------------------------------------------------
-// Pure + test-locked. The workspace's embedded cost block applied the F&B
-// "fraction of a batch" model to supplements too, but in supplement mode each
-// ingredient row IS one serving's dose (computePerServingScale returns identity
-// — see lib/supplementMath.ts). That made cost-per-serving / per-package wrong
-// for capsules AND tripped a bogus "serving > batch" warning (a 2-capsule
-// serving weighs more than the single-serving dose sum). These functions branch
-// the two models so the math is correct for each.
+// Pure + test-locked. F&B uses a "fraction of a batch" model. Supplements use
+// a per-serving model: the entered formula is a RECIPE OF PERCENTAGES, and the
+// capsule fill weight × units is the dial that turns it into a real serving
+// (Convention B — see lib/supplementMath.ts computePerServingScale). So the
+// summed ingredient cost is the cost of the ENTERED batch; the cost of one
+// serving is that × the per-serving scale (servingMass / batchMass). Callers
+// pass that scale in via perServingScale. (Pre-Convention-B, supplement scale
+// was identity 1.0, so totalCost WAS the per-serving cost; that remains the
+// default when no scale is supplied.) This also avoids the bogus "serving >
+// batch" warning F&B's fraction model tripped on a multi-capsule serving.
 // ============================================================
 
 /** 1 lb in grams (matches the constant in lib/netQuantity.ts). */
@@ -40,6 +43,12 @@ export interface UnitEconomicsInput {
   servingsPerContainer: number;
   /** Packaging (container + closure) cost per finished unit, dollars. */
   packagingCostPerUnit: number;
+  /**
+   * Convention B per-serving scale (servingMass / batchMass), used only by the
+   * 'per-serving' model: per-serving cost = totalCost × this. Defaults to 1.0
+   * (the pre-Convention-B identity, where the entered formula WAS one serving).
+   */
+  perServingScale?: number;
 }
 
 export interface UnitEconomicsResult {
@@ -63,9 +72,11 @@ export function computeUnitEconomics(i: UnitEconomicsInput): UnitEconomicsResult
   const perKg = i.totalWeightKg > 0 ? i.totalCost / i.totalWeightKg : 0;
 
   if (i.costModel === 'per-serving') {
-    // Rows already sum to one serving — totalCost IS the per-serving cost.
-    const perServing = i.totalCost;
-    const perUnit = i.unitsPerServing > 0 ? i.totalCost / i.unitsPerServing : null;
+    // Convention B: totalCost is the ENTERED batch's material cost; one serving
+    // delivers (servingMass / batchMass)× that material, so scale to it.
+    const scale = i.perServingScale ?? 1;
+    const perServing = i.totalCost * scale;
+    const perUnit = i.unitsPerServing > 0 ? perServing / i.unitsPerServing : null;
     const ingredientCostPerPackage = perServing * Math.max(0, i.servingsPerContainer);
     const perPackage = ingredientCostPerPackage + i.packagingCostPerUnit;
     // The serving/package mass legitimately exceeds the single-serving dose sum

@@ -594,7 +594,7 @@ function CompositionSpecSection({ spec }: { spec: SupplementCompositionSpec }) {
             </span>
             <TierBadge tier={spec.confidence} n={0} />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">
+          <p className="text-[11px] text-gray-600 mt-1">
             Exact mg of each compound per {unit} and per serving — derived from the formula, not logged.
           </p>
         </div>

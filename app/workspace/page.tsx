@@ -9371,6 +9371,12 @@ export default function FormulationWizard() {
             // fraction model (delivered cost × package/batch share). The supplement path fixes
             // the capsule bug where the F&B fraction tripped a bogus "serving > batch" warning.
             // See lib/unitEconomics.ts (computeUnitEconomics).
+            // Convention B: a serving delivers (servingMass / batchMass)× the
+            // entered recipe's material, so the per-serving cost scales by the
+            // same factor the SFP/dosage use. Identity (1) for F&B.
+            const suppServingScale = mode === 'supplements'
+              ? computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG })
+              : 1;
             const ue = computeUnitEconomics({
               costModel: mode === 'supplements' ? 'per-serving' : 'batch-fraction',
               totalCost: deliveredIngredientCost,
@@ -9381,6 +9387,7 @@ export default function FormulationWizard() {
               unitsPerServing: suppUnitsPerServing,
               servingsPerContainer,
               packagingCostPerUnit: 0,
+              perServingScale: suppServingScale,
             });
             const ingredientCostPerUnit = ue.ingredientCostPerPackage;
             const packagingCostPerUnit = (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0);
@@ -9480,10 +9487,10 @@ export default function FormulationWizard() {
                     </div>
                   </div>
                 )}
-                {/* Cost ladder — per capsule / per serving. Both are serving-based (the entered
-                    formula IS one serving; per capsule = serving ÷ units/serving), never batch-
-                    derived. Always available from the formula; per-bottle figures below need
-                    Servings/Container set. */}
+                {/* Cost ladder — per capsule / per serving. Convention B: the per-serving cost is
+                    the entered recipe's material cost scaled to the actual serving fill (% × fill ×
+                    units), and per capsule = serving ÷ units/serving. Always available from the
+                    formula; per-bottle figures below need Servings/Container set. */}
                 {mode === 'supplements' && ue.perServing > 0 && (
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
@@ -9494,7 +9501,7 @@ export default function FormulationWizard() {
                     <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
                       <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / serving</div>
                       <div className="text-2xl font-bold text-emerald-700 mt-1">${ue.perServing.toFixed(3)}</div>
-                      <div className="text-[10px] text-gray-400 mt-1">as formulated (one serving)</div>
+                      <div className="text-[10px] text-gray-400 mt-1">material filling one serving</div>
                     </div>
                   </div>
                 )}
