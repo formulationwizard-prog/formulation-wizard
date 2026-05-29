@@ -533,6 +533,40 @@ export default function FormulationWizard() {
     setMode(chosen);
     setEntryState(prev => prev === null ? null : { ...prev, mode: chosen });
   };
+  // ----- savedFormulations persistence (LB#4 first half) ----------------
+  // Saved formulations are the operator's real work; pre-fix they lived only
+  // in React state and vanished on reload (the external-trial lost-saves
+  // complaint). Persist to localStorage so they survive reload. The Supabase
+  // server-sync half of LB#4 (cross-device / multi-user) lands post-routing;
+  // this localStorage layer becomes the optimistic cache at that point.
+  //
+  // Writes happen imperatively via persistSavedFormulations() at the exact
+  // mutation points (save / version / delete) rather than in a persist-on-
+  // change effect. An effect-based writer is fragile here: under React
+  // StrictMode (dev double-invoke) and the mount-before-hydrate window it can
+  // write the initial [] over good stored data. Imperative writes carry the
+  // new array explicitly, so there is no clobber window and no skip-guard.
+  const persistSavedFormulations = (next: SavedFormulation[]) => {
+    setSavedFormulations(next);
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('fw_savedFormulations', JSON.stringify(next));
+      }
+    } catch { /* storage unavailable (private mode / quota exceeded) — silent */ }
+  };
+  // Hydrate once on mount. Read-only, so StrictMode's double-invoke is safe
+  // (idempotent) and there is no path that writes [] back over stored saves.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.localStorage.getItem('fw_savedFormulations');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+        if (Array.isArray(parsed)) setSavedFormulations(parsed);
+      }
+    } catch { /* corrupt JSON or storage unavailable — start empty, never throw */ }
+  }, []);
   // Accept the TOS for the currently-active mode. Wraps localStorage
   // persistence and entryState mutation in a single handler.
   const acceptTosForCurrentMode = () => {
@@ -1775,7 +1809,7 @@ export default function FormulationWizard() {
         // Allow user-visible override if the editor has entered a different one.
         partNumber: partNumber.trim() || existing.partNumber,
       };
-      setSavedFormulations(savedFormulations.map(f => f.id === existing.id ? updated : f));
+      persistSavedFormulations(savedFormulations.map(f => f.id === existing.id ? updated : f));
       setSaveMessage(`✅ "${formulationName}" updated to v${newVersion} (${level})`);
       setTimeout(() => setSaveMessage(''), 4000);
       return;
@@ -1820,7 +1854,7 @@ export default function FormulationWizard() {
       partNumber: assignedPartNumber,
       catalogSnapshot: legacyCatalogSnapshot,
     };
-    setSavedFormulations([...savedFormulations, newSave]);
+    persistSavedFormulations([...savedFormulations, newSave]);
     setPartNumber(assignedPartNumber);
     setSaveMessage(`✅ "${formulationName}" saved as ${assignedPartNumber} (v1.0.0)`);
     setTimeout(() => setSaveMessage(''), 3000);
@@ -3271,7 +3305,7 @@ export default function FormulationWizard() {
                         <button
                           onClick={() => {
                             if (window.confirm(`Delete "${f.name}" and all ${numVersions} version${numVersions > 1 ? 's' : ''}?`)) {
-                              setSavedFormulations(savedFormulations.filter(x => x.id !== f.id));
+                              persistSavedFormulations(savedFormulations.filter(x => x.id !== f.id));
                             }
                           }}
                           className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-sm"
