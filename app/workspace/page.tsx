@@ -35,6 +35,7 @@ import {
   fdaRoundPercentDVMacros,
   fdaRoundPercentDVMicros,
 } from '@/lib/utils';
+import { computeUnitEconomics, costPerKgToPerLb, costPerLbToPerKg } from '@/lib/unitEconomics';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
 import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
 import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec, mapCostToConfidence, formatRangedValue, rollupCostConfidence, worstConfidence, type SpecMetric } from '@/lib/foodScience';
@@ -2074,8 +2075,8 @@ export default function FormulationWizard() {
           { id: 'build', label: 'Build Base Sheet', icon: '🔬' },
           { id: 'batch', label: 'Batch Sheet', icon: '🏭' },
           { id: 'packaging', label: 'Packaging Data Sheet', icon: '📦' },
+          { id: 'cost', label: 'Unit Economics', icon: '💰' },
           ...(MASTER_SPECS_FEATURE_FLAG ? [{ id: 'masterSpecs' as const, label: 'Master Specs', icon: '🧪' }] : []),
-          { id: 'cost', label: 'Cost Tool', icon: '💰' },
           { id: 'sourcing', label: 'Sourcing', icon: '🌐' },
           { id: 'filing', label: 'Filing', icon: '📋' },
           { id: 'services', label: 'Services', icon: '🤝' },
@@ -2349,7 +2350,7 @@ export default function FormulationWizard() {
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {(['home', 'build', 'batch', 'packaging', ...(MASTER_SPECS_FEATURE_FLAG ? ['masterSpecs' as const] : []), 'cost', 'sourcing', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
+              {(['home', 'build', 'batch', 'packaging', 'cost', ...(MASTER_SPECS_FEATURE_FLAG ? ['masterSpecs' as const] : []), 'sourcing', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
                 .filter(tab => !(mode === 'supplements' && tab === 'filing'))
                 .map(tab => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
@@ -2359,7 +2360,7 @@ export default function FormulationWizard() {
                     : tab === 'database' ? '📦 Ingredient DB'
                     : tab === 'batch' ? '🏭 Batch Sheet'
                     : tab === 'filing' ? '📋 Filing'
-                    : tab === 'cost' ? '💰 Cost Tool'
+                    : tab === 'cost' ? '💰 Unit Economics'
                     : tab === 'sourcing' ? '🌐 Sourcing'
                     : tab === 'authorities' ? '⚖️ Process Authorities'
                     : tab === 'services' ? '🤝 Services'
@@ -6102,81 +6103,14 @@ export default function FormulationWizard() {
                   );
                 })()}
 
-                <p className="text-xs text-gray-400 mt-2">💡 Packaging cost rolls into &ldquo;Per Package&rdquo; in the Cost Summary above. Curated across {containerCategories.length + closureCategories.length} container &amp; closure categories.</p>
+                <p className="text-xs text-gray-400 mt-2">💡 Packaging cost feeds the &ldquo;Per Package&rdquo; figure on the 💰 Unit Economics tab. Curated across {containerCategories.length + closureCategories.length} container &amp; closure categories.</p>
               </div>
 
-              {/* Cost Summary — unit economics for the formulation (not production batch) */}
-              {/* Identity → Formula → Determination → Packaging/Dosage/Serving → Sustainability → Cost.
-                  Decisions flow downward; consequences appear in real-time. Cost is LAST so the user
-                  sees the regulatory + dosing + sustainability story before the dollar story. */}
-              {ingredients.length > 0 && (() => {
-                // Roll up per-ingredient cost confidence to a formula-level floor (>=5% mass threshold).
-                // Per-ingredient cost confidence comes from each ingredient's IndustrialIngredient
-                // costSource via mapCostToConfidence; user-typed overrides retain the source's confidence.
-                const costContribs = ingredients.map(i => {
-                  const iDb = i.foodData?.type === 'industrial' ? (i.foodData.data as IndustrialIngredient) : null;
-                  return { massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1), confidence: mapCostToConfidence(iDb) };
-                });
-                const formulaCostConfidence = rollupCostConfidence(costContribs);
-                const costPill = <ConfidencePill conf={formulaCostConfidence} size="xs" />;
-                // Range-half-width for each rolled cost (relative tolerance on the rolled-up number).
-                const perKg = totalWeightKg > 0 ? totalCost / totalWeightKg : 0;
-                const perKgDelta = perKg > 0 ? (costRangedSpec(perKg, formulaCostConfidence).range.high - perKg) : 0;
-                const perServingDelta = costPerServing > 0 ? (costRangedSpec(costPerServing, formulaCostConfidence).range.high - costPerServing) : 0;
-                const perPackageDelta = costPerPackage > 0 ? (costRangedSpec(costPerPackage, formulaCostConfidence).range.high - costPerPackage) : 0;
-                const totalDelta = totalCost > 0 ? (costRangedSpec(totalCost, formulaCostConfidence).range.high - totalCost) : 0;
-                return (
-                <div className="bg-white rounded-xl border border-emerald-200 p-6">
-                  <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
-                    <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">💰 Unit Economics{costPill}</h2>
-                    <span className="text-[10px] uppercase tracking-wide text-gray-400">For production batch cost, see 🏭 Batch Sheet</span>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                    <div className="bg-emerald-50 rounded-lg p-3">
-                      <p className="text-xs text-gray-500 mb-1">Per kg</p>
-                      <p className="text-2xl font-bold text-emerald-700">${perKg.toFixed(2)}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{perKgDelta > 0 ? `± $${perKgDelta.toFixed(2)} • ` : ''}fundamental unit cost</p>
-                    </div>
-                    <div className={`rounded-lg p-3 ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-2 border-rose-400' : 'bg-emerald-50'}`}>
-                      <p className="text-xs text-gray-500 mb-1">Per Serving</p>
-                      <p className={`text-2xl font-bold ${servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700 inline-flex items-center justify-center w-full' : 'text-emerald-700'}`}>
-                        {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0
-                          ? <AlertTriangle className="h-6 w-6 text-amber-600" aria-label="Unit mismatch" />
-                          : `$${costPerServing.toFixed(3)}`}
-                      </p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">
-                        {servingSizeInGrams > totalBatchGrams && totalBatchGrams > 0
-                          ? <span className="text-rose-600 font-semibold">Serving &gt; batch — check unit</span>
-                          : `${perServingDelta > 0 ? `± $${perServingDelta.toFixed(3)} • ` : ''}${servingSize}${servingUnit} serving`}
-                      </p>
-                    </div>
-                    <div className={`rounded-lg p-3 border-2 ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'bg-rose-50 border-rose-400' : 'bg-emerald-50 border-emerald-400'}`}>
-                      <p className="text-xs text-gray-500 mb-1">Per Package</p>
-                      <p className={`text-2xl font-bold ${packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? 'text-rose-700 inline-flex items-center justify-center w-full' : 'text-emerald-700'}`}>
-                        {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0
-                          ? <AlertTriangle className="h-6 w-6 text-amber-600" aria-label="Unit mismatch" />
-                          : `$${costPerPackage.toFixed(3)}`}
-                      </p>
-                      {packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0 ? (
-                        <p className="text-[10px] text-rose-600 mt-0.5 font-semibold">Package &gt; batch — check unit</p>
-                      ) : packagingCostPerUnit > 0 ? (
-                        <p className="text-[10px] text-gray-400 mt-0.5">{perPackageDelta > 0 ? `± $${perPackageDelta.toFixed(3)} • ` : ''}incl. ${packagingCostPerUnit.toFixed(3)} pkg</p>
-                      ) : (
-                        perPackageDelta > 0 && <p className="text-[10px] text-gray-400 mt-0.5">± ${perPackageDelta.toFixed(3)}</p>
-                      )}
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-xs text-gray-500 mb-1">Formula Total</p>
-                      <p className="text-2xl font-bold text-gray-700">${totalCost.toFixed(2)}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{totalDelta > 0 ? `± $${totalDelta.toFixed(2)} • ` : ''}for {totalWeightKg.toFixed(3)} kg as entered</p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-3">
-                    Per-tile confidence reflects the formula-level cost rollup (floor across ingredients ≥ 5% mass). Override per-ingredient costs below with supplier quotes to upgrade the rollup. Production-batch cost (scalable to any size) lives on the 🏭 Batch Sheet tab.
-                  </p>
-                </div>
-                );
-              })()}
+              {/* Unit economics (cost / serving / bottle / margin / pricing) lives on its own
+                  formula-connected 💰 Unit Economics tab — kept off the Base Sheet per the
+                  controlled-document separation (operator decision 2026-05-28). The prior
+                  embedded block also still carried the F&B batch-fraction capsule bug; the tab
+                  uses the corrected mode-aware math in lib/unitEconomics.ts. */}
 
               {/* Execution Canvas (Batch Sheet Template) lives on the Batch Sheet
                   tab — see "Execution Canvas" section under Batch Sheet. Build
@@ -6571,9 +6505,22 @@ export default function FormulationWizard() {
                         {ndi.findings
                           .filter(f => f.status === 'required' || f.status === 'unknown' || (f.status === 'notified' && f.match?.note))
                           .map((f, i) => {
-                            const rowColor = f.status === 'required' ? 'bg-red-100 border border-red-400'
+                            const rowColor = f.status === 'required' ? 'bg-rose-100 border border-rose-400'
                               : f.status === 'unknown' ? 'bg-amber-100 border border-amber-300'
                               : 'bg-sky-100 border border-sky-300';
+                            // Per-status text colors track each card's background in dim/dark:
+                            // amber/rose backgrounds flip dark (themed warn/danger) so their text
+                            // flips light; sky is NOT in the themed palette (background stays
+                            // light) so its text must stay dark. The shared text-gray-* used pre-
+                            // fix flipped light on the still-light sky card → invisible (the
+                            // operator-flagged NDI dim-mode bug). 'required' also moved red→rose
+                            // so it themes like the rest of the app's danger surfaces.
+                            const titleColor = f.status === 'required' ? 'text-rose-900'
+                              : f.status === 'unknown' ? 'text-amber-900'
+                              : 'text-sky-900';
+                            const bodyColor = f.status === 'required' ? 'text-rose-800'
+                              : f.status === 'unknown' ? 'text-amber-800'
+                              : 'text-sky-800';
                             const mark: ReactNode = f.status === 'required'
                               ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
                               : f.status === 'unknown'
@@ -6584,8 +6531,8 @@ export default function FormulationWizard() {
                                 <div className="flex items-start gap-2">
                                   <span className="shrink-0 mt-0.5">{mark}</span>
                                   <div className="flex-1">
-                                    <div className="font-semibold text-gray-800">{stripCatalogQaTokens(f.ingredientName)}</div>
-                                    <p className="text-[11px] text-gray-700 mt-1 leading-snug">{f.advisory}</p>
+                                    <div className={`font-semibold ${titleColor}`}>{stripCatalogQaTokens(f.ingredientName)}</div>
+                                    <p className={`text-[11px] ${bodyColor} mt-1 leading-snug`}>{f.advisory}</p>
                                   </div>
                                 </div>
                               </div>
@@ -9357,10 +9304,10 @@ export default function FormulationWizard() {
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <h2 className="text-2xl font-bold text-gray-800">💰 Formulation Cost Tool</h2>
+                <h2 className="text-2xl font-bold text-gray-800">💰 Unit Economics</h2>
                 <p className="text-gray-500 text-sm mt-1">{formulationName || 'Untitled formulation'} • {mc.name}</p>
               </div>
-              <div className="text-xs text-gray-400">Cost/kg values flow from DB → override per-ingredient on the 🔬 Build tab</div>
+              <div className="text-xs text-gray-400">Enter your real ingredient costs below — this is your cost, margin &amp; pricing per unit</div>
             </div>
           </div>
 
@@ -9380,9 +9327,23 @@ export default function FormulationWizard() {
               ? Math.floor(totalBatchGrams / packageSizeInGrams)
               : 0;
 
-            // Per-unit roll-up (allocate batch-wide cost by weight share of the package)
-            const weightShare = totalBatchGrams > 0 ? packageSizeInGrams / totalBatchGrams : 0;
-            const ingredientCostPerUnit = deliveredIngredientCost * weightShare;
+            // Per-finished-unit (bottle) ingredient cost — mode-aware. Supplements use the
+            // per-serving model (one serving's cost × servings/bottle); F&B uses the batch-
+            // fraction model (delivered cost × package/batch share). The supplement path fixes
+            // the capsule bug where the F&B fraction tripped a bogus "serving > batch" warning.
+            // See lib/unitEconomics.ts (computeUnitEconomics).
+            const ue = computeUnitEconomics({
+              costModel: mode === 'supplements' ? 'per-serving' : 'batch-fraction',
+              totalCost: deliveredIngredientCost,
+              totalWeightKg,
+              totalBatchGrams,
+              servingSizeInGrams,
+              packageSizeInGrams,
+              unitsPerServing: suppUnitsPerServing,
+              servingsPerContainer,
+              packagingCostPerUnit: 0,
+            });
+            const ingredientCostPerUnit = ue.ingredientCostPerPackage;
             const packagingCostPerUnit = (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0);
             const directCostPerUnit = ingredientCostPerUnit + packagingCostPerUnit + laborPerUnit;
             const overheadPerUnit = directCostPerUnit * (overheadPct / 100);
@@ -9459,7 +9420,9 @@ export default function FormulationWizard() {
 
             const fmt = (n: number) => n >= 10 ? n.toFixed(2) : n.toFixed(3);
 
-            const unitSanityViolation = packageSizeInGrams > totalBatchGrams && totalBatchGrams > 0;
+            // Mode-aware: false for supplements (a bottle legitimately holds many servings'
+            // mass); the real package>batch unit-typo check only applies to F&B batches.
+            const unitSanityViolation = ue.packageExceedsBatch;
 
             return (
               <>
@@ -9478,12 +9441,30 @@ export default function FormulationWizard() {
                     </div>
                   </div>
                 )}
+                {/* Cost ladder — per capsule / per serving. Both are serving-based (the entered
+                    formula IS one serving; per capsule = serving ÷ units/serving), never batch-
+                    derived. Always available from the formula; per-bottle figures below need
+                    Servings/Container set. */}
+                {mode === 'supplements' && ue.perServing > 0 && (
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / capsule</div>
+                      <div className="text-2xl font-bold text-emerald-700 mt-1">{ue.perUnit !== null ? `$${ue.perUnit.toFixed(3)}` : '—'}</div>
+                      <div className="text-[10px] text-gray-400 mt-1">{suppUnitsPerServing} {suppUnitsPerServing === 1 ? 'unit' : 'units'} / serving</div>
+                    </div>
+                    <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / serving</div>
+                      <div className="text-2xl font-bold text-emerald-700 mt-1">${ue.perServing.toFixed(3)}</div>
+                      <div className="text-[10px] text-gray-400 mt-1">as formulated (one serving)</div>
+                    </div>
+                  </div>
+                )}
                 {/* ───── Headline KPIs ───── */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / unit</div>
-                    <div className="text-2xl font-bold text-emerald-700 mt-1">${fmt(ingredientCostPerUnit)}</div>
-                    <div className="text-[10px] text-gray-400 mt-1">weight-allocated share</div>
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / {mode === 'supplements' ? 'bottle' : 'unit'}</div>
+                    <div className="text-2xl font-bold text-emerald-700 mt-1">{mode === 'supplements' && servingsPerContainer <= 0 ? '—' : `$${fmt(ingredientCostPerUnit)}`}</div>
+                    <div className="text-[10px] text-gray-400 mt-1">{mode === 'supplements' ? (servingsPerContainer > 0 ? `${servingsPerContainer} servings/bottle` : 'set Servings/Container') : 'weight-allocated share'}</div>
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 p-4">
                     <div className="text-[10px] uppercase tracking-wide text-gray-500">Packaging $ / unit</div>
@@ -9492,16 +9473,18 @@ export default function FormulationWizard() {
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 p-4">
                     <div className="text-[10px] uppercase tracking-wide text-gray-500">Fully-loaded COGS</div>
-                    <div className="text-2xl font-bold text-emerald-700 mt-1">${fmt(fullyLoadedCOGS)}</div>
-                    <div className="text-[10px] text-gray-400 mt-1">+ labor + overhead</div>
+                    <div className="text-2xl font-bold text-emerald-700 mt-1">{mode === 'supplements' && servingsPerContainer <= 0 ? '—' : `$${fmt(fullyLoadedCOGS)}`}</div>
+                    <div className="text-[10px] text-gray-400 mt-1">{mode === 'supplements' && servingsPerContainer <= 0 ? 'per bottle — set count' : '+ labor + overhead'}</div>
                   </div>
                   <div className={`rounded-xl border p-4 ${onTarget ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
                     <div className="text-[10px] uppercase tracking-wide text-gray-600">Gross Margin</div>
                     <div className={`text-2xl font-bold mt-1 ${onTarget ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {wholesalePrice > 0 ? `${actualMarginPct.toFixed(1)}%` : '—'}
+                      {(mode === 'supplements' && servingsPerContainer <= 0) || wholesalePrice <= 0 ? '—' : `${actualMarginPct.toFixed(1)}%`}
                     </div>
                     <div className="text-[10px] text-gray-500 mt-1">
-                      {onTarget ? `+${marginDelta.toFixed(1)} pts vs target` : `${marginDelta.toFixed(1)} pts vs target`}
+                      {mode === 'supplements' && servingsPerContainer <= 0
+                        ? 'needs bottle count'
+                        : onTarget ? `+${marginDelta.toFixed(1)} pts vs target` : `${marginDelta.toFixed(1)} pts vs target`}
                     </div>
                   </div>
                 </div>
@@ -9810,6 +9793,9 @@ export default function FormulationWizard() {
                     </div>
                   </div>
 
+                  {/* Per-batch projection is F&B-only: supplements enter one serving's dose,
+                      not a batch of bottles, so units/revenue/profit "per batch" don't apply. */}
+                  {mode !== 'supplements' && (
                   <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
                     <div className="bg-gray-50 border border-gray-200 rounded p-2">
                       <div className="text-[10px] text-gray-500 uppercase">Units / batch</div>
@@ -9826,6 +9812,7 @@ export default function FormulationWizard() {
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {commoditySpikePct !== 0 && (
                     <div className={`mt-4 text-xs border rounded-lg p-3 ${commoditySpikePct > 0 ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
