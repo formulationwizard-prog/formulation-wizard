@@ -24,6 +24,7 @@ import type { ModeId } from './modes';
 import { UNIT_TO_GRAMS } from './utils';
 import { computePerServingScale } from './supplementMath';
 import { keywordMatch } from './keywordMatch';
+import { resolveElementalFactor } from './elementalFactors';
 
 // ============================================================
 // REFERENCE DAILY VALUES (21 CFR 101.36 Table 1, adults & kids 4+)
@@ -296,8 +297,11 @@ export function buildSupplementFacts(params: {
     const dv = findDVEntry(ing.name);
 
     if (dv && (group === 'vitamin' || group === 'mineral')) {
-      // Express in DV unit. Apply elementalFactor for mineral salts.
-      const activeMg = gramsPerServing * 1000 * (dv.elementalFactor ?? 1);
+      // Express in DV unit. Apply form-specific elementalFactor for mineral salts
+      // via the shared resolver (lib/elementalFactors.ts) so the label and the UL
+      // safety check never disagree on elemental mass. Same values as the DV
+      // table — the ?? dv.elementalFactor keeps any DV-only form working.
+      const activeMg = gramsPerServing * 1000 * (resolveElementalFactor(ing.name) ?? dv.elementalFactor ?? 1);
       let amount: number;
       if (dv.unit === 'mg') amount = activeMg;
       else if (dv.unit === 'mcg') amount = activeMg * 1000;

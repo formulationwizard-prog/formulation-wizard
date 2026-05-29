@@ -32,6 +32,7 @@
 // ============================================================
 import type { Ingredient } from '../types';
 import { keywordMatch as sharedKeywordMatch } from './keywordMatch';
+import { resolveElementalFactor } from './elementalFactors';
 
 // ============================================================
 // UPPER INTAKE LIMITS (ULs)
@@ -777,7 +778,10 @@ export function checkSupplementSafety(
     // UL is stated in elemental / active mass, so apples-to-apples comparison
     // requires this step. Without it, mineral chelates false-alarm at 2-5x
     // their actual elemental contribution.
-    const activeMgPerServing = mgPerServing * (limit.elementalFactor ?? 1);
+    // Form-specific elemental factor (shared with the Supplement Facts label via
+    // lib/elementalFactors.ts) so the UL check and the label can't disagree on
+    // elemental mass. Falls back to the limit's blended factor for unmapped forms.
+    const activeMgPerServing = mgPerServing * (resolveElementalFactor(ing.name) ?? limit.elementalFactor ?? 1);
     const amountInULUnit = convertMgToUnit(activeMgPerServing, limit.unit);
     const { ul: effectiveUL, note: populationNote } = effectiveULForAudience(limit, audience);
     const percentOfUL = effectiveUL > 0 ? (amountInULUnit / effectiveUL) * 100 : 0;
