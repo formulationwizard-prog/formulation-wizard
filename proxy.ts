@@ -1,5 +1,29 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/middleware";
+
+/**
+ * Root Next.js 16 proxy (the renamed-from-middleware file convention — see
+ * node_modules/next/dist/docs/01-app/01-getting-started/16-proxy.md). Next 16
+ * supports exactly ONE proxy file per project, so this file fuses the two
+ * gates the app needs:
+ *
+ *   1. PER-USER Supabase session refresh (updateSession) — rotates the auth
+ *      cookies so server components and route handlers see a valid user via
+ *      supabase.auth.getUser(). Without this, the SSR client returns no user
+ *      even for logged-in sessions, and the cloud-save flow can't tell who's
+ *      writing. Fires on every matched request.
+ *   2. ORG-LEVEL passcode gate — the pre-launch "you're invited to preview"
+ *      shield. HMAC-signed `fw_access` cookie set by /auth/validate-code, 1-day
+ *      expiry. Public paths (/login + /auth/*) bypass it so the user can
+ *      authenticate; everything else redirects to /login when the cookie is
+ *      missing or invalid.
+ *
+ * Order matters: updateSession runs FIRST so the Supabase cookie rotation lands
+ * on the response that's actually returned for passcode-authorized requests.
+ * For redirect cases (no passcode), the refresh is discarded — acceptable
+ * because the user is being told to re-authenticate at the org gate anyway.
+ */
 
 function verifyCookie(value: string, secret: string): boolean {
   try {
@@ -22,11 +46,18 @@ function verifyCookie(value: string, secret: string): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  // 1. Refresh the Supabase auth session on every matched request, regardless
+  //    of passcode state. The returned NextResponse carries the rotated auth
+  //    cookies and is what we hand back when the request is allowed through.
+  const response = await updateSession(request);
+
   const { pathname } = request.nextUrl;
 
-  // Public paths — must remain reachable without a cookie so the user can authenticate.
+  // 2. Public paths — must remain reachable without a passcode cookie so the
+  //    user can authenticate at the org-level gate (/login) or via Supabase
+  //    auth callbacks (/auth/callback, /auth/validate-code).
   if (pathname === "/login" || pathname.startsWith("/auth/")) {
-    return NextResponse.next();
+    return response;
   }
 
   const loginUrl = new URL("/login", request.nextUrl.origin);
@@ -46,7 +77,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  // Passcode valid — return the response from updateSession so the rotated
+  // Supabase cookies reach the browser.
+  return response;
 }
 
 export const config = {
