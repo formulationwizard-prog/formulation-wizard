@@ -7,6 +7,8 @@ import {
   AlertTriangle,
   AlertCircle,
   CheckCircle2,
+  LogIn,
+  UserCircle2,
   X as XIcon,
 } from 'lucide-react';
 import type {
@@ -90,6 +92,7 @@ import { useTier } from '@/lib/hooks/useTier';
 import { PROCESS_AUTHORITIES, PA_TYPE_LABELS, getPAStates, type ProcessAuthorityType } from '@/lib/data/processAuthorities';
 import { DEFAULT_TEMPLATE } from '@/lib/processTemplates';
 import { MODES, MODE_ORDER, productClassesForMode, defaultIngredientUnit, type ModeId } from '@/lib/modes';
+import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
 import { evaluateBucketA } from '@/lib/bucketAGate';
 import { isHardStop } from '@/lib/hardStop';
@@ -832,6 +835,36 @@ export default function FormulationWizard() {
   // yet specified.
   const [pdsProcess, setPdsProcess] = useState<'' | 'hot-fill' | 'cold-fill' | 'other'>('');
   const [saveMessage, setSaveMessage] = useState('');
+  // WS-A Stage 4 — Supabase auth identity for the header. undefined = still
+  // loading, null = signed out, string = the signed-in user's email. Drives the
+  // "Signed in as / Sign out" vs "Sign in to save" chip and (Stage 5) whether
+  // saves route to the cloud.
+  const [authEmail, setAuthEmail] = useState<string | null | undefined>(undefined);
+
+  // WS-A Stage 4 — track the Supabase auth session so the header reflects
+  // signed-in state. All setState happens inside async callbacks (not the
+  // effect body), so the set-state-in-effect rule doesn't apply. Wrapped in
+  // try/catch so a missing-env Supabase config degrades to "no chip" rather
+  // than crashing the workspace.
+  useEffect(() => {
+    let active = true;
+    let unsub: (() => void) | undefined;
+    try {
+      const supabase = createSupabaseBrowserClient();
+      supabase.auth
+        .getUser()
+        .then(({ data }) => { if (active) setAuthEmail(data.user?.email ?? null); })
+        .catch(() => { if (active) setAuthEmail(null); });
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+        setAuthEmail(session?.user?.email ?? null);
+      });
+      unsub = () => sub.subscription.unsubscribe();
+    } catch {
+      // Supabase not configured (missing NEXT_PUBLIC_SUPABASE_* env) — leave
+      // auth state unknown; the header simply renders no auth chip.
+    }
+    return () => { active = false; unsub?.(); };
+  }, []);
   const [dbCategory, setDbCategory] = useState('All');
   const [dbSearch, setDbSearch] = useState('');
   // selectedFood can hold either an industrial SKU, a USDA result, or be null
@@ -2758,6 +2791,38 @@ export default function FormulationWizard() {
                 >
                   💾 Save
                 </button>
+
+                {/* Auth chip — WS-A Stage 4. Identity is separate from the local
+                    Save button above; signing in is what will route saves to the
+                    cloud (Stage 5). undefined = loading → render nothing. */}
+                {authEmail === undefined ? null : authEmail ? (
+                  <span className="inline-flex items-center gap-2 border-l border-gray-200 pl-2 ml-1">
+                    <span
+                      className="text-[11px] text-gray-500 inline-flex items-center gap-1"
+                      title={`Signed in as ${authEmail}`}
+                    >
+                      <UserCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                      <span className="max-w-[140px] truncate">{authEmail}</span>
+                    </span>
+                    <form action="/auth/signout" method="post">
+                      <button
+                        type="submit"
+                        className="text-[11px] text-gray-400 hover:text-gray-700 underline-offset-2 hover:underline"
+                      >
+                        Sign out
+                      </button>
+                    </form>
+                  </span>
+                ) : (
+                  <a
+                    href="/auth"
+                    title="Sign in to save your formulas to the cloud"
+                    className="inline-flex items-center gap-1 border-l border-gray-200 pl-2 ml-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800"
+                  >
+                    <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
+                    Sign in to save
+                  </a>
+                )}
               </div>
             </div>
           </div>
