@@ -89,7 +89,7 @@ import { getCopy } from '@/lib/copy';
 import { useTier } from '@/lib/hooks/useTier';
 import { PROCESS_AUTHORITIES, PA_TYPE_LABELS, getPAStates, type ProcessAuthorityType } from '@/lib/data/processAuthorities';
 import { DEFAULT_TEMPLATE } from '@/lib/processTemplates';
-import { MODES, MODE_ORDER, productClassesForMode, type ModeId } from '@/lib/modes';
+import { MODES, MODE_ORDER, productClassesForMode, defaultIngredientUnit, type ModeId } from '@/lib/modes';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
 import { evaluateBucketA } from '@/lib/bucketAGate';
 import { isHardStop } from '@/lib/hardStop';
@@ -362,6 +362,12 @@ export default function FormulationWizard() {
   // operator types fresh values per mode; empty fields (0) render as empty per
   // the empty-default UX principle. Mid-formula mode changes preserve whatever
   // values the operator already entered (no destructive reset).
+  // prevModeRef lets the per-ingredient unit default be applied on an actual
+  // mode TRANSITION rather than on every render — the guard that fixes the
+  // supplements "typed 100 meaning mg, got 100 g" 1000× error without ever
+  // clobbering a deliberate per-ingredient unit choice mid-formula.
+  const prevModeRef = useRef<ModeId | null>(null);
+
   useEffect(() => {
     const modeUnits = mc.units;
     const defaultUnit = mode === 'supplements' ? 'mg' : modeUnits[0];
@@ -372,8 +378,17 @@ export default function FormulationWizard() {
     if (!modeUnits.includes(packageUnit)) {
       setPackageUnit(mode === 'supplements' ? 'g' : defaultUnit);
     }
-    if (!modeUnits.includes(newUnit)) {
-      setNewUnit(defaultUnit);
+    // Per-ingredient unit. On a real mode transition, reset to the mode's
+    // natural ingredient unit (mg for Nutraceuticals — see defaultIngredientUnit,
+    // launch-blocker #3). Grams is a VALID supplement unit, so the stale-unit
+    // check below never catches it; the transition branch is what flips the
+    // default to mg. Guarding on a true mode change means a user's deliberate
+    // per-ingredient unit pick is never overridden while building a formula.
+    if (prevModeRef.current !== mode) {
+      prevModeRef.current = mode;
+      setNewUnit(defaultIngredientUnit(mode));
+    } else if (!modeUnits.includes(newUnit)) {
+      setNewUnit(defaultIngredientUnit(mode));
     }
   }, [mode, mc.units, servingUnit, packageUnit, newUnit]);
 

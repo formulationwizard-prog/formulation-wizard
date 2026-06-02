@@ -200,6 +200,28 @@ export const MODES: Record<ModeId, ModeConfig> = {
 export const MODE_ORDER: ModeId[] = ['fb', 'supplements'];
 
 // ============================================================
+// defaultIngredientUnit — launch-blocker #3 (unit dropdown)
+// ------------------------------------------------------------
+// The natural default UNIT for a per-ingredient quantity in a given mode.
+//
+// Nutraceuticals dose actives in milligrams, so supplements default to 'mg'
+// even though grams is ALSO an allowed unit (units list leads mcg/mg but
+// includes g/kg). Without this, a formulator who types "100" meaning 100 mg
+// silently gets 100 g — a 1000× error that clears every Tolerable Upper Limit
+// in the safety engine without a flag. Food modes default to grams (the first
+// allowed unit for the mode).
+//
+// Consumed by the mode-reconciliation effect in app/workspace/page.tsx, which
+// applies this on a real mode TRANSITION (not every render) so a user's
+// deliberate per-ingredient unit choice is never overridden mid-formula. The
+// transition guard is essential precisely because 'g' is a valid supplement
+// unit — the "is this unit allowed in the mode?" stale-check never catches it.
+// ============================================================
+export function defaultIngredientUnit(mode: ModeId): string {
+  return mode === 'supplements' ? 'mg' : MODES[mode].units[0];
+}
+
+// ============================================================
 // productClassesForMode — Finding #18 (2026-05-15)
 // ------------------------------------------------------------
 // Filters the ProductClass enumeration to the options relevant for
