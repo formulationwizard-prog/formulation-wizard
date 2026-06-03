@@ -846,6 +846,8 @@ export default function FormulationWizard() {
   // WS-A Stage 5b — the signed-in user's id, used to stamp owner_id on cloud
   // writes and to scope cloud reads. Tracked alongside the email.
   const [authUserId, setAuthUserId] = useState<string | null>(null);
+  // Display name for the dashboard greeting (from user_metadata).
+  const [authName, setAuthName] = useState<string | null>(null);
 
   // WS-A Stage 4/5b — track the Supabase auth session so the header reflects
   // signed-in state and cloud sync knows whose rows to read/write. All setState
@@ -855,10 +857,19 @@ export default function FormulationWizard() {
   useEffect(() => {
     let active = true;
     let unsub: (() => void) | undefined;
-    const apply = (user: { id: string; email?: string } | null) => {
+    const apply = (
+      user: { id: string; email?: string; user_metadata?: Record<string, unknown> } | null,
+    ) => {
       if (!active) return;
       setAuthEmail(user?.email ?? null);
       setAuthUserId(user?.id ?? null);
+      const meta = user?.user_metadata;
+      const name =
+        (meta?.full_name as string | undefined) ||
+        (meta?.name as string | undefined) ||
+        (meta?.display_name as string | undefined) ||
+        null;
+      setAuthName(name);
     };
     try {
       const supabase = createSupabaseBrowserClient();
@@ -3023,7 +3034,7 @@ export default function FormulationWizard() {
                 <NautilusMark size={80} />
                 <div className="flex-1 min-w-0">
                   <h2 className="text-3xl font-semibold text-gray-800 tracking-tight">
-                    Welcome back.
+                    Welcome back{authName ? `, ${authName}` : ''}.
                   </h2>
                   <p className="text-sm text-gray-600 mt-1 max-w-xl">
                     {totalFormulas === 0
