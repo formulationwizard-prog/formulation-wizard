@@ -23,6 +23,7 @@ import type {
 import {
   UNIT_TO_GRAMS,
   coerceUnitToAllowed,
+  formatWeightPercent,
   emptyNutrition,
   isIndustrial,
   fdaRoundCalories,
@@ -2433,6 +2434,37 @@ export default function FormulationWizard() {
                   </button>
                 ))}
               </div>
+
+              {/* Auth — global, always-visible (WS-A Stage 4). The prominent
+                  account control; signing in is what routes saves to the cloud. */}
+              {authEmail === undefined ? null : authEmail ? (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800"
+                    title={`Signed in as ${authEmail}`}
+                  >
+                    <UserCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                    <span className="max-w-[160px] truncate">{authEmail}</span>
+                  </span>
+                  <form action="/auth/signout" method="post">
+                    <button
+                      type="submit"
+                      className="px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition"
+                    >
+                      Sign out
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <a
+                  href="/auth"
+                  title="Sign in to save your formulas to the cloud"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-sm hover:bg-emerald-700 transition"
+                >
+                  <LogIn className="h-4 w-4" aria-hidden="true" />
+                  Sign in to save
+                </a>
+              )}
             </div>
             <div className="flex gap-2 flex-wrap">
               {(['home', 'build', 'batch', 'packaging', 'cost', ...(MASTER_SPECS_FEATURE_FLAG ? ['masterSpecs' as const] : []), 'sourcing', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
@@ -2791,38 +2823,6 @@ export default function FormulationWizard() {
                 >
                   💾 Save
                 </button>
-
-                {/* Auth chip — WS-A Stage 4. Identity is separate from the local
-                    Save button above; signing in is what will route saves to the
-                    cloud (Stage 5). undefined = loading → render nothing. */}
-                {authEmail === undefined ? null : authEmail ? (
-                  <span className="inline-flex items-center gap-2 border-l border-gray-200 pl-2 ml-1">
-                    <span
-                      className="text-[11px] text-gray-500 inline-flex items-center gap-1"
-                      title={`Signed in as ${authEmail}`}
-                    >
-                      <UserCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                      <span className="max-w-[140px] truncate">{authEmail}</span>
-                    </span>
-                    <form action="/auth/signout" method="post">
-                      <button
-                        type="submit"
-                        className="text-[11px] text-gray-400 hover:text-gray-700 underline-offset-2 hover:underline"
-                      >
-                        Sign out
-                      </button>
-                    </form>
-                  </span>
-                ) : (
-                  <a
-                    href="/auth"
-                    title="Sign in to save your formulas to the cloud"
-                    className="inline-flex items-center gap-1 border-l border-gray-200 pl-2 ml-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800"
-                  >
-                    <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
-                    Sign in to save
-                  </a>
-                )}
               </div>
             </div>
           </div>
@@ -4994,7 +4994,7 @@ export default function FormulationWizard() {
                               {mc.units.map(u => <option key={u} value={u}>{u}</option>)}
                             </select>
                             <span className="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs font-mono text-gray-600" title="Percent of total batch weight">
-                              {weightPct.toFixed(1)}%
+                              {formatWeightPercent(weightPct)}%
                             </span>
                             <button onClick={() => removeIngredient(index)} className="text-red-400 opacity-0 group-hover:opacity-100 transition text-sm hover:text-red-600">✕</button>
                           </div>

@@ -88,6 +88,22 @@ export function coerceUnitToAllowed(
   return { qty, unit, note: null };
 }
 
+/**
+ * Format a weight percentage for display. Shows 2 decimals normally (0.01%
+ * resolution, per operator 2026-06-02), but adds precision for sub-0.01%
+ * values so a microgram-dosed active in an mg/g formula never falsely renders
+ * as "0.00%". Returns "0" for a true zero / non-finite input.
+ *
+ *   28.571 → "28.57"   0.5 → "0.50"   0.0018 → "0.0018"   0 → "0"
+ */
+export function formatWeightPercent(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return '0';
+  if (pct >= 0.01) return pct.toFixed(2);
+  // sub-0.01% (mcg actives) — adaptive decimals to keep ~2 significant figures
+  const decimals = Math.min(8, Math.ceil(-Math.log10(pct)) + 1);
+  return pct.toFixed(decimals);
+}
+
 // ----- Categories (ingredient database) ---------------------------------------
 // Order matters: "All" always first, then grouped so related categories sit together.
 export const CATEGORIES = [
