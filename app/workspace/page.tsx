@@ -586,8 +586,28 @@ export default function FormulationWizard() {
       const stored = window.localStorage.getItem('fw_savedFormulations');
       if (stored) {
         const parsed = JSON.parse(stored);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
-        if (Array.isArray(parsed)) setSavedFormulations(parsed);
+        if (Array.isArray(parsed)) {
+          // WS-A migration — reassign legacy timestamp ids (Date.now) to UUIDs so
+          // they match the cloud table's uuid PK and become syncable. Safe because
+          // saveFormulation matches the existing formula by NAME, not id. One-time;
+          // persisted back so the new ids stick.
+          const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          let changed = false;
+          const migrated = parsed.map((f: SavedFormulation) => {
+            if (f && typeof f.id === 'string' && !uuidRe.test(f.id)) {
+              changed = true;
+              return { ...f, id: crypto.randomUUID() };
+            }
+            return f;
+          });
+          if (changed) {
+            try {
+              window.localStorage.setItem('fw_savedFormulations', JSON.stringify(migrated));
+            } catch { /* cache write best-effort */ }
+          }
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount
+          setSavedFormulations(migrated);
+        }
       }
     } catch { /* corrupt JSON or storage unavailable — start empty, never throw */ }
   }, []);
@@ -939,21 +959,36 @@ export default function FormulationWizard() {
     const supabase = getSupabaseClient();
     if (!supabase) return;
     let active = true;
-    pullFormulations(supabase, authUserId).then(({ data, error }) => {
-      if (!active || error || data.length === 0) return;
-      setSavedFormulations(prev => {
-        const cloudIds = new Set(data.map(f => f.id));
-        const merged = [...data, ...prev.filter(f => !cloudIds.has(f.id))];
-        try {
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem('fw_savedFormulations', JSON.stringify(merged));
-          }
-        } catch { /* cache write best-effort */ }
-        return merged;
-      });
-    });
+    (async () => {
+      const { data: cloud, error } = await pullFormulations(supabase, authUserId);
+      if (!active || error) return;
+      const cloudIds = new Set(cloud.map(f => f.id));
+      // Read the (already id-migrated) local set from the cache.
+      let local: SavedFormulation[] = [];
+      try {
+        const stored = typeof window !== 'undefined'
+          ? window.localStorage.getItem('fw_savedFormulations')
+          : null;
+        if (stored) {
+          const p = JSON.parse(stored);
+          if (Array.isArray(p)) local = p;
+        }
+      } catch { /* ignore corrupt cache */ }
+      const localOnly = local.filter(f => !cloudIds.has(f.id));
+      // One-time migration: push local-only formulas with cloud-ready ids UP to
+      // the cloud, so the whole portfolio gets backed — not just new saves.
+      mirrorToCloud(localOnly.filter(f => isCloudId(f.id)));
+      const merged = [...cloud, ...localOnly];
+      if (!active) return;
+      setSavedFormulations(merged);
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('fw_savedFormulations', JSON.stringify(merged));
+        }
+      } catch { /* cache write best-effort */ }
+    })();
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- getSupabaseClient is ref-stable; re-run only on identity change
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref-stable helpers; re-run only on identity change
   }, [authUserId]);
   const [dbCategory, setDbCategory] = useState('All');
   const [dbSearch, setDbSearch] = useState('');
