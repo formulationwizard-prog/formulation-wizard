@@ -864,11 +864,19 @@ export default function FormulationWizard() {
       setAuthEmail(user?.email ?? null);
       setAuthUserId(user?.id ?? null);
       const meta = user?.user_metadata;
-      const name =
+      const metaName =
         (meta?.full_name as string | undefined) ||
         (meta?.name as string | undefined) ||
-        (meta?.display_name as string | undefined) ||
-        null;
+        (meta?.display_name as string | undefined);
+      let name: string | null = null;
+      if (metaName) {
+        name = metaName; // a real name the user set at signup — use verbatim
+      } else if (user?.email) {
+        // Fall back to the email handle (nate@… -> "Nate"), matching the
+        // profiles trigger's coalesce(full_name, split_part(email,'@',1)).
+        const handle = user.email.split('@')[0];
+        name = handle.charAt(0).toUpperCase() + handle.slice(1);
+      }
       setAuthName(name);
     };
     try {
