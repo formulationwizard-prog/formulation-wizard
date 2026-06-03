@@ -94,6 +94,8 @@ import { PROCESS_AUTHORITIES, PA_TYPE_LABELS, getPAStates, type ProcessAuthority
 import { DEFAULT_TEMPLATE } from '@/lib/processTemplates';
 import { MODES, MODE_ORDER, productClassesForMode, defaultIngredientUnit, type ModeId } from '@/lib/modes';
 import { createClient as createSupabaseBrowserClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { pushFormulation, pullFormulations, deleteCloudFormulation } from '@/lib/cloudSync';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
 import { evaluateBucketA } from '@/lib/bucketAGate';
 import { isHardStop } from '@/lib/hardStop';
@@ -841,23 +843,30 @@ export default function FormulationWizard() {
   // "Signed in as / Sign out" vs "Sign in to save" chip and (Stage 5) whether
   // saves route to the cloud.
   const [authEmail, setAuthEmail] = useState<string | null | undefined>(undefined);
+  // WS-A Stage 5b — the signed-in user's id, used to stamp owner_id on cloud
+  // writes and to scope cloud reads. Tracked alongside the email.
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
 
-  // WS-A Stage 4 — track the Supabase auth session so the header reflects
-  // signed-in state. All setState happens inside async callbacks (not the
-  // effect body), so the set-state-in-effect rule doesn't apply. Wrapped in
-  // try/catch so a missing-env Supabase config degrades to "no chip" rather
-  // than crashing the workspace.
+  // WS-A Stage 4/5b — track the Supabase auth session so the header reflects
+  // signed-in state and cloud sync knows whose rows to read/write. All setState
+  // happens inside async callbacks (not the effect body), so the
+  // set-state-in-effect rule doesn't apply. Wrapped in try/catch so a missing-
+  // env Supabase config degrades gracefully rather than crashing.
   useEffect(() => {
     let active = true;
     let unsub: (() => void) | undefined;
+    const apply = (user: { id: string; email?: string } | null) => {
+      if (!active) return;
+      setAuthEmail(user?.email ?? null);
+      setAuthUserId(user?.id ?? null);
+    };
     try {
       const supabase = createSupabaseBrowserClient();
-      supabase.auth
-        .getUser()
-        .then(({ data }) => { if (active) setAuthEmail(data.user?.email ?? null); })
-        .catch(() => { if (active) setAuthEmail(null); });
+      supabase.auth.getUser()
+        .then(({ data }) => apply(data.user ?? null))
+        .catch(() => apply(null));
       const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-        setAuthEmail(session?.user?.email ?? null);
+        apply(session?.user ?? null);
       });
       unsub = () => sub.subscription.unsubscribe();
     } catch {
@@ -866,6 +875,67 @@ export default function FormulationWizard() {
     }
     return () => { active = false; unsub?.(); };
   }, []);
+
+  // ----- WS-A Stage 5b — cloud mirror -----------------------------------------
+  // localStorage (persistSavedFormulations) stays the optimistic cache; when
+  // signed in we additionally sync to Supabase so saves survive a cleared cache
+  // or a second device. All fire-and-forget — a cloud failure never blocks the
+  // local save. Only uuid-id formulations sync; legacy timestamp-id saves
+  // migrate when the migration helper lands.
+  const isCloudId = (id: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const supabaseClientRef = useRef<SupabaseClient | null>(null);
+  const getSupabaseClient = (): SupabaseClient | null => {
+    if (!supabaseClientRef.current) {
+      try { supabaseClientRef.current = createSupabaseBrowserClient(); } catch { return null; }
+    }
+    return supabaseClientRef.current;
+  };
+  const mirrorToCloud = (formulations: SavedFormulation[]) => {
+    if (!authUserId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    for (const f of formulations) {
+      if (!isCloudId(f.id)) continue;
+      pushFormulation(supabase, f, authUserId).then(({ error }) => {
+        if (error) console.warn('[cloudSync] push failed for', f.name, '—', error);
+      });
+    }
+  };
+  const removeFromCloud = (id: string) => {
+    if (!authUserId || !isCloudId(id)) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    deleteCloudFormulation(supabase, id).then(({ error }) => {
+      if (error) console.warn('[cloudSync] delete failed for', id, '—', error);
+    });
+  };
+
+  // Hydrate cloud formulations once the user is known, merging them into the
+  // local set (cloud precedence by id; local-only anon work preserved). Writes
+  // the merged set straight to the localStorage cache (not via
+  // persistSavedFormulations) so the pull doesn't echo back as a push.
+  useEffect(() => {
+    if (!authUserId) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    let active = true;
+    pullFormulations(supabase, authUserId).then(({ data, error }) => {
+      if (!active || error || data.length === 0) return;
+      setSavedFormulations(prev => {
+        const cloudIds = new Set(data.map(f => f.id));
+        const merged = [...data, ...prev.filter(f => !cloudIds.has(f.id))];
+        try {
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('fw_savedFormulations', JSON.stringify(merged));
+          }
+        } catch { /* cache write best-effort */ }
+        return merged;
+      });
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getSupabaseClient is ref-stable; re-run only on identity change
+  }, [authUserId]);
   const [dbCategory, setDbCategory] = useState('All');
   const [dbSearch, setDbSearch] = useState('');
   // selectedFood can hold either an industrial SKU, a USDA result, or be null
@@ -1895,6 +1965,7 @@ export default function FormulationWizard() {
         partNumber: partNumber.trim() || existing.partNumber,
       };
       persistSavedFormulations(savedFormulations.map(f => f.id === existing.id ? updated : f));
+      mirrorToCloud([updated]);
       writeCompositionSpec(updated.partNumber || '');
       setSaveMessage(`✅ "${formulationName}" updated to v${newVersion} (${level})`);
       setTimeout(() => setSaveMessage(''), 4000);
@@ -1923,7 +1994,7 @@ export default function FormulationWizard() {
     const assignedPartNumber = partNumber.trim() || generatePartNumber(mode, savedFormulations);
     const newSave: SavedFormulation = {
       // eslint-disable-next-line react-hooks/purity -- saveFormulation is an event handler, not called during render
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name: formulationName.trim(),
       mode,
       productType: productType || null,
@@ -1941,6 +2012,7 @@ export default function FormulationWizard() {
       catalogSnapshot: legacyCatalogSnapshot,
     };
     persistSavedFormulations([...savedFormulations, newSave]);
+    mirrorToCloud([newSave]);
     writeCompositionSpec(assignedPartNumber);
     setPartNumber(assignedPartNumber);
     setSaveMessage(`✅ "${formulationName}" saved as ${assignedPartNumber} (v1.0.0)`);
@@ -3424,6 +3496,7 @@ export default function FormulationWizard() {
                           onClick={() => {
                             if (window.confirm(`Delete "${f.name}" and all ${numVersions} version${numVersions > 1 ? 's' : ''}?`)) {
                               persistSavedFormulations(savedFormulations.filter(x => x.id !== f.id));
+                              removeFromCloud(f.id);
                             }
                           }}
                           className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-sm"
