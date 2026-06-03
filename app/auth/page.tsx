@@ -2,7 +2,7 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Loader2, LogIn, Mail, UserPlus } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2, LogIn, Mail, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 /**
@@ -93,6 +93,7 @@ function AuthForm() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [checkInbox, setCheckInbox] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   function callbackUrl() {
     return `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextParam)}`;
@@ -274,21 +275,32 @@ function AuthForm() {
           >
             Password
           </label>
-          <input
-            id="password"
-            type="password"
-            required
-            autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            minLength={6}
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              if (status === "error") setStatus("idle");
-            }}
-            disabled={submitting}
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900 disabled:bg-slate-50 disabled:text-slate-500"
-            placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
-          />
+          <div className="relative">
+            <input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              required
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              minLength={6}
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (status === "error") setStatus("idle");
+              }}
+              disabled={submitting}
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900 disabled:bg-slate-50 disabled:text-slate-500"
+              placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              tabIndex={-1}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
 
         <button
