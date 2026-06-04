@@ -3072,12 +3072,29 @@ export default function FormulationWizard() {
         return (
           <div className="max-w-7xl mx-auto px-6 py-8">
             {/* Welcome banner */}
-            <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50 border border-emerald-200 rounded-xl p-8 mb-6">
+            <div
+              className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50 border border-emerald-200 rounded-2xl p-8 mb-6"
+              style={{ boxShadow: 'var(--shadow-panel), inset 0 1px 0 var(--panel-highlight)' }}
+            >
               <div className="flex items-center gap-5 flex-wrap">
                 <NautilusMark size={80} />
                 <div className="flex-1 min-w-0">
-                  <h2 className="text-3xl font-semibold text-gray-800 tracking-tight">
-                    Welcome back{authName ? `, ${authName}` : ''}.
+                  <h2 className="text-4xl font-semibold text-gray-800" style={{ letterSpacing: '-0.025em' }}>
+                    Welcome back{authName ? (
+                      <>
+                        ,{' '}
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-instrument-serif), Georgia, serif',
+                            fontStyle: 'italic',
+                            fontWeight: 400,
+                            color: 'var(--color-gold)',
+                          }}
+                        >
+                          {authName}
+                        </span>
+                      </>
+                    ) : ''}.
                   </h2>
                   <p className="text-sm text-gray-600 mt-1 max-w-xl">
                     {totalFormulas === 0

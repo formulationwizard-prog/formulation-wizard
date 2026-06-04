@@ -61,6 +61,19 @@
 
   --background: var(--color-canvas);
   --foreground: var(--color-ink);
+
+  /* ── Arcane Instrument enrichment layer (2026-06-04) ──
+     Additive richness on top of the established palette: a gold "magic"
+     accent (good / done / premium), a workbench grid line, warm depth +
+     radius tokens. Each is opt-in per surface — defining them here costs
+     nothing until a component reaches for them. */
+  --color-gold: #BFA15A;
+  --color-gold-soft: #E6D9AE;
+  --grid-line: rgba(44, 52, 64, 0.06);
+  --shadow-panel: 0 1px 2px rgba(44,52,64,0.05), 0 10px 28px rgba(44,52,64,0.06);
+  --panel-highlight: rgba(255,255,255,0.7);
+  --radius-panel: 14px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* ============================================================
@@ -160,6 +173,11 @@ html[data-appearance='dim'] {
   --color-ink-soft: #6D8494;
   --background: var(--color-canvas);
   --foreground: var(--color-ink);
+  /* enrichment layer — gold + grid tuned for slate */
+  --color-gold: #D8BE74;
+  --grid-line: rgba(232, 235, 239, 0.035);
+  --shadow-panel: 0 1px 2px rgba(0,0,0,0.20), 0 12px 30px rgba(0,0,0,0.28);
+  --panel-highlight: rgba(255,255,255,0.045);
   /* Tint tiles slightly brighter for readability on slate */
   --color-brand-50:  #24414C;
   --color-brand-100: #2D5060;
@@ -195,6 +213,11 @@ html[data-appearance='dark'] {
   --color-ink-soft: #6E7780;
   --background: var(--color-canvas);
   --foreground: var(--color-ink);
+  /* enrichment layer — glowing gold + a faint teal synthwave horizon */
+  --color-gold: #E6C766;
+  --grid-line: rgba(95, 211, 198, 0.10);
+  --shadow-panel: 0 1px 2px rgba(0,0,0,0.4), 0 16px 40px rgba(0,0,0,0.5);
+  --panel-highlight: rgba(132,240,227,0.06);
   --color-brand-50:  #1B3842;
   --color-brand-100: #234655;
   --color-brand-200: #2D5A6C;
@@ -288,9 +311,18 @@ html[data-appearance='dark'] .text-rose-800 { color: #E6BCB4; }
 html[data-appearance='dark'] .text-rose-900 { color: #F0CFC8; }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
+  /* Faint workbench grid woven into the canvas — instrument texture you don't
+     consciously see, but that lifts the whole app from "flat admin panel" to
+     "precision tool." A teal horizon in dark mode. Sits behind every opaque
+     panel, so it only shows in the canvas gutters. */
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
   color: var(--foreground);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
+  /* Crafted type instead of the raw OS system font (Geist, already loaded). */
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
