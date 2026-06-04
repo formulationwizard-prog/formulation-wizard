@@ -2099,7 +2099,16 @@ export default function FormulationWizard() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div
+      className="min-h-screen bg-gray-50 pb-20"
+      style={{
+        // Workbench grid lives HERE (not on <body>) because this opaque layer
+        // covers the body. Shows in the canvas gutters behind the panels.
+        backgroundImage:
+          'linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px)',
+        backgroundSize: '30px 30px',
+      }}
+    >
       {/* ══════════════════════════════════════════════════════════════════
           MODE SELECTION SCREEN (pre-TOS, first visit or post-migration)
           Round 11 Phase 3 Workstream A. User selects vertical
@@ -4504,11 +4513,16 @@ export default function FormulationWizard() {
               })(),
             ];
 
+            // Severity hierarchy (2026-06-04 redesign): critical SHOUTS (ring +
+            // depth — impossible to miss), warn/caution sit at medium, and 'ok'
+            // RECEDES to a quiet tint so the eye is only pulled to what needs
+            // attention. Also moves off raw red/orange onto brand rose/amber so
+            // the cards read correctly in dim/dark (those are mode-flipped).
             const pillClass = (tier: PillTier) =>
-              tier === 'critical' ? 'bg-red-50 border-red-400 text-red-900 hover:bg-red-100'
-              : tier === 'warn' ? 'bg-orange-50 border-orange-300 text-orange-900 hover:bg-orange-100'
-              : tier === 'caution' ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
-              : 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100';
+              tier === 'critical' ? 'bg-rose-50 border-rose-400 text-rose-900 ring-2 ring-rose-300/60 shadow-md hover:bg-rose-100'
+              : tier === 'warn' ? 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
+              : tier === 'caution' ? 'bg-amber-50/60 border-amber-200 text-amber-800 hover:bg-amber-100'
+              : 'bg-emerald-50/50 border-emerald-100 text-emerald-700 hover:bg-emerald-100';
             const pillIcon = (tier: PillTier): ReactNode =>
               tier === 'critical' ? <OctagonX className="h-3.5 w-3.5 text-rose-600" aria-hidden="true" />
               : tier === 'warn' ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />

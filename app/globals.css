@@ -69,7 +69,7 @@
      nothing until a component reaches for them. */
   --color-gold: #BFA15A;
   --color-gold-soft: #E6D9AE;
-  --grid-line: rgba(44, 52, 64, 0.06);
+  --grid-line: rgba(44, 52, 64, 0.10);
   --shadow-panel: 0 1px 2px rgba(44,52,64,0.05), 0 10px 28px rgba(44,52,64,0.06);
   --panel-highlight: rgba(255,255,255,0.7);
   --radius-panel: 14px;
@@ -215,7 +215,7 @@ html[data-appearance='dark'] {
   --foreground: var(--color-ink);
   /* enrichment layer — glowing gold + a faint teal synthwave horizon */
   --color-gold: #E6C766;
-  --grid-line: rgba(95, 211, 198, 0.10);
+  --grid-line: rgba(95, 211, 198, 0.16);
   --shadow-panel: 0 1px 2px rgba(0,0,0,0.4), 0 16px 40px rgba(0,0,0,0.5);
   --panel-highlight: rgba(132,240,227,0.06);
   --color-brand-50:  #1B3842;
