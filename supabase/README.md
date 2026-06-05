@@ -70,14 +70,23 @@ Supabase stack. **No cloud keys needed — this is all local.**
 
 **Run the gate:**
 ```
-supabase test db
+bash scripts/run-db-tests.sh
 ```
-This applies `migrations/` + runs every `tests/*.test.sql` (pgTAP). The WS-C gate is
-`tests/ws_c_isolation.test.sql` — 6 cross-company isolation assertions. **All must be
-GREEN before any sharing goes live in prod.** A written policy is not a passing test.
+This runs every `tests/*.test.sql` (pgTAP) against the running local Postgres and parses
+the TAP output, failing on any `not ok`. The WS-C gate is `tests/ws_c_isolation.test.sql`
+— 14 cross-company isolation + membership assertions. **All must be GREEN before any
+sharing goes live in prod.** A written policy is not a passing test.
 
-> Until this harness is stood up, `tests/ws_c_isolation.test.sql` is **authored but RED**
-> (never executed). Standing it up is the hard gate, not a nicety.
+> **Why not `supabase test db`?** That command shells out to the `supabase/pg_prove`
+> image. On hosts where Docker can't pull it (the CloudFront/WSL2 `EOF` failures seen on
+> the dev box), the gate couldn't run at all. pgTAP lives *inside* the postgres image, so
+> `scripts/run-db-tests.sh` runs the tests through `psql` directly — same result, one
+> fewer image to pull, identical locally and in CI.
+
+> **Status:** GREEN — 14/14 (first executed 2026-06-04). Also enforced in CI on every
+> push to `ws-c` via `.github/workflows/db-tests.yml` (GitHub runners don't have the
+> local pull problem). `config.toml` disables `realtime` + `analytics` — unused for DB
+> tests, and their images won't pull on the dev box.
 
 **Two notes on the harness migrations:**
 - `migrations/00000000000000_baseline.sql` is a **local-harness mirror** of the live tables (which otherwise live only in `schema.sql`, a manual-paste file). It exists so the WS-C migration has tables to build on. It is **not** a prod artifact — prod is still provisioned from `schema.sql` + the out-of-repo invite-whitelist trigger.

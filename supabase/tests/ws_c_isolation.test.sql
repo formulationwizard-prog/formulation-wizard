@@ -7,8 +7,11 @@
 -- supplier quals are team-read/owner-write, revoked members lose
 -- access, and a rejected signup rolls back its workspace cleanly.
 --
--- Status: AUTHORED, NOT YET EXECUTED (RED until the local harness runs it).
--- Run with:  supabase test db   (needs `supabase start` — see README).
+-- Status: GREEN — 14/14 (first executed 2026-06-04; enforced in CI on push to ws-c).
+-- Run with:  bash scripts/run-db-tests.sh   (needs `supabase start` — see README).
+--   NOT `supabase test db`: that needs the pg_prove image, which won't pull on the dev
+--   box; the runner executes pgTAP through psql instead. See README "Local RLS test
+--   harness" for the rationale.
 -- Applies migrations: 00000000000000_baseline.sql → 20260604120000_ws_c_membership.sql
 --
 -- NOTE: superuser BYPASSES RLS, so each check runs as the non-bypassing
