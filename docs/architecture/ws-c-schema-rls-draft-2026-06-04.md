@@ -20,6 +20,8 @@ From [supabase/schema.sql](../../supabase/schema.sql): the app is **single-tenan
 
 WS-C is greenfield on top of this. Nothing below changes the single-tenant owner path; it *adds* the sharing layer beside it.
 
+> **⚠️ ADDITIVE-MIGRATION-ONLY.** The repo's `schema.sql` does **not** match prod — production carries an `allowed_emails` invite whitelist enforced inside a modified `handle_new_user()` ([[project_supabase_invite_only_three_gate_auth_2026_05_29]]). WS-C ships as an **additive migration** (`create table … if not exists`, new policies) and must **never** rewrite/re-run `schema.sql` or touch `handle_new_user` / `allowed_emails`, or it clobbers the live whitelist.
+
 ---
 
 ## 1. ⚠️ The finding that changes the design: RLS is ROW-level, the secret is a COLUMN
