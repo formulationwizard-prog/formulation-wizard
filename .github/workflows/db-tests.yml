@@ -1,0 +1,44 @@
+name: DB Tests (ws-c isolation gate)
+
+# Runs the load-bearing cross-company isolation / membership RLS gate
+# (supabase/tests/*.test.sql) against a real Supabase Postgres on every
+# push to ws-c. "Leaks end the company" — this gate proves company A's
+# formulations stay invisible outside A's workspace.
+#
+# We deliberately do NOT use `supabase test db` (which needs the
+# supabase/pg_prove image). The runner (scripts/run-db-tests.sh) executes
+# pgTAP directly through the postgres image and parses the TAP itself, so
+# the gate is identical here and locally and survives hosts where pg_prove
+# can't be pulled. See that script's header for the full rationale.
+
+on:
+  push:
+    branches: [ws-c]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  db-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase (db + migrations)
+        # config.toml disables realtime + analytics, so those images are
+        # never pulled. Migrations are applied automatically on start.
+        run: supabase start
+
+      - name: Run isolation gate
+        run: bash scripts/run-db-tests.sh
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup
