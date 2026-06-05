@@ -81,4 +81,5 @@ GREEN before any sharing goes live in prod.** A written policy is not a passing 
 
 **Two notes on the harness migrations:**
 - `migrations/00000000000000_baseline.sql` is a **local-harness mirror** of the live tables (which otherwise live only in `schema.sql`, a manual-paste file). It exists so the WS-C migration has tables to build on. It is **not** a prod artifact — prod is still provisioned from `schema.sql` + the out-of-repo invite-whitelist trigger.
+  - **⚠️ DRIFT DOCTRINE (until convergence):** any change to `schema.sql`'s tables must also land in `baseline.sql`, and vice versa — they mirror each other. They can silently diverge otherwise. *Post-launch hardening: a CI check that fails when one moves without the other. Flagged, not built (not August-blocking).*
 - The prod `allowed_emails` whitelist trigger is **not in the repo**, so test 13 **simulates** it with a fixture trigger to prove the atomic-rollback behaviour (a rejected signup leaves no orphan workspace). It tests the *concern*, not the literal prod trigger.

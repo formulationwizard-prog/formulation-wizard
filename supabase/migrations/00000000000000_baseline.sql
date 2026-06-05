@@ -19,8 +19,21 @@
 --
 -- ⚠️ NOT a prod artifact. Prod is provisioned from schema.sql + the
 --    out-of-repo whitelist migration. Do NOT `db push` this at prod.
---    For Opus: long-term, converge schema.sql → migrations so there's
---    one source of truth. Flagged, not done.
+--
+-- DRIFT DOCTRINE (until convergence): schema.sql tables and this baseline
+--    mirror each other — change one, change both. Post-launch: a CI check
+--    that fails on divergence (flagged, not built; not August-blocking).
+--
+-- Q4 CONVERGENCE MEMO (post-launch, when there's stability headroom):
+--    Converting schema.sql → a migration sequence touches handle_new_user
+--    directly — launch-critical for the invite gate — so it is the WRONG
+--    refactor to attempt before launch. The post-launch move:
+--      1. Freeze schema.sql.
+--      2. Create 00000000000001_initial.sql from CURRENT PROD STATE
+--         (includes the real allowed_emails whitelist handle_new_user).
+--      3. Retire the manual-paste workflow.
+--      4. Use `supabase db push` going forward (single source of truth).
+--    Until then, this baseline stays a deliberate local-only mirror.
 -- ============================================================
 
 create table if not exists public.profiles (
