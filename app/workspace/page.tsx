@@ -3132,27 +3132,27 @@ export default function FormulationWizard() {
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Total Formulas</div>
-                <div className="text-3xl font-bold text-gray-800 mt-1">{totalFormulas}</div>
+                <div className="text-3xl font-bold font-mono tabular-nums tracking-tight text-gray-800 mt-1">{totalFormulas}</div>
                 <div className="text-[10px] text-gray-400 mt-1">{totalVersions} version{totalVersions !== 1 ? 's' : ''} tracked</div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">🚀 Launched</div>
-                <div className="text-3xl font-bold text-emerald-700 mt-1">{byStatus.launched}</div>
+                <div className="text-3xl font-bold font-mono tabular-nums tracking-tight text-emerald-700 mt-1">{byStatus.launched}</div>
                 <div className="text-[10px] text-gray-400 mt-1">in commercial production</div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">🧪 In Pilot</div>
-                <div className="text-3xl font-bold text-amber-700 mt-1">{byStatus['in-pilot']}</div>
+                <div className="text-3xl font-bold font-mono tabular-nums tracking-tight text-amber-700 mt-1">{byStatus['in-pilot']}</div>
                 <div className="text-[10px] text-gray-400 mt-1">in pilot testing</div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">📝 Drafts</div>
-                <div className="text-3xl font-bold text-gray-700 mt-1">{byStatus.draft}</div>
+                <div className="text-3xl font-bold font-mono tabular-nums tracking-tight text-gray-700 mt-1">{byStatus.draft}</div>
                 <div className="text-[10px] text-gray-400 mt-1">early development</div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">🌱 Avg Sustainability</div>
-                <div className={`text-3xl font-bold mt-1 ${
+                <div className={`text-3xl font-bold font-mono tabular-nums tracking-tight mt-1 ${
                   avgSustainability >= 75 ? 'text-emerald-700' : avgSustainability >= 55 ? 'text-amber-700' : 'text-rose-700'
                 }`}>{avgSustainability}</div>
                 <div className="text-[10px] text-gray-400 mt-1">/100 across portfolio</div>
