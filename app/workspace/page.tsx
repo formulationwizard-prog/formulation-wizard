@@ -106,7 +106,7 @@ import { computeFilingReadiness } from '@/lib/filingReadiness';
 import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
 import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV } from '@/lib/supplementLabeling';
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
-import { computePerServingScale } from '@/lib/supplementMath';
+import { computePerServingScale, deriveSupplementServingMassG } from '@/lib/supplementMath';
 import { validateServingSizeInput } from '@/lib/servingSize';
 import { formatMassDisplay } from '@/lib/formatMass';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
@@ -1279,11 +1279,20 @@ export default function FormulationWizard() {
   // scoop/volume serving. 0 until a serving is defined → supplement per-serving
   // math falls back to Convention A identity (matches "spec generated when
   // saved WITH a serving"). Passed to computePerServingScale as supplementServingMassG.
-  const suppServingMassG = mode !== 'supplements'
-    ? 0
-    : categorizeDeliveryForm(suppDeliveryForm) === 'count'
-      ? (suppPerUnitWeightMg > 0 && suppUnitsPerServing > 0 ? (suppPerUnitWeightMg * suppUnitsPerServing) / 1000 : 0)
-      : servingSizeInGrams;
+  // Derived via deriveSupplementServingMassG (the testable contract boundary).
+  // While Convention B is gated off for the August launch this returns 0 for
+  // every supplement form → computePerServingScale falls back to identity
+  // (Convention A): entered amounts ARE the per-serving doses. Capsule shell
+  // capacity feeds the fit / utilization diagnostic only, NEVER the dose scaler.
+  // This is what retired the 2026-06-05 SFP ~4× inflation bug — see
+  // lib/supplementMath.ts SUPPLEMENT_CONVENTION_B_ENABLED + test Section 1E.
+  const suppServingMassG = deriveSupplementServingMassG({
+    mode,
+    deliveryCategory: categorizeDeliveryForm(suppDeliveryForm),
+    perUnitWeightMg: suppPerUnitWeightMg,
+    unitsPerServing: suppUnitsPerServing,
+    servingSizeInGrams,
+  });
 
   // ----- #25l count-based form sync (Round 11 Phase 3 Workstream A.5 [5b/N]) ---
   // For count-based supplement delivery forms (capsule/tablet/softgel/gummy/

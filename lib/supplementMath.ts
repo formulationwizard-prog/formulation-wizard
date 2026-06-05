@@ -85,6 +85,7 @@
 // the suite and the suite fails.
 // ============================================================
 import type { ModeId } from './modes';
+import type { DeliveryFormCategory } from './servingModel';
 
 interface PerServingScaleParams {
   /** Active vertical / mode. Drives mode-gate branching. */
@@ -142,6 +143,95 @@ export function computePerServingScale(params: PerServingScaleParams): number {
   return params.totalBatchGrams > 0
     ? params.servingSizeInGrams / params.totalBatchGrams
     : 0;
+}
+
+// ============================================================
+// CONVENTION GATE — the enforcing code change for the locked
+// "Convention A holds for August" architectural ruling.
+// ------------------------------------------------------------
+// THE BUG THIS RETIRES (SFP-inflation, surfaced 2026-06-05)
+// ------------------------------------------------------------
+// computePerServingScale already returns identity (1.0) in
+// supplements mode WHEN CALLED WITHOUT supplementServingMassG —
+// and the unit suite (supplementMath.test.ts T1C-01a/b) asserts
+// exactly that. But the workspace ALWAYS derived a non-zero
+// supplementServingMassG for count forms, from the capsule's full
+// shell capacity:
+//
+//   size-0 capsule (680 mg) × 2 units/serving = 1.36 g serving mass
+//   formula actives sum to 0.337 g
+//   scale = 1.36 / 0.337 = 4.035×   ← Convention B fires
+//
+// Every Supplement Facts amount was multiplied by ~4× on top of the
+// (correct) elemental factor — misbranding-grade overstatement
+// (e.g. Zinc 3 mg delivered, label read 12 mg / 110% DV; Selenium
+// ~22 mcg delivered, label read 89 mcg / 160% DV against a tight UL).
+//
+// The unit tests never caught it because they exercised the function
+// in isolation, with the input the WORKSPACE never actually sends.
+// The contract lived in the function; the violation lived at the
+// integration boundary upstream of it. This helper IS that boundary,
+// made pure and testable — see supplementMath.test.ts Section 1E.
+//
+// THE RULING (Opus architecture session, 2026-05-26/27)
+// ------------------------------------------------------------
+// Convention A (identity — each entered ingredient row IS a per-
+// serving dose; the panel shows entered amounts × elemental factor)
+// holds for the August 2026 launch. Convention B (the formula is a
+// percentage recipe; a real fill weight dials % → mg) is DEFERRED to
+// the post-launch PDS / density-aware architecture work.
+//
+// DOCTRINE (banked 2026-06-05): an architectural ruling ships with
+// the code change that enforces it, OR an explicit deferral that
+// asserts what's in code is acceptable until enforcement lands.
+// "Locked in principle, not enforced in code" is the failure mode
+// this constant retires. Flip the flag ONLY together with the
+// Convention-B fill-weight work — flipping it alone restores the 4×
+// inflation above.
+// ============================================================
+
+/** Master gate for Convention B per-serving scaling. FALSE for the
+ *  August 2026 launch (Convention A / identity holds). Do not flip
+ *  without the post-launch density-aware fill-weight work. */
+export const SUPPLEMENT_CONVENTION_B_ENABLED = false;
+
+export interface SupplementServingMassParams {
+  /** Active vertical / mode. Non-supplement modes always return 0. */
+  mode: ModeId;
+  /** Input model for the chosen delivery form (count / mass / volume). */
+  deliveryCategory: DeliveryFormCategory;
+  /** Count forms: operator's per-unit fill weight in mg (capsule capacity
+   *  for capsule/softgel, die/mold target for tablet/gummy/etc.). */
+  perUnitWeightMg?: number;
+  /** Count forms: units per serving (e.g. 2 capsules). */
+  unitsPerServing?: number;
+  /** Mass/volume forms: the entered scoop/volume serving in grams. */
+  servingSizeInGrams?: number;
+}
+
+/**
+ * Derive the Convention-B per-serving fill mass (grams) that the workspace
+ * feeds to computePerServingScale as `supplementServingMassG`.
+ *
+ * While SUPPLEMENT_CONVENTION_B_ENABLED is false (August launch), this returns
+ * 0 for every supplement form — so the scale falls back to identity (Convention
+ * A) regardless of capsule size / fill weight. This is the single enforcement
+ * point for the "Convention A holds for August" ruling: the capsule shell
+ * capacity feeds the fit / utilization diagnostic ONLY, never the dose scaler.
+ *
+ * When Convention B is enabled (post-launch), count forms derive the mass from
+ * perUnitWeightMg × unitsPerServing and mass/volume forms use the entered
+ * serving size.
+ */
+export function deriveSupplementServingMassG(p: SupplementServingMassParams): number {
+  if (p.mode !== 'supplements') return 0;
+  if (!SUPPLEMENT_CONVENTION_B_ENABLED) return 0; // August: Convention A (identity) holds
+  if (p.deliveryCategory === 'count') {
+    return p.perUnitWeightMg && p.perUnitWeightMg > 0 && p.unitsPerServing && p.unitsPerServing > 0
+      ? (p.perUnitWeightMg * p.unitsPerServing) / 1000
+      : 0;
+  }
+  return p.servingSizeInGrams ?? 0;
 }
 
 interface PerServingMassParams extends PerServingScaleParams {

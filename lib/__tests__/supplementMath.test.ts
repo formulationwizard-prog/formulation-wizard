@@ -28,7 +28,13 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { computePerServingScale, computePerServingMass } from '../supplementMath';
+import {
+  computePerServingScale,
+  computePerServingMass,
+  deriveSupplementServingMassG,
+  SUPPLEMENT_CONVENTION_B_ENABLED,
+} from '../supplementMath';
+import { capsuleCapacityMg, type CapsuleSize } from '../servingModel';
 
 // ============================================================
 // Section 1A — Single-ingredient supplement-mode cases
@@ -308,5 +314,117 @@ describe('Section 1D — Unit-change preservation (helper passes unit through)',
     });
     expect(result.displayMass).toBe(2.5);
     expect(result.displayUnit).toBe('g');
+  });
+});
+
+// ============================================================
+// Section 1E — Convention gate: capsule fill must NOT scale doses
+// ------------------------------------------------------------
+// INTEGRATION-BOUNDARY regression lock for the SFP ~4× inflation
+// bug (surfaced 2026-06-05). The Section 1C unit tests assert the
+// scale function returns identity — but only because they call it
+// WITHOUT supplementServingMassG. The workspace ALWAYS derived a
+// non-zero supplementServingMassG for count forms from the capsule's
+// full shell capacity, which defeated the identity contract upstream
+// of the function the unit tests covered.
+//
+// These tests exercise the real composition the workspace performs:
+//   deriveSupplementServingMassG(...)  →  computePerServingScale(...)
+// and assert identity REGARDLESS of capsule size (Opus's framing).
+// They are the enforcement of the "Convention A holds for August"
+// ruling — see SUPPLEMENT_CONVENTION_B_ENABLED.
+//
+// THE REPRO (from the 2026-06-05 panel):
+//   6-active capsule formula summing to 0.337 g, size-0 capsule
+//   (680 mg cap) × 2 units/serving. Pre-fix the workspace fed
+//   supplementServingMassG = 1.36 g → scale 4.035× → every active
+//   inflated ~4× on the legally-mandated Supplement Facts panel.
+// ============================================================
+describe('Section 1E — Convention gate (count-form fill never scales doses)', () => {
+  const REPRO_BATCH_GRAMS = 0.337; // the 6-active formula from the panel
+
+  it('T1E-00: the gate is OFF for the August launch (Convention A holds)', () => {
+    expect(SUPPLEMENT_CONVENTION_B_ENABLED).toBe(false);
+  });
+
+  it('T1E-01: size-0 capsule × 2/serving → derived serving mass is 0 → identity scale (NOT 4.035×)', () => {
+    const suppServingMassG = deriveSupplementServingMassG({
+      mode: 'supplements',
+      deliveryCategory: 'count',
+      perUnitWeightMg: capsuleCapacityMg('0'), // 680 mg
+      unitsPerServing: 2,
+    });
+    expect(suppServingMassG).toBe(0);
+
+    const scale = computePerServingScale({
+      mode: 'supplements',
+      servingSizeInGrams: 1.36,
+      totalBatchGrams: REPRO_BATCH_GRAMS,
+      supplementServingMassG: suppServingMassG,
+    });
+    expect(scale).toBe(1.0); // identity — the pre-fix value here was 4.035
+  });
+
+  const ALL_CAPSULE_SIZES: CapsuleSize[] = ['000', '00', '0', '1', '2', '3', '4', '5'];
+  it.each(ALL_CAPSULE_SIZES)(
+    'T1E-02: capsule size %s → identity scale regardless of shell capacity',
+    (size) => {
+      const suppServingMassG = deriveSupplementServingMassG({
+        mode: 'supplements',
+        deliveryCategory: 'count',
+        perUnitWeightMg: capsuleCapacityMg(size),
+        unitsPerServing: 2,
+      });
+      const scale = computePerServingScale({
+        mode: 'supplements',
+        servingSizeInGrams: (capsuleCapacityMg(size) * 2) / 1000,
+        totalBatchGrams: REPRO_BATCH_GRAMS,
+        supplementServingMassG: suppServingMassG,
+      });
+      expect(scale).toBe(1.0);
+    },
+  );
+
+  it('T1E-03: tablet (operator-input fill weight) also returns identity under the gate', () => {
+    const suppServingMassG = deriveSupplementServingMassG({
+      mode: 'supplements',
+      deliveryCategory: 'count',
+      perUnitWeightMg: 800, // operator die-set target
+      unitsPerServing: 2,
+    });
+    expect(suppServingMassG).toBe(0);
+  });
+
+  it('T1E-04: powder (mass form) also returns identity under the gate', () => {
+    const suppServingMassG = deriveSupplementServingMassG({
+      mode: 'supplements',
+      deliveryCategory: 'mass',
+      servingSizeInGrams: 5,
+    });
+    expect(suppServingMassG).toBe(0);
+  });
+
+  it('T1E-05: non-supplement mode always returns 0', () => {
+    expect(
+      deriveSupplementServingMassG({
+        mode: 'fb',
+        deliveryCategory: 'count',
+        perUnitWeightMg: 680,
+        unitsPerServing: 2,
+      }),
+    ).toBe(0);
+  });
+
+  // Documents the deferred Convention-B math so the post-launch flip has a
+  // spec to satisfy. Skipped while the gate is off — un-skip together with
+  // the SUPPLEMENT_CONVENTION_B_ENABLED flip and the density-aware work.
+  it.skip('T1E-06 (deferred): with Convention B enabled, count fill = perUnit × units / 1000', () => {
+    const suppServingMassG = deriveSupplementServingMassG({
+      mode: 'supplements',
+      deliveryCategory: 'count',
+      perUnitWeightMg: 680,
+      unitsPerServing: 2,
+    });
+    expect(suppServingMassG).toBe(1.36);
   });
 });
