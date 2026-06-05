@@ -204,6 +204,29 @@ export interface SupplementFactRow {
 }
 
 /**
+ * A flagged active whose LABEL amount rounds to 0 despite a non-zero entered
+ * amount — the carrier-loaded-SKU / unit-mismatch "silent zero" trap (e.g. a
+ * Vitamin D3 "100,000 IU/g on MCC" SKU entered as "8 mcg" shows 0 mcg, because
+ * 8 mcg of that PRODUCT is ~0.02 mcg of active). Surfaced as a workspace
+ * advisory OUTSIDE the regulated panel — never rendered on the panel itself,
+ * which must stay byte-faithful per 21 CFR 101.36.
+ */
+export interface NearZeroActiveWarning {
+  /** Source ingredient (full catalog name). */
+  ingredientName: string;
+  /** Label display name (e.g. "Vitamin D"); falls back to the cleaned ingredient name. */
+  displayName: string;
+  /** Amount the operator entered. */
+  enteredAmount: number;
+  /** Unit the operator entered (mg / mcg / g …). */
+  enteredUnit: string;
+  /** The unit this active is expressed in on the label. */
+  labelUnit: string;
+  /** Carrier-loading factor (<1 ⇒ carrier-loaded SKU — the dominant cause). */
+  potencyFactor: number;
+}
+
+/**
  * The full structured Supplement Facts label data.
  */
 export interface SupplementFactsData {
@@ -221,6 +244,8 @@ export interface SupplementFactsData {
   otherIngredientsStatement: string;
   /** Whether a "†" footnote is needed (any row has percentDV null). */
   needsDaggerFootnote: boolean;
+  /** Actives whose label amount rounds to 0 despite a non-zero entry (silent-zero guard). */
+  nearZeroActiveWarnings: NearZeroActiveWarning[];
 }
 
 /**
@@ -278,6 +303,7 @@ export function buildSupplementFacts(params: {
   const vitaminMineralRows: SupplementFactRow[] = [];
   const otherActivesRows: SupplementFactRow[] = [];
   const excipientList: { name: string; grams: number }[] = [];
+  const nearZeroActiveWarnings: NearZeroActiveWarning[] = [];
 
   for (const ing of ingredients) {
     const cat = ing.foodData?.type === 'industrial' ? ing.foodData.data?.category : undefined;
@@ -317,6 +343,15 @@ export function buildSupplementFacts(params: {
         amount, unit: dv.unit, percentDV, group,
         sourceName: ing.name,
       });
+      // Silent-zero guard: a non-zero entry that the label rounds to 0 (carrier-
+      // loaded SKU or unit mismatch). gramsPerServing > 0 is already guaranteed,
+      // so a "0" display means it rounded down below the labeling threshold.
+      if (ing.qty > 0 && formatSupplementAmount(amount, dv.unit) === '0') {
+        nearZeroActiveWarnings.push({
+          ingredientName: ing.name, displayName: dv.displayName,
+          enteredAmount: ing.qty, enteredUnit: ing.unit, labelUnit: dv.unit, potencyFactor: potency,
+        });
+      }
     } else {
       // No DV — display in mg (or g if >= 1000 mg) with "†"
       const mgPerServing = gramsPerServing * 1000;
@@ -327,6 +362,12 @@ export function buildSupplementFacts(params: {
         amount: displayAmount, unit: displayUnit, percentDV: null, group,
         sourceName: ing.name,
       });
+      if (ing.qty > 0 && formatSupplementAmount(displayAmount, displayUnit) === '0') {
+        nearZeroActiveWarnings.push({
+          ingredientName: ing.name, displayName: cleanFormName(ing.name),
+          enteredAmount: ing.qty, enteredUnit: ing.unit, labelUnit: displayUnit, potencyFactor: potency,
+        });
+      }
     }
   }
 
@@ -363,7 +404,25 @@ export function buildSupplementFacts(params: {
     otherActivesRows,
     otherIngredientsStatement,
     needsDaggerFootnote,
+    nearZeroActiveWarnings,
   };
+}
+
+/**
+ * Compose the operator-facing advisory string for a silent-zero active. Plain
+ * language, actionable. Carrier-loaded SKUs (the common cause) get the "enter
+ * product mass, not active" guidance; everything else gets a unit/amount check.
+ */
+export function formatNearZeroWarning(w: NearZeroActiveWarning): string {
+  const name = w.displayName || w.ingredientName;
+  const entered = `${Number(w.enteredAmount.toFixed(4))} ${w.enteredUnit}`;
+  const base = `${name} rounds to 0 ${w.labelUnit} on the label (you entered ${entered}).`;
+  if (w.potencyFactor > 0 && w.potencyFactor < 1) {
+    const pctNum = w.potencyFactor * 100;
+    const pct = pctNum < 1 ? `${Number(pctNum.toPrecision(2))}%` : `${Math.round(pctNum)}%`;
+    return `${base} This SKU is carrier-loaded — only ~${pct} of its mass is the active — so that amount of product delivers just a trace. Enter the product mass that delivers your target dose, not the active amount.`;
+  }
+  return `${base} Verify the entered amount and unit.`;
 }
 
 // ============================================================

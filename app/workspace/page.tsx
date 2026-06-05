@@ -104,7 +104,7 @@ import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
 import { computeFilingReadiness } from '@/lib/filingReadiness';
 import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
-import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV } from '@/lib/supplementLabeling';
+import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV, formatNearZeroWarning } from '@/lib/supplementLabeling';
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
 import { computePerServingScale, deriveSupplementServingMassG } from '@/lib/supplementMath';
 import { validateServingSizeInput } from '@/lib/servingSize';
@@ -6949,6 +6949,7 @@ export default function FormulationWizard() {
                     },
                   });
                   return (
+                    <>
                     <div className="border-4 border-black p-3 max-w-sm mx-auto font-sans bg-[#fff] text-black">
                       <div className="text-3xl font-extrabold leading-none border-b-4 border-black pb-1 mb-1">Supplement Facts</div>
                       <div className="text-xs border-b border-black pb-1 mb-1">Serving Size: {facts.servingSize}</div>
@@ -7051,6 +7052,21 @@ export default function FormulationWizard() {
                         </p>
                       )}
                     </div>
+                    {/* Silent-zero advisory — OUTSIDE the regulated panel (chrome only;
+                        the panel above stays byte-faithful per 21 CFR 101.36). Catches
+                        carrier-loaded-SKU / unit mismatches that round an entered active
+                        to 0 on the label. */}
+                    {facts.nearZeroActiveWarnings.length > 0 && (
+                      <div className="max-w-sm mx-auto mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                        <p className="text-amber-900 font-semibold text-sm">⚠️ Label reads zero for an entered ingredient</p>
+                        <ul className="mt-1 space-y-1 list-disc list-inside">
+                          {facts.nearZeroActiveWarnings.map((w, i) => (
+                            <li key={`nz-${i}`} className="text-amber-800 text-xs leading-snug">{formatNearZeroWarning(w)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    </>
                   );
                 })()}
 
