@@ -78,3 +78,7 @@ GREEN before any sharing goes live in prod.** A written policy is not a passing 
 
 > Until this harness is stood up, `tests/ws_c_isolation.test.sql` is **authored but RED**
 > (never executed). Standing it up is the hard gate, not a nicety.
+
+**Two notes on the harness migrations:**
+- `migrations/00000000000000_baseline.sql` is a **local-harness mirror** of the live tables (which otherwise live only in `schema.sql`, a manual-paste file). It exists so the WS-C migration has tables to build on. It is **not** a prod artifact — prod is still provisioned from `schema.sql` + the out-of-repo invite-whitelist trigger.
+- The prod `allowed_emails` whitelist trigger is **not in the repo**, so test 13 **simulates** it with a fixture trigger to prove the atomic-rollback behaviour (a rejected signup leaves no orphan workspace). It tests the *concern*, not the literal prod trigger.

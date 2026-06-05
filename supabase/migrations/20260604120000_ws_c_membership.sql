@@ -103,18 +103,23 @@ create policy "owner manages memberships"
                       where w.id = workspace_id and w.owner_id = auth.uid()));
 
 -- ── 6. RLS — formulations: OWNER **OR** ACTIVE INTERNAL MEMBER ──
--- This is the August confidentiality milestone. Replaces the single-tenant
--- "auth.uid() = owner_id" select/update with owner-OR-member.
--- INSERT/DELETE stay owner-only for now (member-authoring is a refinement —
--- see OPEN #2 below). Cross-company isolation is proven by the negative tests.
+-- The August confidentiality milestone. Replaces single-tenant
+-- "auth.uid() = owner_id" with owner-OR-member on read/insert/update.
+-- MEMBER-AUTHORING (Opus item 2): real CPG R&D teams delegate authoring —
+-- the owner must not be a chokepoint for every recipe sketch. An internal
+-- member creates a row they own (owner_id = self) inside the shared
+-- workspace. Because is_internal_member() counts ONLY role_kind='internal-team',
+-- this AUTOMATICALLY denies INSERT to future external-collaboration seats
+-- (RA/CMO/PA) — the post-launch refinement is already enforced by the helper.
 drop policy if exists "Users can read their own formulations"   on public.formulations;
 drop policy if exists "read own / workspace / granted"          on public.formulations;
 create policy "read own or workspace member"
   on public.formulations for select
   using (auth.uid() = owner_id or public.is_internal_member(workspace_id));
 
+-- INSERT: a member may create a row THEY own inside a workspace they belong to.
 drop policy if exists "Users can insert their own formulations" on public.formulations;
-create policy "insert own into a workspace you belong to"
+create policy "members author in their workspace"
   on public.formulations for insert
   with check (
     auth.uid() = owner_id
@@ -126,9 +131,42 @@ create policy "update own or as workspace member"
   on public.formulations for update
   using (auth.uid() = owner_id or public.is_internal_member(workspace_id));
 
+-- DELETE: the row's creator, OR the workspace owner (can remove member rows).
 drop policy if exists "Users can delete their own formulations" on public.formulations;
-create policy "delete own only"
+create policy "delete as creator or workspace owner"
   on public.formulations for delete
+  using (
+    auth.uid() = owner_id
+    or exists (select 1 from public.workspaces w
+               where w.id = formulations.workspace_id and w.owner_id = auth.uid())
+  );
+
+-- ── 6b. SUPPLIER_QUALIFICATIONS — team READ, owner WRITE (Opus item 3) ──
+-- QA programs review supplier data collectively → members read. Writes stay
+-- owner-only at August (lower accidental-mutation risk; fewer people
+-- legitimately author supplier quals than recipes). Post-launch, WRITE
+-- expands to qa-manager + plant-manager roles.
+alter table public.supplier_qualifications
+  add column if not exists workspace_id uuid references public.workspaces(id) on delete cascade;
+create index if not exists idx_supplier_quals_workspace on public.supplier_qualifications(workspace_id);
+
+update public.supplier_qualifications sq
+  set workspace_id = w.id
+  from public.workspaces w
+  where w.owner_id = sq.owner_id and sq.workspace_id is null;
+
+drop policy if exists "Users can CRUD their own supplier qualifications" on public.supplier_qualifications;
+create policy "read own or workspace member (supplier quals)"
+  on public.supplier_qualifications for select
+  using (auth.uid() = owner_id or public.is_internal_member(workspace_id));
+create policy "owner writes supplier quals (insert)"
+  on public.supplier_qualifications for insert
+  with check (auth.uid() = owner_id);
+create policy "owner writes supplier quals (update)"
+  on public.supplier_qualifications for update
+  using (auth.uid() = owner_id);
+create policy "owner writes supplier quals (delete)"
+  on public.supplier_qualifications for delete
   using (auth.uid() = owner_id);
 
 -- ── 7. BACKFILL — give every existing owner a default workspace + map rows ──
@@ -182,17 +220,22 @@ create trigger on_auth_user_created_workspace
   for each row execute function public.handle_new_user_workspace();
 
 -- ============================================================
--- OPEN FOR OPUS REVIEW
---   1. Recursion: workspace_members SELECT references workspaces directly;
---      workspaces SELECT calls is_internal_member (security definer → no
---      recursion). Confirm no policy-eval loop under load.
---   2. Member-authoring: INSERT is owner-only here. If internal members
---      (R&D) must create formulations in the shared workspace, widen the
---      INSERT check + decide owner_id semantics (creator vs workspace-owner).
---   3. supplier_qualifications stays owner-only this migration (not yet
---      workspace-scoped). Decide if a workspace team shares supplier quals.
---   4. Trigger ordering on auth.users (handle_new_user vs
---      handle_new_user_workspace) — verify whitelist-reject aborts cleanly.
---   5. Backfill assumes 1 owner → 1 default workspace. Fine for today's
---      single-tenant data; revisit if any owner should map to >1 workspace.
+-- REVIEW STATUS (Opus items, 2026-06-04)
+--   1. [VERIFY-AT-HARNESS] Recursion: workspace_members SELECT references
+--      workspaces directly; workspaces SELECT calls is_internal_member
+--      (security definer → no recursion). Helper is STABLE + minimal-scope
+--      (reads only workspace_members). CONFIRM via EXPLAIN ANALYZE that it
+--      plans as a cheap single-row lookup, not a per-row scan, once the
+--      local stack is up.
+--   2. [RESOLVED] Member-authoring — internal members now INSERT formulations
+--      they own into their workspace (§6). External seats auto-denied by the
+--      role_kind='internal-team' filter in is_internal_member().
+--   3. [RESOLVED] supplier_qualifications — team READ, owner WRITE (§6b).
+--      Post-launch: WRITE widens to qa-manager + plant-manager.
+--   4. [TESTED] Trigger ordering / whitelist-reject atomicity — proven by
+--      tests/ws_c_isolation.test.sql test 7 (any signup-trigger raise rolls
+--      back the workspace + member rows; same transaction).
+--   5. [DOCUMENTED] Backfill assumes 1 owner → 1 default workspace. True for
+--      today's single-tenant data. Future migrations: this is the baseline;
+--      revisit if an owner should map to >1 workspace.
 -- ============================================================
