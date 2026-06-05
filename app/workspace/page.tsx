@@ -1389,14 +1389,14 @@ export default function FormulationWizard() {
     lastEditedCountField,
     totalBatchGrams,
   ]);
-  const costPerServing = totalWeightKg > 0 ? (totalCost / totalWeightKg) * (servingSizeInGrams / 1000) : 0;
+  // (Removed 2026-06-05) The old inline costPerServing / ingredientCostPerPackage /
+  // costPerPackage path was dead — superseded by computeUnitEconomics (lib/unitEconomics.ts),
+  // which the workspace's cost surfaces consume. It also carried the pre-Convention-A
+  // servingSizeInGrams/batch scaling that produced the ~4× cost inflation; deleting it
+  // removes the last reader of that math. See SUPPLEMENT_CONVENTION_B_ENABLED.
 
   // Packaging cost per retail unit (container + closure/dispenser).
   const packagingCostPerUnit = (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0);
-  // Share of ingredient cost allocated to one retail package (by weight ratio).
-  const ingredientCostPerPackage = totalBatchGrams > 0 ? totalCost * (packageSizeInGrams / totalBatchGrams) : 0;
-  // Total delivered cost per retail unit = ingredients in that package + packaging hardware.
-  const costPerPackage = ingredientCostPerPackage + packagingCostPerUnit;
 
   // Food-science spec estimates from the current formulation (pH, Brix, moisture, a_w,
   // viscosity, acetic acid, regulatory class). Lightweight — recomputed each render.

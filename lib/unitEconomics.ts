@@ -2,15 +2,18 @@
 // Unit-economics cost math — count-based supplements vs mass-based F&B.
 // ------------------------------------------------------------
 // Pure + test-locked. F&B uses a "fraction of a batch" model. Supplements use
-// a per-serving model: the entered formula is a RECIPE OF PERCENTAGES, and the
-// capsule fill weight × units is the dial that turns it into a real serving
-// (Convention B — see lib/supplementMath.ts computePerServingScale). So the
-// summed ingredient cost is the cost of the ENTERED batch; the cost of one
-// serving is that × the per-serving scale (servingMass / batchMass). Callers
-// pass that scale in via perServingScale. (Pre-Convention-B, supplement scale
-// was identity 1.0, so totalCost WAS the per-serving cost; that remains the
-// default when no scale is supplied.) This also avoids the bogus "serving >
-// batch" warning F&B's fraction model tripped on a multi-capsule serving.
+// a per-serving model under CONVENTION A (the August launch contract, see
+// lib/supplementMath.ts SUPPLEMENT_CONVENTION_B_ENABLED): each entered
+// ingredient row IS one serving's dose, so the summed ingredient cost (totalCost)
+// IS the per-serving cost. perServingScale is therefore 1.0 — the caller passes
+// computePerServingScale(...), which returns identity while the Convention-B gate
+// is off. The per-serving model also avoids the bogus "serving > batch" warning
+// that F&B's fraction model tripped on a multi-capsule serving.
+//
+// perServingScale is RETAINED as the seam for post-launch Convention B (formula-
+// as-recipe scaled to a real fill weight). It stays 1.0 until that gate flips;
+// do not reintroduce capsule-capacity scaling here without that work — that is
+// exactly what produced the ~4× SFP + cost inflation retired on 2026-06-05.
 // ============================================================
 
 /** 1 lb in grams (matches the constant in lib/netQuantity.ts). */
@@ -18,8 +21,9 @@ export const LB_TO_G = 453.59237;
 const KG_TO_G = 1000;
 
 export type CostModel =
-  // Supplement contract: each ingredient row is one serving's dose, so the
-  // summed ingredient cost IS the per-serving cost. Package scales by servings.
+  // Supplement contract (Convention A): each ingredient row is one serving's
+  // dose, so the summed ingredient cost IS the per-serving cost (scale 1.0).
+  // Package scales by servings.
   | 'per-serving'
   // F&B: ingredient rows are an arbitrary batch; serving/package are recovered
   // as mass fractions of that batch.
@@ -44,9 +48,11 @@ export interface UnitEconomicsInput {
   /** Packaging (container + closure) cost per finished unit, dollars. */
   packagingCostPerUnit: number;
   /**
-   * Convention B per-serving scale (servingMass / batchMass), used only by the
-   * 'per-serving' model: per-serving cost = totalCost × this. Defaults to 1.0
-   * (the pre-Convention-B identity, where the entered formula WAS one serving).
+   * Per-serving scale, used only by the 'per-serving' model:
+   * per-serving cost = totalCost × this. Under Convention A (August launch) this
+   * is 1.0 — the entered formula IS one serving. Retained as the post-launch
+   * Convention-B seam (servingMass / batchMass); stays 1.0 while
+   * SUPPLEMENT_CONVENTION_B_ENABLED is false. Defaults to 1.0.
    */
   perServingScale?: number;
 }
@@ -72,8 +78,9 @@ export function computeUnitEconomics(i: UnitEconomicsInput): UnitEconomicsResult
   const perKg = i.totalWeightKg > 0 ? i.totalCost / i.totalWeightKg : 0;
 
   if (i.costModel === 'per-serving') {
-    // Convention B: totalCost is the ENTERED batch's material cost; one serving
-    // delivers (servingMass / batchMass)× that material, so scale to it.
+    // Convention A: totalCost IS the per-serving material cost (each row is one
+    // serving's dose), so scale is 1.0. The × scale stays as the post-launch
+    // Convention-B seam (one serving = servingMass/batchMass of the recipe).
     const scale = i.perServingScale ?? 1;
     const perServing = i.totalCost * scale;
     const perUnit = i.unitsPerServing > 0 ? perServing / i.unitsPerServing : null;
