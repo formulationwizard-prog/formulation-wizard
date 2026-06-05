@@ -2,6 +2,8 @@
 
 **Status:** DRAFT for Opus architecture pass. Not schema-locked. Not built.
 **Date:** 2026-06-04
+
+> **SCOPE NOTE (revised ruling 2026-06-04).** This matrix is the **target doctrine** (the north star the schema is shaped to grow into). The **August build subset** is narrower: **internal-team membership + cross-company `owner OR member` RLS** — cost stays in the shared payload because within-workspace members are trusted. The **external-collaboration roles** (Regulatory / CMO / PA) and the **field-level cost redaction** they require are **post-launch** (= "granular per-field visibility", deferred per [path-to-august-2026.md:52](path-to-august-2026.md)). Read the role tables below as where we're going; ship membership-RLS first. See [ws-c-schema-rls-draft-2026-06-04.md](ws-c-schema-rls-draft-2026-06-04.md) for the August/post-launch split.
 **Purpose:** (1) the input to the Opus schema review that must happen *before* any prod code; (2) the script for the "one formula, three pairs of eyes" showcase. Every current surface AND every logged-but-unbuilt feature is placed against a role, so nothing gets built without already knowing its gate.
 
 ---

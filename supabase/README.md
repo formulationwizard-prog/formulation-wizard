@@ -55,3 +55,26 @@ supabase init
 supabase start
 ```
 This runs a full Postgres + auth stack locally. Optional — cloud project works for dev too.
+
+## Local RLS test harness (WS-C) — the confidentiality gate
+
+WS-C (multi-user) ships only after the cross-company isolation tests pass. Those
+tests need a **real Postgres with our policies + multiple logged-in identities** —
+something the normal `vitest` unit suite can't give. You run them against a local
+Supabase stack. **No cloud keys needed — this is all local.**
+
+**One-time setup (Wizard's gate — ~20 min, mostly downloads):**
+1. **Install Docker Desktop** (Windows): https://www.docker.com/products/docker-desktop/ — install, launch it, leave it running. (This is the heavy part; it may want WSL2 + a reboot.)
+2. **Install the Supabase CLI:** `npm install -g supabase` (or `scoop install supabase`).
+3. From the repo root: `supabase init` (once), then `supabase start`. First run pulls Docker images (a few minutes).
+
+**Run the gate:**
+```
+supabase test db
+```
+This applies `migrations/` + runs every `tests/*.test.sql` (pgTAP). The WS-C gate is
+`tests/ws_c_isolation.test.sql` — 6 cross-company isolation assertions. **All must be
+GREEN before any sharing goes live in prod.** A written policy is not a passing test.
+
+> Until this harness is stood up, `tests/ws_c_isolation.test.sql` is **authored but RED**
+> (never executed). Standing it up is the hard gate, not a nicety.

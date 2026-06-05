@@ -6,6 +6,11 @@
 
 > **⛔ RED-UNTIL-PROVISIONED.** This is the load-bearing milestone ("leaks end the company"). Everything below is *authored*, not *proven*. The negative tests cannot pass-or-fail until they run against a real Postgres-with-our-RLS — either a local `supabase start` stack (Docker + Supabase CLI, **no operator cloud keys needed**) or the operator's cloud project. **A written policy is not a passing test.** Standing up that harness and getting the suite GREEN is the hard gate before any prod code.
 
+> **✅ REVISED RULING (operator + Opus, 2026-06-04).** Two grounding findings reshaped §1's "ship (c) now" call:
+> **(A)** Cost/supplier are **per-ingredient** (`Ingredient.costPerKg`/`supplier`, [types/index.ts:132-133](../../types/index.ts#L132-L133)) — interleaved through the ingredient array, *not* a separable blob. (c) is therefore an **Ingredient-type restructure** (every read site + cloudSync + provenance), high blast radius, plausibly multi-week.
+> **(B)** Field-level cost redaction = *"granular per-field visibility"*, which [path-to-august-2026.md:52](path-to-august-2026.md) **already defers post-launch.** August's committed milestone is **cross-company `owner OR member` RLS** (line 40) — within a workspace, members are *trusted*, so cost stays in `data` JSONB.
+> **→ August builds neither (a) nor (c).** It ships the **membership + owner-OR-member RLS** layer ([migration](../../supabase/migrations/20260604120000_ws_c_membership.sql) + [isolation tests](../../supabase/tests/ws_c_isolation.test.sql)). When external untrusted seats go live **post-launch**, redaction lands as **(c) done properly** (no bridge — Opus's anti-bridge principle, relocated to when it's needed). §1–§5 below describe the **full target**; §2/§4's membership tables + RLS are the **August subset**; grants / per-run / redaction are **post-launch**.
+
 ---
 
 ## 0. Ground truth (what exists today)
