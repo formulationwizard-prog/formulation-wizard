@@ -2942,23 +2942,14 @@ export default function FormulationWizard() {
                     <span>{allergenStatement.length} allergen{allergenStatement.length !== 1 ? 's' : ''}</span>
                   </span>
                 )}
-                {perUnitCost > 0 && (() => {
-                  // Same cost rollup confidence the Unit Economics block uses (>=5% mass threshold
-                  // floor across per-ingredient costSource confidences).
-                  const costContribs = ingredients.map(i => {
-                    const iDb = i.foodData?.type === 'industrial' ? (i.foodData.data as IndustrialIngredient) : null;
-                    return { massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1), confidence: mapCostToConfidence(iDb) };
-                  });
-                  const headerCostConfidence = rollupCostConfidence(costContribs);
-                  const perUnitDelta = costRangedSpec(perUnitCost, headerCostConfidence).range.high - perUnitCost;
-                  const dec = perUnitCost < 0.10 ? 4 : 2;
-                  return (
-                    <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-700 font-mono font-semibold inline-flex items-center gap-1.5">
-                      <span>${perUnitCost.toFixed(dec)} ± ${perUnitDelta.toFixed(dec)}/unit</span>
-                      <ConfidencePill conf={headerCostConfidence} size="xs" />
-                    </span>
-                  );
-                })()}
+                {/* Header cost chip — blank-until-real (2026-06-05): per-unit cost computed from the
+                    operator's OWN entered costs, shown plainly. No ± range, no estimated/verified pill
+                    (those framed cost as a platform estimate). Hidden until a real cost exists. */}
+                {perUnitCost > 0 && (
+                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-700 font-mono font-semibold">
+                    ${perUnitCost.toFixed(perUnitCost < 0.10 ? 4 : 2)}/unit
+                  </span>
+                )}
                 {/* Last saved indicator */}
                 <span className={`text-[11px] ${hasUnsavedChanges ? 'text-amber-600 font-semibold' : 'text-gray-500'}`}>
                   {hasUnsavedChanges ? '● Unsaved changes' : lastModifiedStr}
@@ -4418,7 +4409,7 @@ export default function FormulationWizard() {
 
       {/* BUILD TAB */}
       {activeTab === 'build' && (
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] mx-auto px-6 py-8">
 
           {/* ═══════════════════════════════════════════════════════════════
               SUPPLEMENT STATUS STRIP — compact at-a-glance health bar for
@@ -4585,9 +4576,11 @@ export default function FormulationWizard() {
             );
           })()}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* LEFT COLUMN */}
-            <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 lg:items-start gap-8">
+            {/* LEFT COLUMN — on lg+, a fixed-height sticky pane: Name + Add Ingredient stay in
+                view while only the Current Formulation list scrolls (kills the scroll-down-to-verify,
+                scroll-up-to-add loop). The search dropdown lives in the non-scrolling top, unclipped. */}
+            <div className="space-y-6 lg:space-y-0 lg:flex lg:flex-col lg:gap-6 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
               {/* Name & Save */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Formulation Name & Product Type</h2>
@@ -5102,8 +5095,8 @@ export default function FormulationWizard() {
                 <p className="text-xs text-gray-400 mt-2">💡 Industrial DB first, then USDA fallback. Or browse the 📦 Ingredient DB tab.</p>
               </div>
 
-              {/* Ingredient List */}
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
+              {/* Ingredient List — scrolls within the fixed-height left pane on lg+ */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                   <h2 className="text-lg font-semibold text-gray-800">Current Formulation</h2>
                   <div className="flex items-center gap-2">
@@ -5252,15 +5245,10 @@ export default function FormulationWizard() {
                             );
                           })()}
                           <div className="flex items-center gap-2 text-xs text-gray-500 mb-2 flex-wrap">
-                            <span>💰 $/kg:</span>
-                            <input type="number" value={ing.costPerKg || ''} onChange={(e) => updateCost(index, e.target.value)} placeholder="add cost" className="w-20 bg-white border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-emerald-400" />
-                            {/* Cost is blank-until-real (cost-blank-until-real, 2026-06-05): cost is the
-                                operator's own input — NO confidence/estimated tag on it, and no fabricated
-                                total. Show the total only once a real cost is entered; otherwise prompt for it. */}
-                            {(ing.costPerKg || 0) > 0
-                              ? <span className="text-emerald-600 font-medium">${(grams / 1000 * ing.costPerKg).toFixed(3)} total</span>
-                              : <span className="text-gray-400 italic">add cost →</span>}
-                            <span className="text-gray-400">• {grams.toFixed(1)} g</span>
+                            {/* Cost moved OFF the Base Sheet → Unit Economics tab (2026-06-05): cost is a
+                                unit-economics concern, not a formulation one (per the Unit Economics tab
+                                architecture). Per-ingredient cost is entered there, not on this row. */}
+                            <span className="text-gray-400">{grams.toFixed(1)} g</span>
                             {ing.supplier && <span className="text-gray-400">• {ing.supplier}</span>}
                             {/* ─── Raw Material Spec Sheet button ─── */}
                             <button
