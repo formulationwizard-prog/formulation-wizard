@@ -30,5 +30,29 @@ The entry name carries a `(USP)` grade claim, but **no USP-NF monograph exists f
 ## Doctrine outcome → validator rule (candidate)
 Per [[feedback_pharmacopeial_claims_require_monograph]]: the `catalog-entry-validator` should **block a `(USP)/(NF)/(FCC)/(EP)` suffix unless the entry carries a `regulatory-authority` provenance with a real monograph citation for that exact compound** — turning this whole class into a compile-time gate going forward.
 
+## Fixes applied (2026-06-05)
+
+**A — grade-claim renames (11, incl. 3 sibling entries found outside the top-100):** dropped the unsubstantiated `(USP)` (Refinement 1a); re-graded Glucosamine 2KCl to its real standard; added a `(Standard)` differentiator where dropping `(USP)` left a bare name with a qualified sibling (Refinement 1).
+
+| Old name | New name |
+|---|---|
+| Zinc Picolinate (USP) | Zinc Picolinate (Standard) |
+| Chromium Picolinate (USP) | Chromium Picolinate (Standard) |
+| Chromium Picolinate (ChromeMate, USP) *(sibling)* | Chromium Picolinate (ChromeMate) |
+| Quercetin (USP, 95%) | Quercetin (95%) |
+| Alpha-Lipoic Acid (USP, Racemic) | Alpha-Lipoic Acid (Racemic) |
+| Creatine Monohydrate (Creapure, USP, Tier-A) | Creatine Monohydrate (Creapure, Tier-A) |
+| Creatine Monohydrate (Creapure, USP, Tier-B) *(sibling)* | Creatine Monohydrate (Creapure, Tier-B) |
+| L-Carnitine L-Tartrate (USP) | L-Carnitine L-Tartrate |
+| L-Citrulline Malate 2:1 (USP, Tier-A) | L-Citrulline Malate 2:1 (Tier-A) |
+| L-Citrulline Malate 2:1 (USP, Tier-B) *(sibling)* | L-Citrulline Malate 2:1 (Tier-B) |
+| Glucosamine Sulfate 2KCl (USP) | Glucosamine Sulfate 2KCl (Ph. Eur.) |
+
+> ⚠ **Session-2 apply note:** `provenance-run-results-2026-06-05.json` keys by the OLD names — map old→new (this table) when applying provenance. (Curcumin C3 + Ashwagandha Sensoril had no `(USP)` *in the name* — no rename; their pharmacopeial flag is a `unknown` provenance, not a rename.)
+
+**B — Taurine:** `protein: 100 → 0` (`fcfa0ed`).
+**Enforcement:** Rulebook Refinement 1a + mechanical validator check shipped (`fcfa0ed`) — the class is now a commit-time gate.
+**Deferred:** the GRAS-self-affirmation basis requirement (§C) + the "protein on non-protein Amino-Acids compounds" pattern (creatine/citrulline/NAC/theanine) — need the labeling/regulatory decision before touching.
+
 ## Clean entries
 The other ~89 entries assigned honest provenance with no defect: carrier-loaded → `computed-from-formula`; real USP compounds (ascorbic acid, thiamine, riboflavin, niacin, glycine, taurine, melatonin, etc.) → `regulatory-authority` with monographs; branded forms (KSM-66, Creapure, Cognizin, Quali-C, NCFM, Ferrochel, etc.) → `supplier-spec` (ref blank); supplier-variable values → explicit `unknown`.
