@@ -1147,7 +1147,7 @@ export default function FormulationWizard() {
   const selectIngredient = (item: IndustrialIngredient | FoodResult) => {
     if (isIndustrial(item)) {
       setNewIngredient(item.name);
-      setSelectedFood({ type: 'industrial', data: item, subIngredients: item.subIngredients, allergens: item.allergens, costPerKg: item.costPerKg, supplier: item.suppliers[0], nutrition: item.nutrition });
+      setSelectedFood({ type: 'industrial', data: item, subIngredients: item.subIngredients, allergens: item.allergens, costPerKg: 0, supplier: item.suppliers[0], nutrition: item.nutrition });
     } else {
       const food = item as FoodResult;
       const subs = food.ingredients ? food.ingredients.split(/,(?![^(]*\))/).map(s => s.trim()).filter(s => s.length > 0 && s.length < 60).slice(0, 8) : [];
@@ -1698,13 +1698,10 @@ export default function FormulationWizard() {
   const applySupplierFromRegistry = (i: number, supplierName: string) => {
     const u = [...ingredients];
     if (!u[i]) return;
-    const info = getSupplierInfo(supplierName);
-    // Reference cost = the DB's original cost for this ingredient
-    const dbCost = u[i].foodData?.type === 'industrial'
-      ? ((u[i].foodData.data as IndustrialIngredient).costPerKg || u[i].costPerKg)
-      : u[i].costPerKg;
+    // Cost is blank-until-real (cost-blank-until-real doctrine, 2026-06-05):
+    // selecting a supplier records the vendor identity only — it never
+    // fabricates a price. The operator's entered cost (if any) stands unchanged.
     u[i].supplier = supplierName;
-    u[i].costPerKg = Math.round(dbCost * info.priceModifier * 100) / 100;
     setIngredients(u);
     recalculate(u);
   };
@@ -1881,13 +1878,13 @@ export default function FormulationWizard() {
         data: r.matchedItem,
         subIngredients: r.matchedItem!.subIngredients,
         allergens: r.matchedItem!.allergens,
-        costPerKg: r.matchedItem!.costPerKg,
+        costPerKg: 0,
         supplier: r.matchedItem!.suppliers[0],
         nutrition: r.matchedItem!.nutrition,
       },
       subIngredients: r.matchedItem!.subIngredients,
       allergens: r.matchedItem!.allergens,
-      costPerKg: r.matchedItem!.costPerKg,
+      costPerKg: 0,
       supplier: r.matchedItem!.suppliers[0],
       };
     });
@@ -2370,11 +2367,11 @@ export default function FormulationWizard() {
               type: 'ingredient',
               icon: '🧪',
               label: ing.name,
-              sublabel: `${ing.category} • $${ing.costPerKg.toFixed(2)}/kg • ${ing.suppliers[0] || '—'}`,
+              sublabel: `${ing.category} • ${ing.suppliers[0] || '—'}`,
               onSelect: () => {
                 setActiveTab('build');
                 setNewIngredient(ing.name);
-                setSelectedFood({ type: 'industrial', data: ing, subIngredients: ing.subIngredients, allergens: ing.allergens, costPerKg: ing.costPerKg, supplier: ing.suppliers[0], nutrition: ing.nutrition });
+                setSelectedFood({ type: 'industrial', data: ing, subIngredients: ing.subIngredients, allergens: ing.allergens, costPerKg: 0, supplier: ing.suppliers[0], nutrition: ing.nutrition });
                 setCmdPaletteOpen(false);
               },
             });
@@ -3440,14 +3437,13 @@ export default function FormulationWizard() {
                     </div>
                     <p className="text-xs text-gray-500 mb-2">{ing.notes}</p>
                     <div className="flex flex-wrap gap-4 text-xs text-gray-600">
-                      <span>💰 ~${ing.costPerKg.toFixed(2)}/kg</span>
                       {ing.nutrition.calories !== undefined && <span>🔥 {ing.nutrition.calories} kcal/100g</span>}
                       {ing.nutrition.protein !== undefined && ing.nutrition.protein > 0 && <span>💪 {ing.nutrition.protein}g protein</span>}
                       <span>🏭 {ing.suppliers.slice(0, 3).join(' • ')}</span>
                     </div>
                     {ing.subIngredients.length > 0 && <p className="text-xs text-gray-400 mt-1">Contains: {ing.subIngredients.join(', ')}</p>}
                   </div>
-                  <button onClick={() => { setActiveTab('build'); setNewIngredient(ing.name); setSelectedFood({ type: 'industrial', data: ing, subIngredients: ing.subIngredients, allergens: ing.allergens, costPerKg: ing.costPerKg, supplier: ing.suppliers[0], nutrition: ing.nutrition }); }}
+                  <button onClick={() => { setActiveTab('build'); setNewIngredient(ing.name); setSelectedFood({ type: 'industrial', data: ing, subIngredients: ing.subIngredients, allergens: ing.allergens, costPerKg: 0, supplier: ing.suppliers[0], nutrition: ing.nutrition }); }}
                     className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition whitespace-nowrap flex-shrink-0">
                     + Add
                   </button>
@@ -5066,7 +5062,7 @@ export default function FormulationWizard() {
                                 </span>
                                 <span className="font-medium text-gray-800 text-sm">{isInd ? (item as IndustrialIngredient).name : (item as FoodResult).description}</span>
                               </div>
-                              {isInd && <div className="text-xs text-gray-500 mt-0.5">~${(item as IndustrialIngredient).costPerKg}/kg • {(item as IndustrialIngredient).suppliers[0]}</div>}
+                              {isInd && <div className="text-xs text-gray-500 mt-0.5">{(item as IndustrialIngredient).suppliers[0]}</div>}
                               {!isInd && (item as FoodResult).brandName && <div className="text-xs text-gray-500 mt-0.5">{(item as FoodResult).brandName}</div>}
                             </button>
                           );
@@ -5200,15 +5196,13 @@ export default function FormulationWizard() {
                           )}
                           <div className="flex items-center gap-2 text-xs text-gray-500 mb-2 flex-wrap">
                             <span>💰 $/kg:</span>
-                            <input type="number" value={ing.costPerKg || ''} onChange={(e) => updateCost(index, e.target.value)} placeholder="0.00" className="w-20 bg-white border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-emerald-400" />
-                            {/* Cost confidence pill — reads from the underlying DB entry's costSource;
-                                user-typed overrides display the same source's confidence (Session 4+
-                                may add an explicit override flag to track user-edited values separately). */}
-                            {(() => {
-                              const ingDb = ing.foodData?.type === 'industrial' ? (ing.foodData.data as IndustrialIngredient) : null;
-                              return <ConfidencePill conf={mapCostToConfidence(ingDb)} size="xs" />;
-                            })()}
-                            <span className="text-emerald-600 font-medium">${(grams / 1000 * (ing.costPerKg || 0)).toFixed(3)} total</span>
+                            <input type="number" value={ing.costPerKg || ''} onChange={(e) => updateCost(index, e.target.value)} placeholder="add cost" className="w-20 bg-white border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-emerald-400" />
+                            {/* Cost is blank-until-real (cost-blank-until-real, 2026-06-05): cost is the
+                                operator's own input — NO confidence/estimated tag on it, and no fabricated
+                                total. Show the total only once a real cost is entered; otherwise prompt for it. */}
+                            {(ing.costPerKg || 0) > 0
+                              ? <span className="text-emerald-600 font-medium">${(grams / 1000 * ing.costPerKg).toFixed(3)} total</span>
+                              : <span className="text-gray-400 italic">add cost →</span>}
                             <span className="text-gray-400">• {grams.toFixed(1)} g</span>
                             {ing.supplier && <span className="text-gray-400">• {ing.supplier}</span>}
                             {/* ─── Raw Material Spec Sheet button ─── */}
