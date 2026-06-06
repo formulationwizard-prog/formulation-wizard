@@ -1744,6 +1744,23 @@ export type Provenance =
       notes?: string;
     }
   | {
+      /** Value sourced from a published regulatory authority or pharmacopeia —
+       *  FDA determinations, USP/NF monographs, 21 CFR citations. The most
+       *  defensible NON-supplier source: regulatory CLASSIFICATIONS and
+       *  reference values do not vary by supplier or lot (per
+       *  [[regulatory_classification_vs_supplier_data]]), so they are
+       *  canonically sourceable without a spec sheet. Common for
+       *  regulatoryStatus, ndiStatus, DV/RDI basis, and pharmacopeial identity.
+       *  Distinct from 'internal-source' (team data) and 'unknown' (no source). */
+      kind: 'regulatory-authority';
+      /** Issuing authority (e.g., 'FDA', 'USP', 'USDA', 'EFSA'). */
+      authority: string;
+      /** Specific citation (e.g., '21 CFR 101.36 Table 1', 'USP-NF Ascorbic Acid'). */
+      citation: string;
+      capturedAt: string;
+      notes?: string;
+    }
+  | {
       /** Unknown provenance — legacy LLM-typed values, or values whose
        *  origin was not recorded at catalog-authoring time. Per
        *  [[harm-critical-floor]] doctrine, the platform must surface
