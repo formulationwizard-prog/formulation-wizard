@@ -105,6 +105,7 @@ import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS,
 import { computeFilingReadiness } from '@/lib/filingReadiness';
 import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
 import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV, formatNearZeroWarning } from '@/lib/supplementLabeling';
+import { PROVENANCE_BY_NAME } from '@/lib/data/supplementProvenance';
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
 import { computePerServingScale, deriveSupplementServingMassG } from '@/lib/supplementMath';
 import { validateServingSizeInput } from '@/lib/servingSize';
@@ -410,6 +411,10 @@ export default function FormulationWizard() {
   const [suppDeliveryForm, setSuppDeliveryForm] = useState<SupplementDeliveryForm>('capsule');
   const [suppUnitsPerServing, setSuppUnitsPerServing] = useState<number>(2);
   const [suppCapsuleSize, setSuppCapsuleSize] = useState<CapsuleSize>('0');
+  /** Which ingredient row's provenance popover is open (null = none). Provenance render
+   *  (2026-06-05): a chip on the ingredient row reveals per-value source on click — lives in
+   *  workspace chrome, never on the byte-faithful SFP. Consumes PROVENANCE_BY_NAME. */
+  const [provenanceOpenIdx, setProvenanceOpenIdx] = useState<number | null>(null);
   // #25l structural fix state additions (Round 11 Phase 3 Workstream A.5 [5b]):
   //
   //   lastEditedCountField  — discriminator for SP6 last-edited-wins
@@ -5214,6 +5219,38 @@ export default function FormulationWizard() {
                               )}
                             </div>
                           )}
+                          {/* Provenance chip + on-click popover (2026-06-05) — where each value
+                              comes from. Chrome only; the SFP stays byte-faithful. */}
+                          {(() => {
+                            const prov = PROVENANCE_BY_NAME[ing.name];
+                            if (!prov) return null;
+                            const keys = Object.keys(prov);
+                            const open = provenanceOpenIdx === index;
+                            return (
+                              <div className="mb-1.5">
+                                <button onClick={() => setProvenanceOpenIdx(open ? null : index)} className="text-[11px] text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1">
+                                  🔎 Provenance ({keys.length}) <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+                                </button>
+                                {open && (
+                                  <div className="mt-1 p-2 bg-indigo-50 border border-indigo-200 rounded text-[10px] leading-snug space-y-0.5">
+                                    {keys.map(k => {
+                                      const pv = prov[k];
+                                      let txt: string;
+                                      if (pv.kind === 'regulatory-authority') txt = `${pv.authority}: ${pv.citation}`;
+                                      else if (pv.kind === 'supplier-spec') txt = `Supplier spec — ${pv.vendor}`;
+                                      else if (pv.kind === 'computed-from-formula') txt = `Computed — ${pv.method}`;
+                                      else if (pv.kind === 'usda-fdc') txt = `USDA FoodData Central ${pv.fdcId}`;
+                                      else if (pv.kind === 'operator-estimate') txt = `Operator estimate — ${pv.basis}`;
+                                      else if (pv.kind === 'unknown') txt = `Not yet sourced${pv.reason ? ` — ${pv.reason}` : ''}`;
+                                      else txt = pv.kind;
+                                      return <div key={k}><span className="font-semibold text-indigo-900">{k}</span>: <span className="text-indigo-700">{txt}</span></div>;
+                                    })}
+                                    <div className="text-[9px] text-gray-400 pt-0.5">Where each value comes from. Supplier-variable values read &ldquo;not yet sourced&rdquo; until a spec sheet attaches.</div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <div className="flex items-center gap-2 text-xs text-gray-500 mb-2 flex-wrap">
                             <span>💰 $/kg:</span>
                             <input type="number" value={ing.costPerKg || ''} onChange={(e) => updateCost(index, e.target.value)} placeholder="add cost" className="w-20 bg-white border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-emerald-400" />
