@@ -1406,8 +1406,9 @@ export default function FormulationWizard() {
   // servingSizeInGrams/batch scaling that produced the ~4× cost inflation; deleting it
   // removes the last reader of that math. See SUPPLEMENT_CONVENTION_B_ENABLED.
 
-  // Packaging cost per retail unit (container + closure/dispenser).
-  const packagingCostPerUnit = (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0);
+  // Packaging cost is intentionally NOT computed at component scope (cost-blank-until-real,
+  // 2026-06-05): curated packaging costs are platform estimates. Packaging cost is the operator's
+  // input on Unit Economics, not summed into the header chip.
 
   // Food-science spec estimates from the current formulation (pH, Brix, moisture, a_w,
   // viscosity, acetic acid, regulatory class). Lightweight — recomputed each render.
@@ -2539,7 +2540,7 @@ export default function FormulationWizard() {
 
       {/* Header — tinted surface, generous breathing room, big wordmark */}
       <div className="bg-gray-50 border-b border-gray-200 px-6 py-6 print:hidden">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto">
           <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
             <div className="flex flex-col items-center text-center md:flex-row md:text-left gap-5">
               <NautilusMark size={72} />
@@ -2747,8 +2748,11 @@ export default function FormulationWizard() {
 
         // Per-unit cost for the chip
         const packageSizeInG = packageSize * (UNIT_TO_GRAMS[packageUnit] || 1);
+        // Cost-blank-until-real (2026-06-05): the header chip reflects ONLY the operator's own
+        // entered ingredient cost. Packaging/closure cost is not summed in — curated packaging
+        // costs are platform estimates, not real; packaging cost is the operator's input on Unit Economics.
         const perUnitCost = totalBatchGrams > 0
-          ? totalCost * (packageSizeInG / totalBatchGrams) + (selectedPackaging?.costPerUnit || 0) + (selectedClosure?.costPerUnit || 0)
+          ? totalCost * (packageSizeInG / totalBatchGrams)
           : 0;
 
         // Filing Readiness — pathway-aware metric (Round 9, 2026-05-09).
@@ -2814,7 +2818,7 @@ export default function FormulationWizard() {
 
         return (
           <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-2 print:hidden">
-            <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+            <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto flex items-center justify-between gap-4 flex-wrap">
               {/* Left cluster — name, version, status, mode */}
               <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
                 <input
@@ -3087,7 +3091,7 @@ export default function FormulationWizard() {
         };
 
         return (
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
             {/* Welcome banner */}
             <div
               className="bg-gradient-to-br from-emerald-50 via-white to-emerald-50 border border-emerald-200 rounded-2xl p-8 mb-6"
@@ -3409,7 +3413,7 @@ export default function FormulationWizard() {
 
       {/* DATABASE TAB */}
       {activeTab === 'database' && (
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           <div className="mb-6">
             <h2 className="text-2xl font-bold text-gray-800">Industrial Ingredient Library</h2>
             <p className="text-gray-500 text-sm mt-1">Curated industrial-grade ingredients with verified suppliers, specs, and sustainability profiles{dbSearch || dbCategory !== 'All' ? ` — ${filteredDB.length} match current filters` : ''}.</p>
@@ -3458,7 +3462,7 @@ export default function FormulationWizard() {
 
       {/* SAVED TAB */}
       {activeTab === 'saved' && (
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
             <h2 className="text-2xl font-bold text-gray-800">Saved Formulations</h2>
             {compareSelectionIds.length >= 2 && (
@@ -3955,7 +3959,7 @@ export default function FormulationWizard() {
           and packaging-data-sheet-implementation-plan-2026-05-27.md.
           Memory: [[controlled-document-doctrine]], [[upstream-from-pds-doctrine]]. */}
       {activeTab === 'packaging' && (
-        <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
 
           {/* ═══ SECTION 0 — COVER PAGE (FUNCTIONAL — Identity inherited) ═══ */}
           <div className="mb-6 bg-white border border-emerald-200 rounded-xl p-6">
@@ -4409,7 +4413,7 @@ export default function FormulationWizard() {
 
       {/* BUILD TAB */}
       {activeTab === 'build' && (
-        <div className="max-w-[1700px] mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
 
           {/* ═══════════════════════════════════════════════════════════════
               SUPPLEMENT STATUS STRIP — compact at-a-glance health bar for
@@ -4550,7 +4554,7 @@ export default function FormulationWizard() {
                     Expand all
                   </button>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
                   {pills.map(p => (
                     <button
                       key={p.id}
@@ -5914,13 +5918,13 @@ export default function FormulationWizard() {
                       <option value="">— Select a container —</option>
                       {customContainer && (
                         <optgroup label="✎ My Custom Container">
-                          <option value={customContainer.name}>{customContainer.name} — ${customContainer.costPerUnit.toFixed(2)}</option>
+                          <option value={customContainer.name}>{customContainer.name}</option>
                         </optgroup>
                       )}
                       {recommendedContainers.length > 0 && (
                         <optgroup label={`⭐ Recommended for ${productType}`}>
                           {recommendedContainers.map(p => (
-                            <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                            <option key={p.name} value={p.name}>{p.name}</option>
                           ))}
                         </optgroup>
                       )}
@@ -5930,7 +5934,7 @@ export default function FormulationWizard() {
                         return (
                           <optgroup key={cat} label={cat}>
                             {items.map(p => (
-                              <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                              <option key={p.name} value={p.name}>{p.name}</option>
                             ))}
                           </optgroup>
                         );
@@ -6099,8 +6103,7 @@ export default function FormulationWizard() {
                     {selectedPackaging && (
                       <div className="mt-2 p-2 bg-emerald-50 border border-emerald-100 rounded text-xs">
                         <div className="flex flex-wrap gap-2 items-center">
-                          <span className="font-semibold text-emerald-800">${selectedPackaging.costPerUnit.toFixed(3)}/unit</span>
-                          <span className="text-gray-600">• {selectedPackaging.material}</span>
+                          <span className="text-gray-600">{selectedPackaging.material}</span>
                           {selectedPackaging.capacity && selectedPackaging.capacity.value > 0 && <span className="text-gray-600">• {selectedPackaging.capacity.value}{selectedPackaging.capacity.unit}</span>}
                           {selectedPackaging.neckFinish && <span className="text-gray-600">• {selectedPackaging.neckFinish}</span>}
                         </div>
@@ -6157,7 +6160,7 @@ export default function FormulationWizard() {
                           <option value="">— Select a closure —</option>
                           {customClosure && (
                             <optgroup label="✎ My Custom Closure">
-                              <option value={customClosure.name}>{customClosure.name} — ${customClosure.costPerUnit.toFixed(2)}</option>
+                              <option value={customClosure.name}>{customClosure.name}</option>
                             </optgroup>
                           )}
                           {selectedPackaging ? (
@@ -6172,7 +6175,7 @@ export default function FormulationWizard() {
                                     {compatible.length > 0 ? (
                                       <optgroup label={`Compatible with ${code || selectedPackaging.neckFinish}`}>
                                         {compatible.map(p => (
-                                          <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                          <option key={p.name} value={p.name}>{p.name}</option>
                                         ))}
                                       </optgroup>
                                     ) : (
@@ -6183,7 +6186,7 @@ export default function FormulationWizard() {
                                     {incompatible.length > 0 && (
                                       <optgroup label="Other closures (won't fit this container)">
                                         {incompatible.map(p => (
-                                          <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                          <option key={p.name} value={p.name}>{p.name}</option>
                                         ))}
                                       </optgroup>
                                     )}
@@ -6197,7 +6200,7 @@ export default function FormulationWizard() {
                               {recommendedClosures.length > 0 && (
                                 <optgroup label={`⭐ Recommended for ${productType}`}>
                                   {recommendedClosures.map(p => (
-                                    <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                    <option key={p.name} value={p.name}>{p.name}</option>
                                   ))}
                                 </optgroup>
                               )}
@@ -6207,7 +6210,7 @@ export default function FormulationWizard() {
                                 return (
                                   <optgroup key={cat} label={cat}>
                                     {items.map(p => (
-                                      <option key={p.name} value={p.name}>{p.name} — ${p.costPerUnit.toFixed(2)}</option>
+                                      <option key={p.name} value={p.name}>{p.name}</option>
                                     ))}
                                   </optgroup>
                                 );
@@ -6228,8 +6231,7 @@ export default function FormulationWizard() {
                               </p>
                             )}
                             <div className="flex flex-wrap gap-2 items-center">
-                              <span className="font-semibold text-emerald-800">${selectedClosure.costPerUnit.toFixed(3)}/unit</span>
-                              <span className="text-gray-600">• {selectedClosure.material}</span>
+                              <span className="text-gray-600">{selectedClosure.material}</span>
                               {selectedClosure.neckFinish && <span className="text-gray-600">• {selectedClosure.neckFinish}</span>}
                             </div>
                             <p className="text-gray-500 mt-1">🏭 {selectedClosure.suppliers.slice(0, 3).join(' • ')}</p>
@@ -6325,13 +6327,8 @@ export default function FormulationWizard() {
                 {(selectedPackaging || selectedClosure) && (
                   <div className="mt-3 p-3 bg-gray-50 rounded flex items-center justify-between text-sm">
                     <div>
-                      <span className="text-gray-500">Packaging cost:</span>{' '}
-                      <span className="font-bold text-gray-800">${packagingCostPerUnit.toFixed(3)} per unit</span>
-                      {selectedPackaging && selectedClosure && (
-                        <span className="text-gray-400 text-xs ml-2">
-                          (${selectedPackaging.costPerUnit.toFixed(3)} container + ${selectedClosure.costPerUnit.toFixed(3)} closure)
-                        </span>
-                      )}
+                      <span className="text-gray-500">Packaging selected.</span>{' '}
+                      <span className="text-gray-400 text-xs">Enter packaging cost on the Unit Economics tab — cost is your input, not a platform estimate.</span>
                     </div>
                     <button
                       onClick={() => { setSelectedPackaging(null); setSelectedClosure(null); }}
@@ -9031,7 +9028,6 @@ export default function FormulationWizard() {
         const closure = selectedClosure;
         const containerProf = container ? getPackagingSustainability(container) : null;
         const closureProf = closure ? getPackagingSustainability(closure) : null;
-        const totalCost = (container?.costPerUnit || 0) + (closure?.costPerUnit || 0);
         const hasContent = container || closure;
         const neckMatch = container && closure ? isClosureCompatible(container, closure) : null;
         // Resolve a PackagingItem to its part number — custom items store it inline
@@ -9104,7 +9100,6 @@ export default function FormulationWizard() {
                         )}
                         {container.color && <tr><td className="py-1 font-semibold text-gray-700">Color</td><td className="py-1">{container.color}</td></tr>}
                         {container.minimumOrder && <tr><td className="py-1 font-semibold text-gray-700">MOQ</td><td className="py-1">{container.minimumOrder}</td></tr>}
-                        <tr><td className="py-1 font-semibold text-gray-700">Cost per Unit</td><td className="py-1 font-mono font-bold text-emerald-700">${container.costPerUnit.toFixed(3)}</td></tr>
                         {container.application && container.application.length > 0 && (
                           <tr><td className="py-1 font-semibold text-gray-700">Application</td><td className="py-1">{container.application.join(' • ')}</td></tr>
                         )}
@@ -9138,7 +9133,6 @@ export default function FormulationWizard() {
                           <tr><td className="py-1 font-semibold text-gray-700">Fits Neck</td><td className="py-1 font-mono">{closure.neckFinish}</td></tr>
                         )}
                         {closure.minimumOrder && <tr><td className="py-1 font-semibold text-gray-700">MOQ</td><td className="py-1">{closure.minimumOrder}</td></tr>}
-                        <tr><td className="py-1 font-semibold text-gray-700">Cost per Unit</td><td className="py-1 font-mono font-bold text-emerald-700">${closure.costPerUnit.toFixed(3)}</td></tr>
                       </tbody>
                     </table>
                     {closure.suppliers.length > 0 && (
@@ -9278,22 +9272,9 @@ export default function FormulationWizard() {
                   </section>
                 )}
 
-                {hasContent && (
-                  <section className="mb-6">
-                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">7. Cost Roll-up</h2>
-                    <table className="w-full text-sm">
-                      <tbody>
-                        {container && (
-                          <tr><td className="py-1 text-gray-700">Container</td><td className="py-1 text-right font-mono">${container.costPerUnit.toFixed(3)}</td></tr>
-                        )}
-                        {closure && (
-                          <tr><td className="py-1 text-gray-700">Closure</td><td className="py-1 text-right font-mono">${closure.costPerUnit.toFixed(3)}</td></tr>
-                        )}
-                        <tr className="border-t border-gray-300"><td className="py-2 font-bold">Total Packaging / Unit</td><td className="py-2 text-right font-mono font-bold text-emerald-700">${totalCost.toFixed(3)}</td></tr>
-                      </tbody>
-                    </table>
-                  </section>
-                )}
+                {/* Cost Roll-up section removed (cost-blank-until-real, 2026-06-05): curated packaging
+                    costs are platform estimates, not real. Packaging cost is the operator's input on the
+                    Unit Economics tab, not printed on this supplier-facing spec sheet. */}
 
                 {/* Footer */}
                 <div className="mt-8 pt-4 border-t border-gray-300 text-[10px] text-gray-500 italic leading-relaxed">
@@ -9645,7 +9626,7 @@ export default function FormulationWizard() {
       })()}
 
       {activeTab === 'cost' && (
-        <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
@@ -10175,7 +10156,7 @@ export default function FormulationWizard() {
           Per-ingredient supplier breakdown with cert filters.
           ══════════════════════════════════════════════════════════════════ */}
       {activeTab === 'sourcing' && (
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           {/* Sub-view toggle: Suppliers directory vs. Qualifications tracker */}
           <div className="flex gap-2 mb-4">
             <button
@@ -10633,7 +10614,7 @@ export default function FormulationWizard() {
 
       {/* BATCH SHEET TAB */}
       {activeTab === 'batch' && (
-        <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           {/* ═══════════════════════════════════════════════════════════════════════
               PREVIEW banner — per Opus pressure-test 2026-05-25 Q4 (prominent +
               amber + same visual weight as UNDOCUMENTED allergen card). Schema
@@ -11143,7 +11124,7 @@ export default function FormulationWizard() {
           safety net for any edge case where activeTab is somehow 'filing'
           in supplements mode. */}
       {activeTab === 'filing' && mode !== 'supplements' && (
-        <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           {/* Header and determination */}
           <div className={`rounded-xl border-2 p-6 mb-6 print:hidden ${filingReq.urgency === 'critical' ? 'bg-red-50 border-red-300' : filingReq.urgency === 'recommended' ? 'bg-amber-50 border-amber-300' : 'bg-emerald-50 border-emerald-300'}`}>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
@@ -11420,7 +11401,7 @@ export default function FormulationWizard() {
           PROCESS AUTHORITIES DIRECTORY TAB
           ══════════════════════════════════════════════════════════════════ */}
       {activeTab === 'authorities' && (
-        <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
             <div className="flex items-start justify-between flex-wrap gap-4">
               <div>
@@ -11543,7 +11524,7 @@ export default function FormulationWizard() {
           SERVICES & CONSULTING TAB
           ══════════════════════════════════════════════════════════════════ */}
       {activeTab === 'services' && (
-        <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           <div className="bg-white rounded-xl border border-emerald-200 p-8 mb-6">
             <div className="flex items-center gap-4 mb-3">
               <NautilusMark size={64} />

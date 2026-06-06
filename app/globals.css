@@ -468,3 +468,49 @@ input[type="number"]::-webkit-outer-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* ============================================================
+   HIDDEN SCROLLBARS — app-wide
+   ------------------------------------------------------------
+   The default OS scrollbars (chunky gray on Windows) read tacky
+   in a polished workspace. Hide them entirely — scrolling still
+   works via wheel / trackpad / keys; there's just no visible bar.
+   Applies everywhere, especially the half-scroll Build panes.
+   ============================================================ */
+* {
+  scrollbar-width: none;        /* Firefox — hidden */
+  -ms-overflow-style: none;     /* old Edge / IE — hidden */
+}
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }  /* WebKit — hidden */
+
+/* ============================================================
+   DIM / DARK CONTRAST — raw red / orange / sky finding cards
+   ------------------------------------------------------------
+   red / orange / sky are NOT mapped to the flipping semantic
+   palette (brand/success/warn/danger), so cards built on them
+   (Ingredient Compatibility, cGMP hazard boxes, etc.) washed out
+   in dim/dark: the bg-50 stayed light while the shared text
+   utilities flipped to light → light-on-light, unreadable.
+   Mirror the rose/amber treatment — flip bg-50 to a dark tint and
+   text-700/800/900 to light — so they read like the other cards.
+   Operator-flagged 2026-06-05 (Compatibility box invisible text).
+   ============================================================ */
+/* Tailwind v4 utilities read CSS variables (bg-red-50 = var(--color-red-50)), so the correct
+   override is to REDEFINE the variables per appearance — exactly how rose/amber/emerald flip.
+   Redefine the shades these finding cards use: bg-50, borders (200/300/400), text-700/800/900. */
+html[data-appearance='dim'] {
+  --color-red-50: #2A2320; --color-red-200: #5A3A36; --color-red-400: #8A5049;
+  --color-red-700: #E8B8B0; --color-red-800: #EFC9C2; --color-red-900: #F5DAD4;
+  --color-orange-50: #2A2619; --color-orange-200: #554A30; --color-orange-300: #6A5C3A;
+  --color-orange-700: #E8D49B; --color-orange-800: #EEDCAA; --color-orange-900: #F4E5BF;
+  --color-sky-50: #1B2730; --color-sky-200: #2E4A5A; --color-sky-300: #3A5E72;
+  --color-sky-700: #B8D2E0; --color-sky-800: #CADEEA; --color-sky-900: #DCEAF4;
+}
+html[data-appearance='dark'] {
+  --color-red-50: #2E201E; --color-red-200: #5A3A36; --color-red-400: #9A5751;
+  --color-red-700: #DBA9A1; --color-red-800: #E6BCB4; --color-red-900: #F0CFC8;
+  --color-orange-50: #302B1D; --color-orange-200: #554A30; --color-orange-300: #6E5F3D;
+  --color-orange-700: #DBC58C; --color-orange-800: #E5D29F; --color-orange-900: #EFDFB6;
+  --color-sky-50: #16222B; --color-sky-200: #2E4A5A; --color-sky-300: #3A5E72;
+  --color-sky-700: #A9C9DB; --color-sky-800: #BCD6E6; --color-sky-900: #CFE2F0;
+}
