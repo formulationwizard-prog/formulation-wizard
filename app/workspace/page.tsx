@@ -4576,11 +4576,9 @@ export default function FormulationWizard() {
             );
           })()}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 lg:items-start gap-8">
-            {/* LEFT COLUMN — on lg+, a fixed-height sticky pane: Name + Add Ingredient stay in
-                view while only the Current Formulation list scrolls (kills the scroll-down-to-verify,
-                scroll-up-to-add loop). The search dropdown lives in the non-scrolling top, unclipped. */}
-            <div className="space-y-6 lg:space-y-0 lg:flex lg:flex-col lg:gap-6 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* LEFT COLUMN */}
+            <div className="space-y-6">
               {/* Name & Save */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Formulation Name & Product Type</h2>
@@ -5095,8 +5093,8 @@ export default function FormulationWizard() {
                 <p className="text-xs text-gray-400 mt-2">💡 Industrial DB first, then USDA fallback. Or browse the 📦 Ingredient DB tab.</p>
               </div>
 
-              {/* Ingredient List — scrolls within the fixed-height left pane on lg+ */}
-              <div className="bg-white rounded-xl border border-gray-200 p-6 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+              {/* Ingredient List */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                   <h2 className="text-lg font-semibold text-gray-800">Current Formulation</h2>
                   <div className="flex items-center gap-2">
