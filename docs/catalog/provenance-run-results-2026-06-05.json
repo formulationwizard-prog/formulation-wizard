@@ -1,0 +1,1946 @@
+{
+  "summary": "Assign honest provenance to the top-100 catalog entries + collect grade-claim defects",
+  "agentCount": 100,
+  "logs": [],
+  "result": [
+    {
+      "entryName": "Vitamin A Palmitate (500,000 IU/g)",
+      "fields": [
+        {
+          "key": "potencyFactor",
+          "kind": "computed-from-formula",
+          "method": "carrier loading from the stated IU/g or % on the label"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Beta-Carotene 20% (Dunaliella / CWS)",
+      "fields": [
+        {
+          "key": "potencyFactor",
+          "kind": "computed-from-formula",
+          "method": "carrier loading from the stated IU/g or % on the label"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin C (Ascorbic Acid USP, Fine)",
+      "fields": [
+        {
+          "key": "name.gradeClaim.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Ascorbic Acid"
+        },
+        {
+          "key": "name.brandedForm.Quali-C",
+          "kind": "supplier-spec",
+          "vendor": "DSM Nutritional Products (Quali-C)"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Sodium Ascorbate (Buffered Vitamin C)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.sodium",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin D3 Cholecalciferol (100,000 IU/g on MCC)",
+      "fields": [
+        {
+          "key": "potencyFactor",
+          "kind": "computed-from-formula",
+          "method": "carrier loading from the stated IU/g or % on the label"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin D3 Cholecalciferol (Vegan, Lichen)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin E (d-alpha Tocopheryl Acetate)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin E Mixed Tocopherols (Full Spectrum)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin K2 MK-7 (Natto, 0.2% on MCC)",
+      "fields": [
+        {
+          "key": "potencyFactor",
+          "kind": "computed-from-formula",
+          "method": "carrier loading from the stated IU/g or % on the label"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin K2 MK-4 (Synthetic)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Thiamine HCl (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Thiamine Hydrochloride"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin B2 (Riboflavin USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Riboflavin"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Riboflavin 5-Phosphate (B2, Activated)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Niacinamide (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Niacinamide"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Niacin (Nicotinic Acid, USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Niacin"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "d-Calcium Pantothenate (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Calcium Pantothenate"
+        },
+        {
+          "key": "nutrition.calcium",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Pyridoxine HCl (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Pyridoxine Hydrochloride"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Pyridoxal 5-Phosphate (P5P, Tier-A)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "d-Biotin (Vitamin H, USP)",
+      "fields": [
+        {
+          "key": "name.grade",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Biotin monograph"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin B9 (Folic Acid USP)",
+      "fields": [
+        {
+          "key": "name.pharmacopeialGrade",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Folic Acid"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Methylfolate (Metafolin / Calcium L-5-MTHF)",
+      "fields": [
+        {
+          "key": "brandedFormIdentity",
+          "kind": "supplier-spec",
+          "vendor": "Merck KGaA (Metafolin brand owner)"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Vitamin B12 (Cyanocobalamin 1% on Mannitol)",
+      "fields": [
+        {
+          "key": "potencyFactor",
+          "kind": "computed-from-formula",
+          "method": "carrier loading from the stated IU/g or % on the label"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Methylcobalamin (Vitamin B12 Active)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Choline Bitartrate (USP)",
+      "fields": [
+        {
+          "key": "potencyFactor",
+          "kind": "computed-from-formula",
+          "method": "carrier loading from the stated IU/g or % on the label",
+          "basis": "~41% choline by mass; 1g delivers ~410 mg choline (stated 41% form)"
+        },
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "21 CFR 184.1101 (Choline Salts, including bitartrate, GRAS); DSHEA dietary ingredient"
+        },
+        {
+          "key": "pharmacopeialReference",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Choline Bitartrate monograph"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA (harm-critical; currently empty array)"
+        },
+        {
+          "key": "bioactives.Choline.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached (41% choline assay claimed but no spec sheet)"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Citicoline / CDP-Choline (Cognizin, Kyowa Hakko)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "FDA NDI #1196 (Cognizin citicoline, acknowledged 2014) — DSHEA new dietary ingredient notification"
+        },
+        {
+          "key": "ndiStatus",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "NDI #1196 (Cognizin, acknowledged 2014)"
+        },
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Kyowa Hakko (Cognizin)",
+          "basis": "Cognizin is Kyowa Hakko's trademarked branded form of citicoline; brand identity IS the manufacturer claim. specSheetRef blank."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA (harm-critical; must not be silently empty)"
+        },
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached (Citicoline ≥99% / 99000 mg per 100g claim is unverified without attached Kyowa Cognizin spec sheet)"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Alpha-GPC 50% (AlphaSize, Synthetic)",
+      "fields": [
+        {
+          "key": "potencyFactor",
+          "kind": "computed-from-formula",
+          "method": "carrier loading from the stated IU/g or % on the label",
+          "basis": "50% Alpha-GPC active loaded on a silicon dioxide carrier per the AlphaSize label/spec; potencyFactor = 0.50 = 50/100"
+        },
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "unknown",
+          "reason": "Value is 'GRAS-self-affirmed' — a manufacturer (Chemi Nutra) self-affirmed GRAS determination with no FDA-issued citation. There is no FDA GRAS Notice number, NDI number, or 21 CFR self-GRAS-affirmation cannot be cited as an FDA authority. No nameable real FDA citation exists, so default to unknown rather than fabricate one."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        },
+        {
+          "key": "name.brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Chemi Nutra",
+          "basis": "AlphaSize is a trademarked branded form; brand owner Chemi Nutra is the manufacturer making the synthetic-source / 50%-loading identity claim. Branded-form identity only; specSheetRef blank. Its standardization/nutrition numbers remain unknown (see bioactives)."
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Calcium Carbonate (USP, Limestone)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calcium",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Calcium Carbonate"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Calcium Citrate (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Calcium Citrate"
+        },
+        {
+          "key": "nutrition.calcium",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Magnesium Glycinate (Chelated, Albion TRAACS)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Balchem (Albion TRAACS)",
+          "reason": "Albion TRAACS is a trademarked branded chelate form named in the entry; brand IS the manufacturer claim. specSheetRef stays blank."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calcium",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Magnesium Citrate (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "name.grade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Magnesium Citrate"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Magnesium Oxide (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Magnesium Oxide"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Zinc Picolinate (USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "unknown",
+          "reason": "name carries (USP) grade but no USP-NF monograph exists for Zinc Picolinate (USP monographs cover Zinc Sulfate/Oxide/Gluconate/Citrate/Acetate/Chloride, not the picolinate salt); grade claim cannot be substantiated to a real monograph"
+        }
+      ],
+      "defects": [
+        {
+          "field": "name (USP) grade claim",
+          "issue": "unsubstantiated (USP)/(NF) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "Zinc Gluconate (USP, Pharmaceutical-Grade Sourcing)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Zinc Gluconate"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Iron Bisglycinate (Ferrochel, Albion — 20% Fe)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Balchem (Albion Minerals — Ferrochel)",
+          "basis": "Ferrochel is a trademarked ferrous bisglycinate chelate; brand IS the manufacturer claim"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Ferrous Sulfate (Dried, USP)",
+      "fields": [
+        {
+          "key": "name.grade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Dried Ferrous Sulfate"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA — empty array is harm-critical UNDOCUMENTED, not VERIFIED-SAFE"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "L-Selenomethionine (USP, Pharmaceutical-Grade)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF L-Selenomethionine monograph",
+          "basis": "Pharmacopeial grade claim in display name; USP-NF carries an official monograph for L-Selenomethionine, the exact compound."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Copper Gluconate (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Cupric Gluconate",
+          "basis": "Pharmacopeial-grade (USP) claim in the entry name; copper gluconate is the cupric gluconate compound covered by the real USP-NF Cupric Gluconate monograph."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Manganese Bisglycinate (Albion)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Balchem (Albion)",
+          "reason": "Albion is a trademarked branded chelate form; brand is the manufacturer claim. specSheetRef blank; any standardization/nutrition numbers remain unknown."
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Chromium Picolinate (USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "unknown",
+          "reason": "the name carries a (USP) grade claim, but no USP-NF monograph exists for the exact compound Chromium Picolinate; cannot cite a real monograph"
+        }
+      ],
+      "defects": [
+        {
+          "field": "name (USP) grade claim",
+          "issue": "unsubstantiated (USP) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "Potassium Iodide (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Potassium Iodide"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Molybdenum Glycinate (Albion)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Balchem (Albion)"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Potassium Citrate (USP)",
+      "fields": [
+        {
+          "key": "name.gradeClaim.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Potassium Citrate"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Dicalcium Phosphate Dihydrate (Di-Cafos, USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calcium",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "name.brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Chemische Fabrik Budenheim",
+          "reason": "Di-Cafos is Budenheim's trademarked dicalcium phosphate form; brand IS the manufacturer claim. specSheetRef blank."
+        },
+        {
+          "key": "name.pharmacopeialGrade",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Dibasic Calcium Phosphate Dihydrate"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Fish Oil 18/12 (EPA/DHA, Triglyceride)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalFat",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Fish Oil 40/20 (Concentrated EPA/DHA, Ethyl Ester)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalFat",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Algae Oil DHA/EPA (Vegan, Schizochytrium)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalFat",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Algal DHA Oil (Life’s DHA, DSM)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "DSM (Life's DHA)"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalFat",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Krill Oil (Superba, Phospholipid-Bound)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Aker BioMarine (Superba)",
+          "basis": "Superba is a trademarked branded form; the brand owner's name is the manufacturer claim for the branded-form identity. Standardization/nutrition numbers remain unknown."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalFat",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "CoQ10 (Ubiquinone, Kaneka Q10)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Kaneka Corporation",
+          "basis": "Kaneka Q10 is a trademarked branded CoQ10 form; the brand IS the manufacturer's identity claim. specSheetRef left blank pending attached spec sheet/COA."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "CoQ10 Ubiquinol (Reduced Active Form)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Turmeric Extract (Organic, 95% Curcumin)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Curcumin 95% (Sabinsa C3 Complex, Branded)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "DSHEA dietary ingredient — GRAS self-affirmation (Curcuma longa / curcumin); no nameable GRN or 21 CFR part cited in entry",
+          "basis": "GRAS-self-affirmed"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        },
+        {
+          "key": "brandedFormIdentity",
+          "kind": "supplier-spec",
+          "vendor": "Sabinsa (Curcumin C3 Complex)",
+          "reason": "trademarked branded form (Sabinsa C3 Complex) in name; brand is the manufacturer identity claim; specSheetRef blank"
+        },
+        {
+          "key": "pharmacopeialReference",
+          "kind": "unknown",
+          "reason": "USP-NF reference claimed but no USP-NF monograph exists for Curcuma longa extract / curcumin as this exact dietary ingredient — not substantiated"
+        },
+        {
+          "key": "nutrition",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": [
+        {
+          "field": "pharmacopeialReference",
+          "issue": "unsubstantiated USP-NF monograph claim — no USP-NF monograph exists for Curcuma longa extract / curcumin as the exact dietary ingredient; citation not nameable, defaulted to unknown"
+        },
+        {
+          "field": "regulatoryStatus.US",
+          "issue": "GRAS-self-affirmed asserted without a nameable GRN number or 21 CFR citation; basis recorded as self-affirmation, no real FDA citation available"
+        }
+      ]
+    },
+    {
+      "entryName": "Ashwagandha Root Extract (KSM-66, 5% withanolides)",
+      "fields": [
+        {
+          "key": "name.brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Ixoreal Biomed",
+          "reason": "KSM-66 is a trademarked branded form; the brand identity is the manufacturer's claim (Ixoreal Biomed). specSheetRef stays blank."
+        },
+        {
+          "key": "bioactives.withanolides",
+          "kind": "unknown",
+          "reason": "standardization (5% withanolides) per supplier spec, not yet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Ashwagandha (Sensoril, Natreon, 10% Withanolide Glycosides)",
+      "fields": [
+        {
+          "key": "brandedFormIdentity",
+          "kind": "supplier-spec",
+          "vendor": "Natreon (Sensoril brand owner)",
+          "basis": "Branded form 'Sensoril' named in entry is a Natreon trademark; brand identity is the manufacturer claim. specSheetRef blank."
+        },
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "DSHEA dietary ingredient (Withania somnifera root/leaf extract marketed as 'GRAS-self-affirmed'); no FDA GRAS notice number citable for this branded extract"
+        },
+        {
+          "key": "pharmacopeialReference",
+          "kind": "unknown",
+          "reason": "No USP-NF monograph exists for Withania somnifera (Ashwagandha) extract as an official compendial standard; the 'USP-NF' grade claim on this entry is not substantiable for this compound."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA (empty allergens array is harm-critical; defaults to UNDOCUMENTED, not VERIFIED-SAFE)"
+        },
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached (10% withanolide glycosides claim requires Natreon Sensoril spec sheet)"
+        }
+      ],
+      "defects": [
+        {
+          "field": "pharmacopeialReference",
+          "issue": "unsubstantiated (USP-NF) grade claim - no monograph for this compound (Withania somnifera / Ashwagandha extract)"
+        }
+      ]
+    },
+    {
+      "entryName": "Collagen Peptides Type I/III (Bovine, Hydrolyzed 2000 Da)",
+      "fields": [
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Marine Collagen Peptides Type I (Fish, Hydrolyzed)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Creatine Monohydrate (Creapure, USP, Tier-A)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "brandedForm.Creapure",
+          "kind": "supplier-spec",
+          "vendor": "AlzChem (Creapure)",
+          "reason": "Creapure is a trademarked branded form; brand is the manufacturer claim. Standardization/nutrition numbers stay unknown; specSheetRef blank."
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "unknown",
+          "reason": "No USP-NF monograph exists for Creatine Monohydrate; the (USP) grade claim in the name cannot be substantiated against an actual monograph."
+        }
+      ],
+      "defects": [
+        {
+          "field": "name (USP)",
+          "issue": "unsubstantiated (USP)/(NF) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "Melatonin (USP, Crystalline)",
+      "fields": [
+        {
+          "key": "pharmacopeialReference.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Melatonin monograph"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Glucosamine Sulfate 2KCl (USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "unknown",
+          "reason": "(USP) grade asserted in the display name, but no USP-NF monograph exists for the glucosamine sulfate potassium chloride (2KCl) double salt — USP-NF carries Glucosamine Hydrochloride and Glucosamine Sulfate Sodium Chloride monographs, not the potassium-chloride form; the 2KCl form is the European (Ph. Eur. / Rottapharm-Dona) standard. No real USP citation available, so not fabricated."
+        }
+      ],
+      "defects": [
+        {
+          "field": "name",
+          "issue": "unsubstantiated (USP) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "Chondroitin Sulfate Sodium (Bovine, 90%)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "MSM (Methylsulfonylmethane, OptiMSM)",
+      "fields": [
+        {
+          "key": "branded-form-identity",
+          "kind": "supplier-spec",
+          "vendor": "Bergstrom Nutrition",
+          "reason": "OptiMSM is a trademarked branded form; brand is the manufacturer claim. specSheetRef left blank."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "L-Theanine (Suntheanine, Pharma)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Taiyo International",
+          "basis": "Suntheanine is a trademarked branded form; the brand is the manufacturer claim. specSheetRef intentionally blank — standardization/nutrition numbers remain unknown."
+        },
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "L-Carnitine L-Tartrate (USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "name.gradeClaim.USP",
+          "kind": "unknown",
+          "reason": "(USP) grade claimed in name but no USP-NF monograph exists for the L-tartrate salt; the USP-NF monograph is 'Levocarnitine' (L-carnitine), not L-Carnitine L-Tartrate"
+        }
+      ],
+      "defects": [
+        {
+          "field": "name",
+          "issue": "unsubstantiated (USP)/(NF) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "Acetyl-L-Carnitine (ALCAR)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "L-Glutamine (USP, Fermentation)",
+      "fields": [
+        {
+          "key": "name.usp",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Glutamine"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Taurine (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "name.grade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Taurine"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        }
+      ],
+      "defects": [
+        {
+          "field": "nutrition.protein",
+          "issue": "protein: 100 declared, but taurine is a sulfonic acid, not a protein/amino acid (per entry's own notes); the protein value is unsupportable and contradicts the compound's nature"
+        }
+      ]
+    },
+    {
+      "entryName": "L-Arginine HCl (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Arginine Hydrochloride"
+        },
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "L-Citrulline Malate 2:1 (USP, Tier-A)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "unknown",
+          "reason": "no USP-NF monograph exists for L-Citrulline Malate (nor the 2:1 complex); pharmacopeial grade claim cannot be substantiated"
+        }
+      ],
+      "defects": [
+        {
+          "field": "name (USP)",
+          "issue": "unsubstantiated (USP)/(NF) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "Glycine (USP)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Glycine"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Beta-Alanine (CarnoSyn, Natural Alternatives)",
+      "fields": [
+        {
+          "key": "brandedForm.CarnoSyn",
+          "kind": "supplier-spec",
+          "vendor": "Natural Alternatives International (CarnoSyn)"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Inulin (FOS, Chicory Root)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "21 CFR 184.1900 (inulin affirmed GRAS)"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalCarbs",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.dietaryFiber",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "bioactives.Inulin (DP ≥10)",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Psyllium Husk Powder (USP, Plantago ovata)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "GRAS - 21 CFR 101.81 FDA-authorized soluble fiber (psyllium husk) heart-health claim; psyllium husk is an established GRAS dietary fiber"
+        },
+        {
+          "key": "pharmacopeialReference",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Psyllium Husk monograph"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalCarbs",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.dietaryFiber",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "bioactives.Soluble Fiber (Arabinoxylan)",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "GOS (Galactooligosaccharides, Bimuno)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Clasado (Bimuno)",
+          "basis": "Trademarked branded form 'Bimuno' in display name; brand owner Clasado is the manufacturer claim. specSheetRef blank."
+        },
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "21 CFR 184.1408 (GOS GRAS) + GRN 285",
+          "basis": "GRAS — FDA self-affirmed/notified GRAS for galactooligosaccharides"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "nutrition.calories",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.totalCarbs",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "nutrition.dietaryFiber",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Lutein 10% (FloraGLO, Kemin)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "Kemin (FloraGLO)"
+        },
+        {
+          "key": "standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Zeaxanthin 5% (OmniActive Lutemax)",
+      "fields": [
+        {
+          "key": "brandedFormIdentity",
+          "kind": "supplier-spec",
+          "vendor": "OmniActive Health Technologies",
+          "reason": "Lutemax is OmniActive's trademarked branded form of lutein/zeaxanthin; brand IS the manufacturer claim. specSheetRef blank."
+        },
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Resveratrol 98% (Polygonum cuspidatum)",
+      "fields": [
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Quercetin (USP, 95%)",
+      "fields": [
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "unknown",
+          "reason": "Name claims (USP) grade but no USP-NF monograph exists for the compound Quercetin; grade claim cannot be substantiated against a real monograph."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": [
+        {
+          "field": "name",
+          "issue": "unsubstantiated (USP) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "Alpha-Lipoic Acid (USP, Racemic)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "pharmacopeialGrade.USP",
+          "kind": "unknown",
+          "reason": "no USP-NF monograph exists for Alpha-Lipoic Acid; (USP) grade claim in the name cannot be substantiated against an actual monograph"
+        }
+      ],
+      "defects": [
+        {
+          "field": "pharmacopeialGrade.USP",
+          "issue": "unsubstantiated (USP) grade claim - no monograph for this compound"
+        }
+      ]
+    },
+    {
+      "entryName": "N-Acetyl L-Cysteine (NAC, USP)",
+      "fields": [
+        {
+          "key": "grade.USP",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Acetylcysteine"
+        },
+        {
+          "key": "nutrition.protein",
+          "kind": "unknown",
+          "reason": "no supplier spec sheet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Grape Seed Extract (95% OPC)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives.standardization",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Astaxanthin 5% (AstaReal, Fuji Chemical)",
+      "fields": [
+        {
+          "key": "brandedForm.AstaReal",
+          "kind": "supplier-spec",
+          "vendor": "AstaReal (Fuji Chemical)",
+          "basis": "AstaReal is Fuji Chemical's trademarked branded astaxanthin form; the brand name in the entry name is the manufacturer's identity claim. specSheetRef blank."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Ginkgo Biloba Extract (24% Flavone Glycosides, 6% Terpene Lactones)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Panax Ginseng Extract (G115, Pharmaton)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "brandedFormIdentity.G115",
+          "kind": "supplier-spec",
+          "vendor": "Pharmaton (Boehringer Ingelheim)"
+        },
+        {
+          "key": "bioactives.ginsenosides",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "American Ginseng (Panax quinquefolius, 10% Ginsenosides)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives.ginsenosides",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Milk Thistle Extract (80% Silymarin)",
+      "fields": [
+        {
+          "key": "bioactives.silymarin",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Saw Palmetto (Serenoa repens, 85% Fatty Acids/Sterols, CO2-Extracted)",
+      "fields": [
+        {
+          "key": "regulatoryStatus.US",
+          "kind": "regulatory-authority",
+          "authority": "FDA",
+          "citation": "DSHEA dietary ingredient; GRAS-self-affirmed (pre-1994 botanical dietary ingredient under DSHEA)"
+        },
+        {
+          "key": "pharmacopeialReference",
+          "kind": "regulatory-authority",
+          "authority": "USP",
+          "citation": "USP-NF Saw Palmetto (Serenoa repens) monograph"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Elderberry Extract (4:1, Sambucol Type)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Echinacea Extract (Echinacea purpurea, 4% Phenolics)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives.phenolics",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Bacopa Monnieri (BaCognize, 45% Bacosides)",
+      "fields": [
+        {
+          "key": "brandedForm.BaCognize",
+          "kind": "supplier-spec",
+          "vendor": "Verdure Sciences"
+        },
+        {
+          "key": "bioactives.bacosides",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Hyaluronic Acid Sodium (Low MW, 50 kDa)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Lactobacillus acidophilus NCFM (50 Billion CFU/g)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "brandedFormIdentity",
+          "kind": "supplier-spec",
+          "vendor": "DuPont (Danisco) / IFF"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Multi-Strain Probiotic Blend (10 Strains, 100B CFU/g)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Bacillus Coagulans GBI-30 (150 Billion CFU/g)",
+      "fields": [
+        {
+          "key": "name",
+          "kind": "supplier-spec",
+          "vendor": "Kerry (Ganeden — GanedenBC30 / GBI-30 6086 branded strain owner)",
+          "reason": "GBI-30 is a trademarked branded probiotic strain identity; brand is the manufacturer claim. specSheetRef left blank."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Lactobacillus rhamnosus GG (Chr. Hansen)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "brandedFormIdentity",
+          "kind": "supplier-spec",
+          "vendor": "Chr. Hansen",
+          "reason": "LGG is a trademarked branded probiotic strain; brand owner Chr. Hansen is the manufacturer claim (specSheetRef blank)"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Bifidobacterium lactis HN019 (Danisco HOWARU)",
+      "fields": [
+        {
+          "key": "brandedForm",
+          "kind": "supplier-spec",
+          "vendor": "DuPont (Danisco HOWARU)"
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Saccharomyces boulardii CNCM I-745",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "name",
+          "kind": "supplier-spec",
+          "vendor": "Biocodex (Florastor)",
+          "basis": "CNCM I-745 is a branded/trademarked strain identity owned by Biocodex (Florastor); the brand is the manufacturer's strain-identity claim. specSheetRef stays blank."
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Bacillus subtilis DE111 (Deerland)",
+      "fields": [
+        {
+          "key": "name",
+          "kind": "supplier-spec",
+          "vendor": "Deerland Probiotics",
+          "basis": "Branded-form identity: DE111 is Deerland's trademarked Bacillus subtilis spore-forming probiotic strain; the brand is the manufacturer claim. specSheetRef stays blank; any standardization/CFU/nutrition numbers remain unknown pending attached spec."
+        },
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Lion's Mane Extract (30% Polysaccharides, Fruiting Body)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Reishi Mushroom Extract (30% Beta-Glucans)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        },
+        {
+          "key": "bioactives.betaGlucans",
+          "kind": "unknown",
+          "reason": "standardization per supplier spec, not yet attached"
+        }
+      ],
+      "defects": []
+    },
+    {
+      "entryName": "Cordyceps CS-4 Extract (30% Polysaccharides)",
+      "fields": [
+        {
+          "key": "allergens",
+          "kind": "unknown",
+          "reason": "pending supplier spec / COA"
+        }
+      ],
+      "defects": []
+    }
+  ]
+}
