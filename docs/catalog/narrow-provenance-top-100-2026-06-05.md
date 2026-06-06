@@ -120,5 +120,15 @@ Every entry below is a **verbatim catalog name**. `⚠` = carrier-loaded SKU (`p
 - **Catalog gaps (high-frequency, requested-but-absent):** **berberine** (genuinely high-frequency now), L-tryptophan (only 5-HTP present), standalone phosphorus (covered via Dicalcium Phosphate). → ticket: berberine is a real omission for a launch catalog.
 - The remaining ~225 entries stay UNDOCUMENTED for August (harm-critical-floor safe).
 
-## Prerequisite before the provenance Workflow fans out
-The provenance-population Workflow needs a **provenance field schema** to write into — `types/index.ts` has no provenance field yet (per brief §4-A: "spec-sheet attachment + provenance field" is foundational). So Phase-1 catalog order is: **(1) define the provenance field + source taxonomy → (2) Workflow populates the top-100 → (3) catalog-entry-validator gates each commit.**
+## The provenance schema already exists (corrected 2026-06-05)
+`types/index.ts` already carries a full provenance foundation (landed 2026-05-07, schema-only): a 9-variant `Provenance` discriminated union — `supplier-spec` / `coa` / `usda-fdc` / `label-declaration` / `operator-estimate` / `computed-from-formula` / `sibling-inference` / `internal-source` / `unknown` — plus `Sourced<T>` and a per-field `provenance?: Record<string, Provenance>` on `IndustrialIngredient` (dot-notation keying). So **no schema build is needed** — the Workflow *populates* it.
+
+### The honest population task (doctrine-bound — no fabricated provenance)
+The top-100 currently hold LLM-typed values (implicit `unknown`). The agents must NOT invent supplier specs. Per [[regulatory_classification_vs_supplier_data]], values split into two classes:
+- **Canonical-sourceable now (CC-autonomous):** DV/RDI values → 21 CFR 101.36 Table 1; elemental/potency factors → `computed-from-formula` (chemistry); USP/pharmacopeial identity → documented. These get *real* provenance.
+- **Supplier-variable (honest `unknown` until a spec sheet is attached):** exact nutrition, allergens, refining grade, cost. These get an explicit `unknown` with a reason — surfacing the gap, not hiding it (harm-critical floor).
+
+### Phase-1 catalog order
+1. **(CC, small)** Define the field-class → provenance-variant mapping (which fields are canonical-sourceable vs unknown-pending-spec) — one methodology doc so all 100 agents apply it identically.
+2. **(Workflow)** One agent per top-100 entry → apply the mapping → populate the `provenance` Record → `catalog-entry-validator` gates each commit.
+3. **(separate, [L])** Workspace render of provenance state.
