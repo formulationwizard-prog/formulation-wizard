@@ -9512,34 +9512,24 @@ export default function FormulationWizard() {
                           for industry-typical scaffolding; MEASURED ±5% if a verified supplier quote
                           with valid costValidUntil is attached). */}
                       {(() => {
+                        // Cost is blank-until-real (2026-06-05): Target Cost is the operator's OWN
+                        // entered cost — shown plainly, with NO ± range and NO estimated/verified
+                        // confidence pill (those framed cost as a platform estimate). Empty → prompt.
                         const cost = ing.costPerKg || 0;
-                        if (cost <= 0 || costConfidence === 'unknown') {
-                          // Round 8 Item 3: explicit UNKNOWN pill so users can distinguish
-                          // "we don't know this value" from a surface that simply has no
-                          // data here. Pill labels the absence; em-dash remains the value.
+                        if (cost <= 0) {
                           return (
                             <tr className="border-b border-gray-100">
                               <td className="py-1.5 px-3 font-medium w-48">Target Cost</td>
-                              <td className="py-1.5 px-3 font-mono text-gray-400">
-                                — (no cost data)
-                                {renderPill('unknown')}
-                              </td>
+                              <td className="py-1.5 px-3 font-mono text-gray-400">— add your cost in Unit Economics</td>
                             </tr>
                           );
                         }
-                        const rv = costRangedSpec(cost, costConfidence);
-                        const delta = rv.range.high - rv.value;
-                        const stale = dbData?.costSource === 'verified-quote' && costConfidence === 'estimated';
-                        // Use 4 decimals for very-low-cost items (e.g. potable water at $0.002/kg
-                        // would round to "$0.00" at 2 decimals); 2 decimals for everything else.
                         const dec = cost < 0.10 ? 4 : 2;
                         return (
                           <tr className="border-b border-gray-100">
                             <td className="py-1.5 px-3 font-medium w-48">Target Cost</td>
                             <td className="py-1.5 px-3 font-mono">
-                              ${cost.toFixed(dec)}/kg ± ${delta.toFixed(dec)}/kg (delivered)
-                              {renderPill(costConfidence)}
-                              {stale && <span className="ml-2 text-[10px] italic text-amber-700">stale quote — verify current pricing</span>}
+                              ${cost.toFixed(dec)}/kg <span className="text-[10px] text-gray-400 not-italic font-sans">(your entered cost)</span>
                             </td>
                           </tr>
                         );
@@ -9677,16 +9667,10 @@ export default function FormulationWizard() {
               isOverride: boolean;
             };
 
-            const sortedForSuggestions = (name: string, cat: string, currentCostPerKg: number): IndustrialIngredient[] => {
-              if (!cat || currentCostPerKg <= 0) return [];
-              return INDUSTRIAL_DB
-                .filter(i => i.category === cat
-                  && i.name !== name
-                  && (i.costPerKg || 0) > 0
-                  && (i.costPerKg || 0) < currentCostPerKg)
-                .sort((a, b) => (a.costPerKg || 0) - (b.costPerKg || 0))
-                .slice(0, 3);
-            };
+            // Cost is blank-until-real (2026-06-05): the "cheaper alternatives" suggestion ranked
+            // by catalog costPerKg — now severed (fabricated catalog cost no longer used). Disabled
+            // until a real per-operator cost layer exists (four-layer Layer 2). Returns none.
+            const sortedForSuggestions = (_name: string, _cat: string, _currentCostPerKg: number): IndustrialIngredient[] => [];
 
             const rows: CostRow[] = ingredients.map((ing, idx) => {
               const massG = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
@@ -9699,11 +9683,8 @@ export default function FormulationWizard() {
               const supplier = ing.supplier || (ing.foodData?.type === 'industrial'
                 ? ((ing.foodData.data as IndustrialIngredient).suppliers || [])[0] || ''
                 : '');
-              // DB-stated cost as the reference; anything different ⇒ override
-              const dbCost = ing.foodData?.type === 'industrial'
-                ? ((ing.foodData.data as IndustrialIngredient).costPerKg || 0)
-                : 0;
-              const isOverride = dbCost > 0 && Math.abs((ing.costPerKg || 0) - dbCost) > 0.001;
+              // Cost is blank-until-real: no fabricated catalog baseline to "override" against.
+              const isOverride = false;
               // MOQ heuristic — most industrial ingredients ship in ≥ 20 kg cases
               const moq = massKg < 0.5 ? 'pilot' : massKg < 20 ? 'below typical MOQ' : 'ok';
               return {
