@@ -9401,6 +9401,20 @@ export default function FormulationWizard() {
                   </div>
                 </div>
 
+                {/* Purpose statement — operator direction 2026-06-05: make the spec sheet's role
+                    explicit (don't rename, clarify purpose; put it to work as what it should be). It's
+                    the buyer's PURCHASE spec — what we require of the supplier — NOT the manufacturer's
+                    COA. Prints, so suppliers see the framing. */}
+                <div className="mb-6 rounded-lg border border-sky-300 bg-sky-50 p-4 text-xs leading-relaxed print:bg-white">
+                  <p className="font-bold text-sky-900 mb-1">What this is — your Purchase Specification</p>
+                  <p className="text-sky-900">
+                    The requirements <span className="font-semibold">you&rsquo;re asking the supplier to meet</span> for this raw material. Each value carries its confidence (estimates until lab-verified) — edit any to your firm requirement before you issue it. Send it to suppliers as your purchase spec, and use it as your incoming-material inspection reference.
+                  </p>
+                  <p className="text-sky-800 mt-2">
+                    It is <span className="font-semibold">not</span> the manufacturer&rsquo;s Certificate of Analysis. Ask the supplier for their COA / spec sheet to confirm a specific lot meets these requirements &mdash; then attach it to this ingredient.
+                  </p>
+                </div>
+
                 {/* Ingredient identity */}
                 <section className="mb-6">
                   <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-300 pb-1 mb-3">1. Ingredient Identity</h2>
