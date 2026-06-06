@@ -4576,9 +4576,11 @@ export default function FormulationWizard() {
             );
           })()}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* LEFT COLUMN */}
-            <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 lg:items-start gap-8">
+            {/* LEFT COLUMN — half-scroll: on lg+, its OWN viewport-height scroll region. The WHOLE
+                column scrolls (every section reachable — fixes the prior only-list-scroll bug that
+                hid Serving/Delivery/Closures). max-h not h, so short formulas don't force a scrollbar. */}
+            <div className="space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
               {/* Name & Save */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Formulation Name & Product Type</h2>
@@ -6441,8 +6443,8 @@ export default function FormulationWizard() {
                   (21 CFR 111.205 / 111.255). */}
             </div>
 
-            {/* RIGHT COLUMN - FDA Label */}
-            <div className="space-y-6">
+            {/* RIGHT COLUMN - FDA Label — half-scroll: on lg+, its OWN viewport-height scroll region. */}
+            <div className="space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:overscroll-contain lg:pl-1">
               {/* ═══════════════════════════════════════════════════════════
                   DETERMINATION ENGINE — live regulatory classification
                   Identity → Formula → Determination → Packaging/Dosage/Serving → Sustainability → Cost.
