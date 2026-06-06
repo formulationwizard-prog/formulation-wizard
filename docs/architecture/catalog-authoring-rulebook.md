@@ -409,6 +409,29 @@ Potassium Iodide (USP, Food-Grade) ← Food-Grade also regulatory baseline; pair
 
 **Surfacing event:** Q-Audit-1 B3.5 Potassium Iodide tier-pair rename.
 
+### Refinement 1a — Pharmacopeial-grade suffixes require a real monograph
+
+**The Rule:** A `(USP)` / `(NF)` / `(FCC)` / `(EP)` grade suffix is a *regulatory claim* and requires a real compendial monograph **for the exact compound named**. If no monograph exists for that compound, the suffix is an **unsubstantiated grade claim** (21 CFR truth-in-labeling defect) and must be dropped — or re-graded to the standard that does cover the form. The grade claim's provenance must be `regulatory-authority` with a real citation; absent a citation → `unknown`, never fabricated.
+
+**Why:** USP-NF covers specific compounds, not whole families. `Zinc Picolinate (USP)` is unsubstantiated — USP carries zinc sulfate/oxide/gluconate/citrate/acetate, not the picolinate salt. This complements Refinement 1 (USP-alone-is-baseline): even as a *compound* qualifier, the grade must actually exist for the compound.
+
+#### ❌ DON'T (no monograph for the exact compound — drop or re-grade)
+```
+Zinc Picolinate (USP)        Chromium Picolinate (USP)     Quercetin (USP, 95%)
+Alpha-Lipoic Acid (USP)      Creatine Monohydrate (...USP) Glucosamine Sulfate 2KCl (USP)  ← USP has HCl + Na-Cl forms; 2KCl is Ph.Eur.
+L-Carnitine L-Tartrate (USP) ← USP monograph is "Levocarnitine", not the tartrate salt   L-Citrulline Malate 2:1 (USP)
+```
+
+#### ✅ DO (real monograph for the exact compound)
+```
+Ascorbic Acid (USP)   Thiamine HCl (USP)   Magnesium Oxide (USP)   Zinc Gluconate (USP)
+Glycine (USP)         Taurine (USP)        Melatonin (USP)         L-Selenomethionine (USP)
+```
+
+**Validator check (mechanical):** flag any `(USP)/(NF)/(FCC)/(EP)` suffix whose entry lacks a `regulatory-authority` provenance citing a monograph for the *exact* compound. Turns the whole defect class into a commit-time gate.
+
+**Surfacing event:** 2026-06-05 provenance Workflow over the top-100 — 10 unsubstantiated `(USP)` instances surfaced (defect audit: `docs/catalog/provenance-defect-audit-2026-06-05.md`). See `[[feedback_pharmacopeial_claims_require_monograph]]`.
+
 ### Refinement 2 — Borderline-marketing solo qualifiers don't differentiate
 
 **The Rule:** `Premium`, `Pharma Grade`, `Best`, `Super`, `Advanced`, `Ultra`, `Natural` (when used as marketing), and similar borderline-marketing language do NOT function as catalog-grade tier qualifiers. Per §IX.41 AP-09, marketing copy is forbidden in display names.
