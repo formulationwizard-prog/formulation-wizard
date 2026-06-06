@@ -1113,6 +1113,11 @@ export default function FormulationWizard() {
     if (query.length < 2) { setShowDropdown(false); return; }
     const q = query.toLowerCase();
     const queryHasOrganic = /\borganic\b/.test(q);
+    // Carrier-loaded SKUs (IU/g on a filler matrix, potencyFactor < 1) sink below
+    // direct-dose siblings unless the query explicitly asks for a carrier form —
+    // prevents the "search 'Vitamin D3' → 100,000 IU/g surfaces first → operator
+    // enters 8 mcg → label reads 0" trap (2026-06-05 near-zero-active finding).
+    const queryWantsCarrier = /iu\/g|on mcc|carrier|\d+\s*%/i.test(q);
     const score = (i: IndustrialIngredient): number => {
       const nameScore = rankIngredientMatch(i.name, q);
       const base = nameScore < 99
@@ -1122,6 +1127,7 @@ export default function FormulationWizard() {
       // Within-tier deprioritization: organic variants sink below conventional
       // siblings unless the user explicitly typed "organic" in the query.
       if (!queryHasOrganic && /\borganic\b/i.test(i.name)) return base + 0.5;
+      if (!queryWantsCarrier && i.potencyFactor !== undefined && i.potencyFactor < 1) return base + 0.4;
       return base;
     };
     // DB array order is curated canonical-first (e.g., Granulated Sugar before
@@ -5029,11 +5035,25 @@ export default function FormulationWizard() {
                   )}
                 </div>
                 {selectedFood && (
+                  <>
                   <div className="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm flex items-center gap-3">
                     <span className="font-medium text-emerald-700">✅ {selectedFood.type === 'industrial' ? '📦 Industrial DB' : '🌐 USDA'}</span>
                     {selectedFood.costPerKg > 0 && <span className="text-gray-500">~${selectedFood.costPerKg}/kg</span>}
                     {selectedFood.supplier && <span className="text-gray-500">• {selectedFood.supplier}</span>}
                   </div>
+                  {/* Carrier-loaded entry-time signal (2026-06-05): a potencyFactor < 1 SKU is
+                      IU/g on a filler matrix — entering the active dose understates it to ~0 on
+                      the label. Tell the operator to enter PRODUCT mass. Pairs with the
+                      near-zero-active guard (the safety net) + the search-order deprioritization. */}
+                  {selectedFood.type === 'industrial' && (() => {
+                    const pf = (selectedFood.data as IndustrialIngredient | undefined)?.potencyFactor;
+                    return pf !== undefined && pf < 1 ? (
+                      <div className="mb-3 p-2 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-800 leading-snug">
+                        ⚠ <strong>Carrier-loaded SKU (~{Math.round(pf * 100)}% active).</strong> Enter the <strong>product mass</strong> (the ingredient as sold), not the active dose — the Supplement Facts panel converts to active. e.g. 8&nbsp;mcg of active D3 ≠ 8&nbsp;mcg of this product.
+                      </div>
+                    ) : null;
+                  })()}
+                  </>
                 )}
                 <div className="flex gap-2" ref={dropdownRef}>
                   <div className="flex-1 relative">
