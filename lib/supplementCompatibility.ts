@@ -277,6 +277,33 @@ function inferCapsuleShell(deliveryForm: CompatibilityConditions['deliveryForm']
 }
 
 // ============================================================
+// KEYWORD MATCHING — left-anchored word boundary (2026-06-06)
+// ------------------------------------------------------------
+// Mirrors the NDI module's Wave 1.5d substring→boundary discipline. The old
+// `name.includes(keyword)` substring match produced false positives whenever a
+// short keyword was buried inside an unrelated word — most damagingly the
+// omega-3 marker 'dha' substring-matching "ashwaganDHA", which flagged
+// Ashwagandha as an oxidation-prone fish/algae oil and raised a CRITICAL
+// "Omega-3 without amber/nitrogen" finding on an extremely common ingredient.
+//
+// Anchoring only the LEFT side with \b kills buried-substring matches (the bug
+// class) while still allowing the module's intentional prefix tokens to match
+// the rest of their word: 'lactobacill' → "Lactobacillus", 'bifido' →
+// "Bifidobacterium", 'saccharo' → "Saccharomyces", 'pantothen' →
+// "pantothenic acid". A full \b...\b on both sides would break those prefixes.
+// ============================================================
+const KW_REGEX_CACHE = new Map<string, RegExp>();
+function matchesKeyword(name: string, keyword: string): boolean {
+  let re = KW_REGEX_CACHE.get(keyword);
+  if (!re) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    re = new RegExp(`\\b${escaped}`, 'i');
+    KW_REGEX_CACHE.set(keyword, re);
+  }
+  return re.test(name);
+}
+
+// ============================================================
 // MAIN CHECKER
 // ============================================================
 
@@ -289,8 +316,8 @@ export function checkCompatibility(
 
   // Pairwise rules
   for (const rule of PAIR_RULES) {
-    const aMatch = ingredients.find(i => rule.aKeywords.some(k => i.name.toLowerCase().includes(k)));
-    const bMatch = ingredients.find(i => rule.bKeywords.some(k => i.name.toLowerCase().includes(k)));
+    const aMatch = ingredients.find(i => rule.aKeywords.some(k => matchesKeyword(i.name, k)));
+    const bMatch = ingredients.find(i => rule.bKeywords.some(k => matchesKeyword(i.name, k)));
     if (aMatch && bMatch && aMatch.name !== bMatch.name) {
       findings.push({
         tier: rule.tier,
@@ -307,7 +334,7 @@ export function checkCompatibility(
   const effectiveShell = conditions.capsuleShell ?? inferCapsuleShell(conditions.deliveryForm);
   const effectiveConditions: CompatibilityConditions = { ...conditions, capsuleShell: effectiveShell };
   for (const rule of SINGLE_RULES) {
-    const match = ingredients.find(i => rule.keywords.some(k => i.name.toLowerCase().includes(k)));
+    const match = ingredients.find(i => rule.keywords.some(k => matchesKeyword(i.name, k)));
     if (match && rule.requires(effectiveConditions)) {
       findings.push({
         tier: rule.tier,
