@@ -28,6 +28,7 @@
 
 import type { HardStop, HardStopEvidence } from './hardStop';
 import { selectSupplementDisclaimer } from './supplementDisclaimer';
+import { keywordMatch } from './keywordMatch';
 
 // ============================================================
 // NUTRIENT CONTENT CLAIM THRESHOLDS (21 CFR 101.54)
@@ -374,7 +375,11 @@ export function detectStructureFunctionClaims(
     const n = name.toLowerCase();
     for (const entry of STRUCTURE_FUNCTION_LIBRARY) {
       if (seen.has(entry.ingredient)) continue;
-      if (entry.keywords.some(k => n.includes(k))) {
+      // Word-boundary match (not raw substring) — else short markers like
+      // 'epa'/'dha' substring-match unrelated names ('ashwaganDHA' surfacing
+      // omega-3 claims, surfaced 2026-06-07). keywordMatch handles the short-
+      // token + digit-suffix boundary cases. [[project_substring_keyword_matching_bug_class]]
+      if (entry.keywords.some(k => keywordMatch(n, k))) {
         matches.push(entry);
         seen.add(entry.ingredient);
       }

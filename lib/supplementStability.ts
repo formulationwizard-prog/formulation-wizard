@@ -162,7 +162,10 @@ export function classifyStability(ingredientName: string, dbCategory: string | u
   }
 
   // ─── Omega / fatty acids ───────────────────────────────────────────────
-  if (/(fish oil|krill oil|algae oil|omega-3|omega 3|epa|dha|mct|flax|evening primrose|hemp seed oil|borage)/.test(n)) return 'omega-fatty-acid';
+  // Short markers epa/dha/mct word-boundaried — the bare alternation
+  // substring-matched 'ashwaganDHA' → omega category (surfaced 2026-06-07).
+  // See [[project_substring_keyword_matching_bug_class]].
+  if (/(fish oil|krill oil|algae oil|omega-3|omega 3|\bepa\b|\bdha\b|\bmct\b|flax|evening primrose|hemp seed oil|borage)/.test(n)) return 'omega-fatty-acid';
 
   // ─── Probiotics ────────────────────────────────────────────────────────
   if (c.includes('probiotic') || /(lactobacill|bifido|saccharo|bacillus|streptococcus|enterococcus|cfu)/.test(n)) return 'probiotic';
