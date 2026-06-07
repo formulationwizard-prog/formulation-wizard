@@ -1,38 +1,39 @@
 // ============================================================
-// SERVING / DOSE ENGINE — the single source of truth (2026-06-07)
+// SERVING / DOSE ENGINE — the single source of truth (2026-06-07, M1.5)
 // ------------------------------------------------------------
-// Operator-locked, Opus-refined. The sector-INVARIANT truth for turning a
-// formula (a recipe of ingredient masses) into per-serving delivered amounts:
+// Operator-locked, Opus-refined bedrock. Sector-INVARIANT truth for turning a
+// formula (recipe of ingredient masses) into per-serving delivered amounts:
 //
-//     per-serving value = (ingredient ÷ formula mass) × serving mass × factor
+//     per-serving = (ingredient ÷ formula mass) × serving mass × factor
 //
 // SCOPE: serving/dose ONLY. pH, water activity, stability/overage, cure, and
-// microbial-safety are SIBLING engines built on this same 5-property pattern;
-// they compose with this one, they are not folded into it.
+// microbial safety are SIBLING engines on the same 5-property pattern; they
+// compose with this one, they are not folded in.
 //
-// THE FIVE PROPERTIES (each anticipates where the tool is going):
-//   1. Sector-invariant equation. A sector is a thin ADAPTER (how formula mass
-//      and serving mass are derived) + a display panel — never new math. Nutra
-//      now; F&B / baked goods / pet food / unnamed-future inherit by adapter.
-//   2. Blank-until-real BY CONSTRUCTION. MaybeValue<T> = unset | real |
-//      below_threshold. "No input → no fabricated output" is a type, not a
-//      per-field patch. below_threshold renders "below detection/blend limit",
-//      never a fabricated 0 — the near-zero-active guard made structural.
-//   3. Provenance + confidence per value. Computation provenance (how THIS
-//      derived value was produced) is distinct from and composes with ingredient
-//      provenance (where the catalog entry came from — PROVENANCE_BY_NAME).
-//   4. Gates ride ON the engine. UL/safety/label consume DerivedValue, so they
-//      scale with the delivered dose by construction and can't drift. Multi-
-//      jurisdiction = limit-table config. The fixed-dose vs recipe-ratio
-//      workflows are forward vs REVERSE evaluation of ONE model (see solveFill).
-//   5. Single source of truth, verified across the sector × input-state matrix
-//      (property tests: mass conservation, % sums, blank propagation, factor
-//      application, provenance preservation).
+// FIVE PROPERTIES: (1) sector-invariant equation, sectors are adapters;
+// (2) blank-until-real BY CONSTRUCTION (MaybeValue); (3) computation provenance
+// per value; (4) gates ride on the engine + reverse mode (fixed-dose); (5) one
+// source of truth, property-verified across the input × sector matrix.
 //
-// MIGRATION: built alongside existing code. Display surfaces cut over behind
-// parity tests (old computePerServingScale output === new engine on Convention-B
-// math), surface-by-surface, then the old paths are deleted. No long coexistence.
+// MaybeValue COMPOSITION RULE (the one math — Addition 1, M1.5):
+//   • unset ⊕ anything            → unset                       (blank propagates)
+//   • (real|below_threshold) ⊕ … → real(op(values)), UNLESS the result is
+//                                   non-finite (÷0, ∞) → unset  (never real(NaN))
+//   • below_threshold is NOT arithmetically propagated. It is a BOUNDARY
+//     CLASSIFICATION (classifyThreshold) against a named threshold, because two
+//     sub-threshold values can SUM above threshold — state-propagation would lie
+//     on additive ops. below_threshold carries a real number, so it contributes
+//     its value to any op; significance is re-decided at the boundary.
+//
+// MIGRATION: built alongside existing code; surfaces cut over behind parity tests
+// (Class A math-correctness === ; Class B fabrication-removal intentionally
+// breaks w/ rationale; Class C new-coherence presence+shape), then old deleted.
 // ============================================================
+
+/** Bump when engine math/contracts change — stamped into every DerivedValue so
+ *  stored values (saved formulas, BPR, audit trail) record which engine produced
+ *  them (re-verification, copilot citation accuracy, forensics). Addition 2, M1.5. */
+export const ENGINE_VERSION = '1.5.0';
 
 // ─── Property 2: blank-until-real as a TYPE ─────────────────────────────────
 export type MaybeValue<T> =
@@ -47,32 +48,76 @@ export const belowThreshold = <T>(value: T, threshold: T): MaybeValue<T> =>
 
 export const isReal = <T>(m: MaybeValue<T>): m is { state: 'real'; value: T } => m.state === 'real';
 export const isUnset = <T>(m: MaybeValue<T>): m is { state: 'unset' } => m.state === 'unset';
-/** The numeric value when present (real OR below_threshold), else undefined.
- *  below_threshold carries a real number — it is below significance, not absent. */
+export const isBelowThreshold = <T>(m: MaybeValue<T>): m is { state: 'below_threshold'; value: T; threshold: T } =>
+  m.state === 'below_threshold';
+/** Underlying number when present (real OR below_threshold — both carry a value). */
 export const valueOf = <T>(m: MaybeValue<T>): T | undefined =>
   m.state === 'unset' ? undefined : m.value;
 
-/** Lift a binary numeric op so unset propagates (blank-until-real by construction):
- *  if EITHER operand is unset, the result is unset. below_threshold contributes its
- *  underlying value to the computation (it is a small real number, not absent). */
+/** The one composition math: unset absorbs; non-finite results → unset (no
+ *  fabricated NaN/∞ — fixes the M1 div-by-zero leak); below_threshold contributes
+ *  its carried value. Result is real or unset; significance is a boundary step. */
 export function combine(
   a: MaybeValue<number>,
   b: MaybeValue<number>,
   op: (x: number, y: number) => number,
 ): MaybeValue<number> {
   if (a.state === 'unset' || b.state === 'unset') return UNSET;
-  return real(op(a.value, b.value));
+  const v = op(a.value, b.value);
+  return Number.isFinite(v) ? real(v) : UNSET;
 }
 
-// ─── Property 3: computation provenance (distinct from ingredient provenance) ─
+/** Boundary classification → below_threshold when a real value is below a named
+ *  significance/detection threshold ("below detection limit", never a fake 0).
+ *  The near-zero-active guard, made structural. unset passes through. */
+export function classifyThreshold(m: MaybeValue<number>, threshold: number): MaybeValue<number> {
+  if (m.state === 'unset') return UNSET;
+  return m.value < threshold ? belowThreshold(m.value, threshold) : real(m.value);
+}
+
+// ─── Property 1: factor as a composed function (Opus shape, M1.5) ────────────
+export type FactorComponentType =
+  | 'elemental'                 // mineral salt/chelate → elemental mass fraction
+  | 'potency'                   // carrier-loaded active fraction
+  | 'unit_conversion'           // g → display unit (mg/mcg/IU)
+  | 'nutrient_content_per_gram' // F&B: nutrient mass per gram of ingredient
+  | 'bioavailability_reserved'; // reserved — future bioavailability adjustment
+
+export interface FactorComponent {
+  readonly type: FactorComponentType;
+  readonly value: number;
+  readonly source: string; // where this component came from (CFR, COA, catalog, etc.)
+}
+
+export interface Factor {
+  /** Product of all component values (unset if any component is non-finite). */
+  readonly scalar: MaybeValue<number>;
+  /** Queryable components — SFP popup + copilot citation read these, not just the scalar. */
+  readonly components: readonly FactorComponent[];
+}
+
+/** Compose a Factor from components (scalar = product of component values).
+ *  Empty components → real(1) (identity: mass IS the active form, no conversion). */
+export function composeFactor(components: FactorComponent[]): Factor {
+  const product = components.reduce((acc, c) => acc * c.value, 1);
+  return { scalar: Number.isFinite(product) ? real(product) : UNSET, components };
+}
+
+export type FactorFn = (ingredient: EngineIngredient, ctx: SectorContext) => Factor;
+
+// ─── Property 3: computation provenance — STRUCTURED, not stringly ───────────
 export type Confidence = 'verified' | 'calculated' | 'estimated' | 'unknown';
 
 export interface ComputationProvenance {
-  /** Plain-English derivation, e.g. "fill × units × (ingredient ÷ formula) × elemental". */
-  readonly derivation: string;
-  /** Honest confidence of the DERIVED value (a rollup of verified inputs is 'calculated'). */
+  readonly engineVersion: string;
   readonly confidence: Confidence;
-  /** Which inputs fed it — backs the "traces to operator input" credibility claim. */
+  /** Queryable operands — the SFP popup and copilot read these as data. */
+  readonly operands: {
+    readonly formulaMassG: MaybeValue<number>;
+    readonly proportion: MaybeValue<number>;
+    readonly servingMassG: MaybeValue<number>;
+    readonly factor: Factor;
+  };
   readonly inputs: readonly string[];
 }
 
@@ -82,130 +127,123 @@ export interface DerivedValue {
   readonly provenance: ComputationProvenance;
 }
 
+/** Human-readable derivation rendered FROM the structured operands (display only —
+ *  the operands are the source of truth, not this string). */
+export function describeDerivation(p: ComputationProvenance): string {
+  const n = (m: MaybeValue<number>) => (m.state === 'unset' ? '—' : String(Number(m.value.toPrecision(4))));
+  return `proportion ${n(p.operands.proportion)} × serving ${n(p.operands.servingMassG)} g × factor ${n(p.operands.factor.scalar)}`;
+}
+
 // ─── Engine inputs ──────────────────────────────────────────────────────────
 export interface EngineIngredient {
   readonly name: string;
-  /** Entered recipe mass in grams (the proportion numerator). Unset until entered. */
+  /** Entered recipe mass in grams (proportion numerator). Unset until entered. */
   readonly mass: MaybeValue<number>;
-  /** Opaque per-ingredient data the factor fn / provenance may read (catalog row, etc.). */
   readonly data?: unknown;
 }
-
-/** Sector-specific raw serving inputs (count form: fill + units; mass form: serving g). */
 export interface ServingInputs {
   readonly perUnitFillG?: MaybeValue<number>;
   readonly unitsPerServing?: MaybeValue<number>;
   readonly servingSizeG?: MaybeValue<number>;
 }
-
 export interface SectorContext {
   readonly sectorId: string;
   readonly audience?: string;
+  /** Significance threshold (display unit) below which an amount is below_threshold. */
+  readonly significanceThreshold?: number;
 }
 
-// ─── Property 1: factor is a FUNCTION, not a scalar ─────────────────────────
-/** elemental conversion × unit conversion × potency × bioavailability, per sector. */
-export type FactorFn = (ingredient: EngineIngredient, ctx: SectorContext) => MaybeValue<number>;
-
-/** Identity factor (mass IS the active form) — the default when no conversion applies. */
-export const IDENTITY_FACTOR: FactorFn = () => real(1);
-
-// ─── Property 1: the sector adapter contract (names BOTH relationships) ──────
+// ─── Property 1: sector adapter contract (names BOTH relationships) ──────────
 export interface SectorAdapter {
   readonly id: string;
-  /** Nutra: sum of entered masses. F&B: batch total. Unset if not yet derivable. */
   formulaMass(formula: readonly EngineIngredient[]): MaybeValue<number>;
-  /** Nutra: per-unit fill × units. F&B: stated serving size. Unset until the
-   *  operator provides the driving inputs (blank-until-real at the boundary). */
   servingMass(inputs: ServingInputs): MaybeValue<number>;
 }
 
 // ─── The sector-INVARIANT core equation ─────────────────────────────────────
-/**
- * per-serving amount = (ingredient mass ÷ formula mass) × serving mass × factor.
- * Unset propagates: if any input is unset, the result is unset (never fabricated).
- */
 export function perServingAmount(
   ingredient: EngineIngredient,
   formula: readonly EngineIngredient[],
   adapter: SectorAdapter,
   inputs: ServingInputs,
-  factor: FactorFn,
+  factorFn: FactorFn,
   ctx: SectorContext,
   unit = 'mg',
 ): DerivedValue {
-  const formulaMass = adapter.formulaMass(formula);
-  const servingMass = adapter.servingMass(inputs);
-  const f = factor(ingredient, ctx);
+  const formulaMassG = adapter.formulaMass(formula);
+  const servingMassG = adapter.servingMass(inputs);
+  const factor = factorFn(ingredient, ctx);
 
-  // proportion = ingredient ÷ formula
-  const proportion = combine(ingredient.mass, formulaMass, (i, total) => (total > 0 ? i / total : NaN));
-  const proportionalMass = combine(proportion, servingMass, (p, s) => p * s); // grams in the serving
-  const activeG = combine(proportionalMass, f, (m, fac) => m * fac);
-  // grams → display unit (mg default; the unit-conversion factor belongs in `factor`
-  // for non-mg actives, so here we only do the g→mg base conversion).
-  const amount = combine(activeG, real(unit === 'g' ? 1 : 1000), (g, k) => g * k);
+  const proportion = combine(ingredient.mass, formulaMassG, (i, total) => i / total); // ÷0 → unset
+  const proportionalMassG = combine(proportion, servingMassG, (p, s) => p * s);
+  // factor carries the g→unit conversion (unit_conversion component), so this is
+  // ingredient-grams × factor.scalar = active amount in the display unit.
+  let amount = combine(proportionalMassG, factor.scalar, (m, f) => m * f);
+  if (ctx.significanceThreshold !== undefined) amount = classifyThreshold(amount, ctx.significanceThreshold);
 
   const confidence: Confidence = isUnset(amount)
     ? 'unknown'
-    : isReal(formulaMass) && isReal(servingMass) ? 'calculated' : 'estimated';
+    : isReal(formulaMassG) && isReal(servingMassG) ? 'calculated' : 'estimated';
 
   return {
     amount,
     unit,
     provenance: {
-      derivation: 'serving mass × (ingredient ÷ formula) × factor',
+      engineVersion: ENGINE_VERSION,
       confidence,
+      operands: { formulaMassG, proportion, servingMassG, factor },
       inputs: ['ingredient.mass', 'formula', 'serving inputs', 'factor'],
     },
   };
 }
 
 // ─── Property 4: reverse mode — fixed-dose workflow on the SAME model ────────
-/**
- * Solve the per-unit fill weight (grams) required to DELIVER a target per-serving
- * active amount of one ingredient. This is the "fixed-dose" operator workflow —
- * forward evaluation run backwards. ONE math model, two workflows; the
- * Convention-A-vs-B fork does not recur at the engine level.
- *
- *   target = (ingredient ÷ formula) × (fill × units) × factor
- *   ⇒ fill = target / [ (ingredient ÷ formula) × units × factor ]
- */
+/** Solve per-unit fill (g) to DELIVER a target per-serving active amount (in the
+ *  factor's output unit). Forward run backwards — one model, two workflows.
+ *    fill = target / [ (ingredient ÷ formula) × units × factor.scalar ] */
 export function solveFillForTargetDose(
   ingredient: EngineIngredient,
   formula: readonly EngineIngredient[],
   adapter: SectorAdapter,
   unitsPerServing: MaybeValue<number>,
-  targetActiveG: MaybeValue<number>,
-  factor: FactorFn,
+  targetActive: MaybeValue<number>,
+  factorFn: FactorFn,
   ctx: SectorContext,
 ): MaybeValue<number> {
-  const formulaMass = adapter.formulaMass(formula);
-  const proportion = combine(ingredient.mass, formulaMass, (i, total) => (total > 0 ? i / total : NaN));
-  const f = factor(ingredient, ctx);
-  const denom = combine(combine(proportion, unitsPerServing, (p, u) => p * u), f, (pu, fac) => pu * fac);
-  return combine(targetActiveG, denom, (t, d) => (d > 0 ? t / d : NaN));
+  const formulaMassG = adapter.formulaMass(formula);
+  const proportion = combine(ingredient.mass, formulaMassG, (i, total) => i / total);
+  const factor = factorFn(ingredient, ctx);
+  const denom = combine(combine(proportion, unitsPerServing, (p, u) => p * u), factor.scalar, (pu, f) => pu * f);
+  return combine(targetActive, denom, (t, d) => t / d); // ÷0 → unset
 }
 
-// ─── The Nutraceuticals adapter (the first sector — implemented + verified) ──
-/** Nutra: formula = sum of entered ingredient masses; serving = per-unit fill × units.
- *  Both unset-propagating, so an unset fill yields an unset serving mass → unset
- *  per-serving amounts (blank-until-real), never the capsule-capacity default that
- *  caused the 2026-06-07 inflation. */
+// ─── Nutraceuticals adapter + factor (first sector — implemented + verified) ──
 export const nutraceuticalsAdapter: SectorAdapter = {
   id: 'nutraceuticals',
   formulaMass(formula) {
-    let sum = 0;
-    let any = false;
+    let sum = 0, any = false;
     for (const ing of formula) {
       if (ing.mass.state === 'unset') continue;
-      sum += ing.mass.value;
-      any = true;
+      sum += ing.mass.value; any = true;
     }
     return any ? real(sum) : UNSET;
   },
   servingMass(inputs) {
-    // Count form (capsule/tablet/softgel): fill × units. Both must be real.
     return combine(inputs.perUnitFillG ?? UNSET, inputs.unitsPerServing ?? UNSET, (fill, units) => fill * units);
   },
 };
+
+/** Build a Nutra factor from elemental + potency fractions (default 1) plus the
+ *  g→display-unit conversion. Components are queryable. */
+export function nutraFactor(opts: {
+  elemental?: number; elementalSource?: string;
+  potency?: number; potencySource?: string;
+  unit?: 'mg' | 'mcg' | 'g';
+}): Factor {
+  const components: FactorComponent[] = [];
+  if (opts.elemental !== undefined) components.push({ type: 'elemental', value: opts.elemental, source: opts.elementalSource ?? 'elementalFactors.ts' });
+  if (opts.potency !== undefined) components.push({ type: 'potency', value: opts.potency, source: opts.potencySource ?? 'catalog potencyFactor' });
+  const perGram = opts.unit === 'g' ? 1 : opts.unit === 'mcg' ? 1_000_000 : 1000;
+  components.push({ type: 'unit_conversion', value: perGram, source: `g→${opts.unit ?? 'mg'}` });
+  return composeFactor(components);
+}
