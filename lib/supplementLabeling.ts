@@ -25,6 +25,7 @@ import { UNIT_TO_GRAMS } from './utils';
 import { computePerServingScale } from './supplementMath';
 import { keywordMatch } from './keywordMatch';
 import { resolveElementalFactor } from './elementalFactors';
+import { resolveEquivalenceFactor } from './nutrientEquivalence';
 
 // ============================================================
 // REFERENCE DAILY VALUES (21 CFR 101.36 Table 1, adults & kids 4+)
@@ -45,6 +46,13 @@ import { resolveElementalFactor } from './elementalFactors';
 //   • scientific: optional Latin name for herbals/botanicals.
 // ============================================================
 
+/** Equivalence basis a DV is expressed in (per 21 CFR 101.9(c)(8)(iv) footnotes).
+ *  The DV VALUE is in `unit`; `basis` drives the label suffix (mcg DFE / mcg RAE /
+ *  mg NE / mg α-tocopherol) and tells the engine which source-form conversion to
+ *  apply (see lib/nutrientEquivalence.ts). Verified 2026-06-07, see
+ *  docs/audits/dv-table-verification-2026-06-07.md. */
+export type DVBasis = 'RAE' | 'DFE' | 'NE' | 'alpha-tocopherol';
+
 export interface DVEntry {
   displayName: string;
   dv: number;
@@ -52,24 +60,50 @@ export interface DVEntry {
   keywords: string[];
   /** Rough % of ingredient mass that is the active (0-1). Defaults 1.0. */
   elementalFactor?: number;
+  /** Equivalence basis (RAE/DFE/NE/α-tocopherol) — drives label suffix + conversion. */
+  basis?: DVBasis;
+  /** CFR citation OVERRIDE; defaults to the RDI table (c)(8)(iv). DRVs use (c)(9). */
+  citation?: string;
   /** Latin / scientific name appended in italics on the label. */
   scientific?: string;
   /** Subcategory for panel ordering. */
   group: 'vitamin' | 'mineral';
 }
 
+/** Provenance authority for the DV table — every value verified against the CFR
+ *  on 2026-06-07. Most entries are RDIs under (c)(8)(iv); DRVs (Sodium) override. */
+export const DV_TABLE_AUTHORITY = {
+  authority: 'FDA' as const,
+  defaultCitation: '21 CFR 101.9(c)(8)(iv)',
+  verifiedOn: '2026-06-07',
+} as const;
+
+/** Per-entry provenance (default citation unless the entry overrides). */
+export function dvProvenance(e: DVEntry) {
+  return {
+    authority: DV_TABLE_AUTHORITY.authority,
+    citation: e.citation ?? DV_TABLE_AUTHORITY.defaultCitation,
+    verifiedOn: DV_TABLE_AUTHORITY.verifiedOn,
+  };
+}
+
+/** Label suffix for a DV basis (e.g. unit 'mcg' + basis 'DFE' → "mcg DFE"). */
+export function basisLabel(basis: DVBasis): string {
+  return basis === 'alpha-tocopherol' ? 'α-tocopherol' : basis;
+}
+
 export const DV_TABLE: DVEntry[] = [
   // ─── VITAMINS ──────────────────────────────────────────────
-  { group: 'vitamin', displayName: 'Vitamin A', dv: 900, unit: 'mcg', keywords: ['vitamin a', 'retinyl', 'retinol', 'beta-carotene', 'beta carotene'] },
+  { group: 'vitamin', displayName: 'Vitamin A', dv: 900, unit: 'mcg', basis: 'RAE', keywords: ['vitamin a', 'retinyl', 'retinol', 'beta-carotene', 'beta carotene'] },
   { group: 'vitamin', displayName: 'Vitamin C', dv: 90, unit: 'mg', keywords: ['vitamin c', 'ascorbic acid', 'sodium ascorbate', 'calcium ascorbate'] },
   { group: 'vitamin', displayName: 'Vitamin D', dv: 20, unit: 'mcg', keywords: ['vitamin d', 'cholecalciferol', 'ergocalciferol', 'vitamin d3', 'vitamin d2'] },
-  { group: 'vitamin', displayName: 'Vitamin E', dv: 15, unit: 'mg', keywords: ['vitamin e', 'tocopher', 'tocotrien'] },
+  { group: 'vitamin', displayName: 'Vitamin E', dv: 15, unit: 'mg', basis: 'alpha-tocopherol', keywords: ['vitamin e', 'tocopher', 'tocotrien'] },
   { group: 'vitamin', displayName: 'Vitamin K', dv: 120, unit: 'mcg', keywords: ['vitamin k', 'phytonadione', 'menaquinone', 'mk-4', 'mk-7', 'menaq'] },
   { group: 'vitamin', displayName: 'Thiamin', dv: 1.2, unit: 'mg', keywords: ['thiamin', 'vitamin b1', 'b-1'] },
   { group: 'vitamin', displayName: 'Riboflavin', dv: 1.3, unit: 'mg', keywords: ['riboflavin', 'vitamin b2', 'b-2'] },
-  { group: 'vitamin', displayName: 'Niacin', dv: 16, unit: 'mg', keywords: ['niacin', 'niacinamide', 'nicotinamide', 'vitamin b3', 'b-3'] },
+  { group: 'vitamin', displayName: 'Niacin', dv: 16, unit: 'mg', basis: 'NE', keywords: ['niacin', 'niacinamide', 'nicotinamide', 'vitamin b3', 'b-3'] },
   { group: 'vitamin', displayName: 'Vitamin B6', dv: 1.7, unit: 'mg', keywords: ['vitamin b6', 'b-6', 'pyridox', 'p-5-p', 'p5p'] },
-  { group: 'vitamin', displayName: 'Folate', dv: 400, unit: 'mcg', keywords: ['folate', 'folic acid', 'methylfolate', '5-mthf', 'vitamin b9'] },
+  { group: 'vitamin', displayName: 'Folate', dv: 400, unit: 'mcg', basis: 'DFE', keywords: ['folate', 'folic acid', 'methylfolate', '5-mthf', 'vitamin b9'] },
   { group: 'vitamin', displayName: 'Vitamin B12', dv: 2.4, unit: 'mcg', keywords: ['vitamin b12', 'b-12', 'cobalamin', 'cyanocobalamin', 'methylcobalamin'] },
   { group: 'vitamin', displayName: 'Biotin', dv: 30, unit: 'mcg', keywords: ['biotin', 'vitamin b7', 'b-7', 'vitamin h'] },
   { group: 'vitamin', displayName: 'Pantothenic Acid', dv: 5, unit: 'mg', keywords: ['pantothen', 'vitamin b5', 'b-5'] },
@@ -99,8 +133,11 @@ export const DV_TABLE: DVEntry[] = [
   { group: 'mineral', displayName: 'Chromium', dv: 35, unit: 'mcg', keywords: ['chromium picolinate'], elementalFactor: 0.12 },
   { group: 'mineral', displayName: 'Chromium', dv: 35, unit: 'mcg', keywords: ['chromium'], elementalFactor: 0.20 },
   { group: 'mineral', displayName: 'Molybdenum', dv: 45, unit: 'mcg', keywords: ['molybdenum'] },
-  { group: 'mineral', displayName: 'Sodium', dv: 2300, unit: 'mg', keywords: ['sodium chloride', 'sodium'], elementalFactor: 0.40 },
+  { group: 'mineral', displayName: 'Sodium', dv: 2300, unit: 'mg', citation: '21 CFR 101.9(c)(9)', keywords: ['sodium chloride', 'sodium'], elementalFactor: 0.40 },
   { group: 'mineral', displayName: 'Potassium', dv: 4700, unit: 'mg', keywords: ['potassium chloride', 'potassium citrate', 'potassium'], elementalFactor: 0.38 },
+  // Chloride MUST follow Sodium/Potassium so 'sodium chloride'/'potassium chloride'
+  // match their nutrient-of-interest first (findDVEntry returns first match).
+  { group: 'mineral', displayName: 'Chloride', dv: 2300, unit: 'mg', keywords: ['chloride'], elementalFactor: 0.60 },
 ];
 
 // ============================================================
@@ -201,6 +238,9 @@ export interface SupplementFactRow {
   sourceName: string;
   /** Italicized scientific name for herbals (appended inline). */
   scientific?: string;
+  /** Parenthetical sub-declaration, e.g. folate (mcg DFE) line + folic acid (mcg)
+   *  in parens per 21 CFR 101.9(c)(8)(vii). Rendered as "(N unit name)" after the row. */
+  subDeclaration?: { name: string; amount: number; unit: string };
 }
 
 /**
@@ -373,16 +413,26 @@ export function buildSupplementFacts(params: {
       // safety check never disagree on elemental mass. Same values as the DV
       // table — the ?? dv.elementalFactor keeps any DV-only form working.
       const activeMg = gramsPerServing * 1000 * (resolveElementalFactor(ing.name) ?? dv.elementalFactor ?? 1);
-      let amount: number;
-      if (dv.unit === 'mg') amount = activeMg;
-      else if (dv.unit === 'mcg') amount = activeMg * 1000;
-      else if (dv.unit === 'g') amount = activeMg / 1000;
-      else amount = activeMg; // IU — caller should provide IU-dosed ingredients
+      // Source-form equivalence (β-carotene→RAE, folic acid→DFE, tryptophan→NE,
+      // all-rac→α-tocopherol): CFR-canonical conversion so %DV compares like-to-like
+      // with the basis the DV is expressed in. 1.0 when the active is already in basis.
+      const equiv = dv.basis ? resolveEquivalenceFactor(ing.name, dv.basis) : 1;
+      const equivMg = activeMg * equiv;
+      const toUnit = (mg: number) => dv.unit === 'mcg' ? mg * 1000 : dv.unit === 'g' ? mg / 1000 : mg;
+      const amount = toUnit(equivMg);
       const percentDV = dv.dv > 0 ? (amount / dv.dv) * 100 : null;
+      // Label suffix carries the equivalence basis (mcg DFE / mcg RAE / mg NE / mg α-tocopherol).
+      const rowUnit = dv.basis ? `${dv.unit} ${basisLabel(dv.basis)}` : dv.unit;
+      // Folic-acid parenthetical (c)(8)(vii): folate (mcg DFE) line + folic acid (mcg) in parens.
+      // Fires only when a DFE source was actually converted (equiv ≠ 1 ⇒ folic acid).
+      const subDeclaration = (dv.basis === 'DFE' && equiv !== 1)
+        ? { name: 'folic acid', amount: toUnit(activeMg), unit: dv.unit }
+        : undefined;
       vitaminMineralRows.push({
         displayName: dv.displayName + (shouldShowSource(ing.name, dv.displayName) ? ` (as ${cleanFormName(ing.name)})` : ''),
-        amount, unit: dv.unit, percentDV, group,
+        amount, unit: rowUnit, percentDV, group,
         sourceName: ing.name,
+        ...(subDeclaration ? { subDeclaration } : {}),
       });
       warnDisplayName = dv.displayName;
       warnLabelUnit = dv.unit;
