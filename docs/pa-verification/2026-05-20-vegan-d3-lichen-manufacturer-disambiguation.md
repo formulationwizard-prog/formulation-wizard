@@ -43,3 +43,17 @@ Cost gap modest (1.1×) — not a tier-attribution signal. The substantive quest
 Surfaced during Q-Audit-1 per-pair routing (Cluster C C.1; see `docs/audits/q-audit-1-final-routing.md` Section 7 + Section 11 Pattern B). Same shape as B4.2.1 Zinc Picolinate (Thorne/Jarrow) — pre-manufacturer/vendor-refactor `suppliers: string[]` array conflates finished-product consumer brands with raw-ingredient manufacturers. The manufacturer/vendor architectural lock at Round 12 Step 1 is the natural resolution path.
 
 **Step 0.5 disposition:** Both entries retain with `PENDING SPEC VERIFICATION` suffix until manufacturer/vendor restructure can apply.
+
+---
+
+## ADDENDUM 2026-06-06 — `potencyFactor` carrier-loading backfill (harm-critical)
+
+**Surfaced:** operator review of a live "Calm & Sleep Support" formula — `Vitamin D3 Vegan (Lichen-Sourced)` entered at 25 mcg rendered a mass column of **0.0036%** (0.025 mg of physical material), which is physically unblendable. Root cause: both lichen D3 entries lacked `potencyFactor`, so the engine treated the entered active dose as the raw-material mass (and suppressed the carrier-loaded entry-time warning + the silent-zero guard, both keyed on `potencyFactor`).
+
+**Interim resolution applied (code, not yet PA-verified):**
+- `Vitamin D3 Cholecalciferol (Vegan, Lichen)` and `Vitamin D3 Vegan (Lichen-Sourced)` → `potencyFactor: 0.0025`, the **representative** value for the common 100,000 IU/g finished grade (mirrors the lanolin 100k-IU/g sibling and the line-119 "2026-06-05 data-gap fix" precedent). Honest-estimate, basis documented in the entry note; NOT a verified vendor value.
+
+**Still needed from PA / Supplier-COA (adds to the open questions above):**
+7. **Exact carrier loading (IU/g) for the Vitashine and Lumi grades you intend to source.** 0.0025 assumes 100,000 IU/g. If the sourced grade differs (the SKUs span 1,000–400,000 IU/g), `potencyFactor` must be corrected: `potencyFactor = (IU/g × 0.000025 mg active/IU) / 1000`. e.g. 200,000 IU/g → 0.005; 400,000 IU/g → 0.010.
+
+Until verified, the representative 0.0025 is acceptable per the honest-estimate doctrine (documented basis + confidence + pending flag), and the structural blend-floor guard (`BLEND_FLOOR_MG`, lib/supplementLabeling.ts) backstops any residual under-/over-statement by flagging physically-unblendable masses regardless of `potencyFactor`.

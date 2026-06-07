@@ -7088,13 +7088,15 @@ export default function FormulationWizard() {
                         </p>
                       )}
                     </div>
-                    {/* Silent-zero advisory — OUTSIDE the regulated panel (chrome only;
-                        the panel above stays byte-faithful per 21 CFR 101.36). Catches
-                        carrier-loaded-SKU / unit mismatches that round an entered active
-                        to 0 on the label. */}
+                    {/* Dose / manufacturability advisory — OUTSIDE the regulated panel
+                        (chrome only; the panel above stays byte-faithful per 21 CFR
+                        101.36). Catches two things: actives whose physical mass is below
+                        the uniform-blend floor (need a carrier-loaded form or premix),
+                        and carrier-loaded-SKU / unit mismatches that round an entered
+                        active to 0 on the label. */}
                     {facts.nearZeroActiveWarnings.length > 0 && (
                       <div className="max-w-sm mx-auto mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-                        <p className="text-amber-900 font-semibold text-sm">⚠️ Label reads zero for an entered ingredient</p>
+                        <p className="text-amber-900 font-semibold text-sm">⚠️ Check these ingredient amounts</p>
                         <ul className="mt-1 space-y-1 list-disc list-inside">
                           {facts.nearZeroActiveWarnings.map((w, i) => (
                             <li key={`nz-${i}`} className="text-amber-800 text-xs leading-snug">{formatNearZeroWarning(w)}</li>

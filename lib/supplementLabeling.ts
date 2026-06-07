@@ -204,18 +204,45 @@ export interface SupplementFactRow {
 }
 
 /**
- * A flagged active whose LABEL amount rounds to 0 despite a non-zero entered
- * amount — the carrier-loaded-SKU / unit-mismatch "silent zero" trap (e.g. a
- * Vitamin D3 "100,000 IU/g on MCC" SKU entered as "8 mcg" shows 0 mcg, because
- * 8 mcg of that PRODUCT is ~0.02 mcg of active). Surfaced as a workspace
- * advisory OUTSIDE the regulated panel — never rendered on the panel itself,
- * which must stay byte-faithful per 21 CFR 101.36.
+ * Uniform-blend floor (mg of PHYSICAL ingredient per serving). Below this, an
+ * active cannot be weighed or blended homogeneously by direct addition — it must
+ * be supplied as a carrier-loaded / triturated form, or pre-blended by geometric
+ * dilution (USP <905> Uniformity of Dosage Units). 1 mg is the conservative
+ * industry threshold for direct addition; the catalog's own process guidance
+ * ("Pre-blend potent vitamins with carrier … geometric dilution for dose
+ * uniformity") encodes the same rule. This is a manufacturability fact, not a
+ * labeling rule, so it is independent of potencyFactor and of whether the active
+ * carries a Daily Value.
+ */
+export const BLEND_FLOOR_MG = 1;
+
+/**
+ * A flagged active that needs a second look before the formula is manufacturable
+ * or correctly labeled. Two distinct failure modes, discriminated by `reason`:
+ *
+ *  • 'label-rounds-to-zero' — the LABEL amount rounds to 0 despite a non-zero
+ *    entered amount (carrier-loaded SKU entered as an active dose, or a
+ *    unit/elemental mismatch). e.g. a Vitamin D3 "100,000 IU/g on MCC" SKU
+ *    entered as "8 mcg" shows 0 mcg, because 8 mcg of that PRODUCT is ~0.02 mcg
+ *    of active.
+ *
+ *  • 'below-blend-threshold' — the PHYSICAL ingredient mass per serving is below
+ *    BLEND_FLOOR_MG, so the dose cannot be uniformly blended by direct addition
+ *    regardless of how the label reads. This is the structural net that catches
+ *    a carrier-loaded SKU even when its potencyFactor was never set (e.g. a
+ *    lichen-D3 SKU entered as "25 mcg" → 0.025 mg of material), and pure micro-
+ *    actives that genuinely need a premix (e.g. neat B12 at 2.4 mcg).
+ *
+ * Surfaced as a workspace advisory OUTSIDE the regulated panel — never rendered
+ * on the panel itself, which must stay byte-faithful per 21 CFR 101.36.
  */
 export interface NearZeroActiveWarning {
   /** Source ingredient (full catalog name). */
   ingredientName: string;
   /** Label display name (e.g. "Vitamin D"); falls back to the cleaned ingredient name. */
   displayName: string;
+  /** Which failure mode tripped the flag. */
+  reason: 'label-rounds-to-zero' | 'below-blend-threshold';
   /** Amount the operator entered. */
   enteredAmount: number;
   /** Unit the operator entered (mg / mcg / g …). */
@@ -224,6 +251,8 @@ export interface NearZeroActiveWarning {
   labelUnit: string;
   /** Carrier-loading factor (<1 ⇒ carrier-loaded SKU — the dominant cause). */
   potencyFactor: number;
+  /** Physical ingredient mass per serving, in mg (drives the blend-floor check). */
+  physicalMassMg: number;
 }
 
 /**
@@ -320,11 +349,23 @@ export function buildSupplementFacts(params: {
     const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
       ? ing.foodData.data.potencyFactor : 1;
 
+    // PHYSICAL ingredient mass per serving, in mg — computed BEFORE potency.
+    // This is the mass actually weighed into the blend (a carrier-loaded SKU is
+    // mostly carrier by mass), so it — not the active amount — is what the
+    // uniform-blend floor must be measured against.
+    const physicalMassMg = ingredientGrams(ing) * scale * 1000;
+
     // Amount of ACTIVE per serving, in grams (or ml treated as 1:1)
     const gramsPerServing = ingredientGrams(ing) * scale * potency;
     if (gramsPerServing <= 0) continue;
 
     const dv = findDVEntry(ing.name);
+
+    // Captured per branch, then funneled into a single advisory check below so
+    // each ingredient raises at most one flag with the most actionable framing.
+    let warnDisplayName: string;
+    let warnLabelUnit: string;
+    let labelRoundsToZero: boolean;
 
     if (dv && (group === 'vitamin' || group === 'mineral')) {
       // Express in DV unit. Apply form-specific elementalFactor for mineral salts
@@ -343,15 +384,9 @@ export function buildSupplementFacts(params: {
         amount, unit: dv.unit, percentDV, group,
         sourceName: ing.name,
       });
-      // Silent-zero guard: a non-zero entry that the label rounds to 0 (carrier-
-      // loaded SKU or unit mismatch). gramsPerServing > 0 is already guaranteed,
-      // so a "0" display means it rounded down below the labeling threshold.
-      if (ing.qty > 0 && formatSupplementAmount(amount, dv.unit) === '0') {
-        nearZeroActiveWarnings.push({
-          ingredientName: ing.name, displayName: dv.displayName,
-          enteredAmount: ing.qty, enteredUnit: ing.unit, labelUnit: dv.unit, potencyFactor: potency,
-        });
-      }
+      warnDisplayName = dv.displayName;
+      warnLabelUnit = dv.unit;
+      labelRoundsToZero = formatSupplementAmount(amount, dv.unit) === '0';
     } else {
       // No DV — display in mg (or g if >= 1000 mg) with "†"
       const mgPerServing = gramsPerServing * 1000;
@@ -362,10 +397,31 @@ export function buildSupplementFacts(params: {
         amount: displayAmount, unit: displayUnit, percentDV: null, group,
         sourceName: ing.name,
       });
-      if (ing.qty > 0 && formatSupplementAmount(displayAmount, displayUnit) === '0') {
+      warnDisplayName = cleanFormName(ing.name);
+      warnLabelUnit = displayUnit;
+      labelRoundsToZero = formatSupplementAmount(displayAmount, displayUnit) === '0';
+    }
+
+    // Manufacturability + silent-zero net (advisory only — never touches the
+    // regulated panel). At most one flag per ingredient. The structural blend-
+    // floor check comes first: it is the physical truth (you cannot uniformly
+    // blend a sub-milligram speck) and it fires even when potencyFactor was
+    // never set — the gap that let a lichen-D3 "25 mcg" entry render an absurd
+    // 0.025 mg of material. The label-rounds-to-zero signal is the fallback for
+    // mismatches whose physical mass is fine but whose active rounds away (e.g.
+    // a low-elemental mineral salt).
+    if (ing.qty > 0) {
+      if (physicalMassMg > 0 && physicalMassMg < BLEND_FLOOR_MG) {
         nearZeroActiveWarnings.push({
-          ingredientName: ing.name, displayName: cleanFormName(ing.name),
-          enteredAmount: ing.qty, enteredUnit: ing.unit, labelUnit: displayUnit, potencyFactor: potency,
+          ingredientName: ing.name, displayName: warnDisplayName, reason: 'below-blend-threshold',
+          enteredAmount: ing.qty, enteredUnit: ing.unit, labelUnit: warnLabelUnit,
+          potencyFactor: potency, physicalMassMg,
+        });
+      } else if (labelRoundsToZero) {
+        nearZeroActiveWarnings.push({
+          ingredientName: ing.name, displayName: warnDisplayName, reason: 'label-rounds-to-zero',
+          enteredAmount: ing.qty, enteredUnit: ing.unit, labelUnit: warnLabelUnit,
+          potencyFactor: potency, physicalMassMg,
         });
       }
     }
@@ -408,16 +464,39 @@ export function buildSupplementFacts(params: {
   };
 }
 
+/** Format a small mg mass for advisory prose (e.g. 0.025, 2.4, 0.008). */
+function formatBlendMass(mg: number): string {
+  if (mg >= 1) return `${Number(mg.toFixed(2))} mg`;
+  if (mg >= 0.001) return `${Number(mg.toPrecision(2))} mg`;
+  return `${Number((mg * 1000).toPrecision(2))} mcg`;
+}
+
 /**
- * Compose the operator-facing advisory string for a silent-zero active. Plain
- * language, actionable. Carrier-loaded SKUs (the common cause) get the "enter
- * product mass, not active" guidance; everything else gets a unit/amount check.
+ * Compose the operator-facing advisory string for a flagged active. Plain
+ * language, actionable, and branched on the failure mode:
+ *
+ *  • below-blend-threshold + carrier-loaded SKU → "enter product mass, not active"
+ *  • below-blend-threshold + pure active        → "use a carrier/triturated form or premix"
+ *  • label-rounds-to-zero  + carrier-loaded SKU → same carrier guidance
+ *  • label-rounds-to-zero  + pure active        → "verify the amount and unit"
  */
 export function formatNearZeroWarning(w: NearZeroActiveWarning): string {
   const name = w.displayName || w.ingredientName;
   const entered = `${Number(w.enteredAmount.toFixed(4))} ${w.enteredUnit}`;
+  const isCarrierLoaded = w.potencyFactor > 0 && w.potencyFactor < 1;
+
+  if (w.reason === 'below-blend-threshold') {
+    const base = `${name}: that amount is only ${formatBlendMass(w.physicalMassMg)} of physical material per serving (you entered ${entered}) — below the ~${BLEND_FLOOR_MG} mg that can be blended uniformly by direct addition.`;
+    if (isCarrierLoaded) {
+      const pctNum = w.potencyFactor * 100;
+      const pct = pctNum < 1 ? `${Number(pctNum.toPrecision(2))}%` : `${Math.round(pctNum)}%`;
+      return `${base} This SKU is carrier-loaded — only ~${pct} of its mass is the active — so enter the product mass that delivers your target dose, not the active amount.`;
+    }
+    return `${base} Use a carrier-loaded / triturated form of this active, or pre-blend it with a carrier by geometric dilution (USP <905> dose uniformity).`;
+  }
+
   const base = `${name} rounds to 0 ${w.labelUnit} on the label (you entered ${entered}).`;
-  if (w.potencyFactor > 0 && w.potencyFactor < 1) {
+  if (isCarrierLoaded) {
     const pctNum = w.potencyFactor * 100;
     const pct = pctNum < 1 ? `${Number(pctNum.toPrecision(2))}%` : `${Math.round(pctNum)}%`;
     return `${base} This SKU is carrier-loaded — only ~${pct} of its mass is the active — so that amount of product delivers just a trace. Enter the product mass that delivers your target dose, not the active amount.`;
