@@ -1288,15 +1288,15 @@ export default function FormulationWizard() {
   // not the conditionally-synced servingSize field, whose misread-as-grams is
   // what produced the Vit C 500mg→1942mg bug); powder/liquid use the entered
   // scoop/volume serving. 0 until a serving is defined → supplement per-serving
-  // math falls back to identity (matches "spec generated when saved WITH a
-  // serving"). Passed to computePerServingScale as supplementServingMassG.
+  // math falls back to Convention A identity (matches "spec generated when
+  // saved WITH a serving"). Passed to computePerServingScale as supplementServingMassG.
   // Derived via deriveSupplementServingMassG (the testable contract boundary).
-  // Convention B is LIVE (2026-06-06, operator-directed): entered amounts are
-  // the ingredient PROPORTIONS, and the per-serving dose = % of formula ×
-  // (per-unit FILL weight × units). The driver is the operator's fill weight,
-  // bounded by capsule capacity — never the shell capacity itself, which is the
-  // distinction that keeps it from re-inflating (cf. the 2026-06-05 panel).
-  // See lib/supplementMath.ts SUPPLEMENT_CONVENTION_B_ENABLED + test Section 1E.
+  // While Convention B is gated off for the August launch this returns 0 for
+  // every supplement form → computePerServingScale falls back to identity
+  // (Convention A): entered amounts ARE the per-serving doses. Capsule shell
+  // capacity feeds the fit / utilization diagnostic only, NEVER the dose scaler.
+  // This is what retired the 2026-06-05 SFP ~4× inflation bug — see
+  // lib/supplementMath.ts SUPPLEMENT_CONVENTION_B_ENABLED + test Section 1E.
   const suppServingMassG = deriveSupplementServingMassG({
     mode,
     deliveryCategory: categorizeDeliveryForm(suppDeliveryForm),
@@ -5683,12 +5683,14 @@ export default function FormulationWizard() {
                 // validates the operator's TARGET FILL against capsule
                 // capacity (a user-input validation surface).
                 //
-                // ARCHITECTURAL QUESTION RESOLVED 2026-06-06 (operator-directed):
-                // Convention B — the ingredient row qty is the recipe PROPORTION,
-                // and per-serving dose = % of formula × (per-cap fill × units).
-                // This diagnostic still validates the operator's TARGET FILL
-                // against capsule capacity; the dose scaling itself now lives in
-                // computePerServingScale (SUPPLEMENT_CONVENTION_B_ENABLED = true).
+                // ARCHITECTURAL QUESTION OPEN — Convention A vs B (ingredient
+                // row qty as per-serving label-claim dose vs recipe proportion)
+                // routed to next session via PDS architecture memo. See
+                // docs/architecture/packaging-data-sheet-architecture-2026-05-27.md
+                // for the three-document model (Base Sheet / Packaging Data
+                // Sheet / BPR) that resolves this question by separation of
+                // concerns — Convention B emerges naturally once Packaging
+                // Data Sheet owns per-cap fill + serving math.
                 const fillWeightMg = suppPerUnitWeightMg;
                 const capsuleCap = capsuleCapacityMg(suppCapsuleSize);
                 const capsuleUsagePct = capsuleCap > 0 ? (fillWeightMg / capsuleCap) * 100 : 0;
