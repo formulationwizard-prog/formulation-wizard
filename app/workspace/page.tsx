@@ -432,23 +432,15 @@ export default function FormulationWizard() {
   //                            forms (500 mg sensible starting point).
   const [lastEditedCountField, setLastEditedCountField] = useState<LastEditedCountField>(null);
   const [totalUnitsOverride, setTotalUnitsOverride] = useState<number | null>(null);
-  const [suppPerUnitWeightMg, setSuppPerUnitWeightMg] = useState<number>(500);
-  // Per operator 2026-05-26 — capsule fill weight is operator-editable
-  // (defaults to capsule capacity but operator can lower it depending on
-  // formula density / packing reliability). Sync suppPerUnitWeightMg to
-  // capsuleCapacityMg(suppCapsuleSize) when capsule form selected OR
-  // capsule size changes. Operator's manual edits via setSuppPerUnitWeightMg
-  // persist until size changes again (different size = different sensible
-  // starting target). Tablet/gummy/etc. retain their 500mg default.
-  useEffect(() => {
-    if (mode !== 'supplements') return;
-    if (suppDeliveryForm !== 'capsule' && suppDeliveryForm !== 'softgel') return;
-    const cap = capsuleCapacityMg(suppCapsuleSize);
-    if (cap > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- capsule-size → fill-target default sync
-      setSuppPerUnitWeightMg(cap);
-    }
-  }, [mode, suppDeliveryForm, suppCapsuleSize]);
+  // Blank-until-real (operator directive 2026-06-07): per-unit fill weight is
+  // NOT pre-filled from capsule capacity. An inferred-as-prefill value reads as
+  // operator data when it isn't — same class as the severed cost fabrications
+  // and the stale "30 servings" default. 0 = unset → the input renders blank,
+  // serving mass + capsule-fit stay blank, and the count-sync skips (newServingMg
+  // / newPackageG <= 0). Capsule capacity is shown as HELPER TEXT + the input
+  // max only (honest guidance), never as a default value. The prior
+  // capsule-size→fill-weight prefill useEffect was removed for this reason.
+  const [suppPerUnitWeightMg, setSuppPerUnitWeightMg] = useState<number>(0);
   /** Intended audience for the supplement — tightens UL thresholds (pregnancy retinol, pediatric iron, etc.). */
   const [suppAudience, setSuppAudience] = useState<SupplementAudience>('general');
   // ----- Supplement stability / overage conditions ---------------------------
@@ -5483,7 +5475,8 @@ export default function FormulationWizard() {
                               type="number"
                               min={1}
                               step={1}
-                              value={displayServings}
+                              value={displayServings > 0 ? displayServings : ''}
+                              placeholder="count"
                               onChange={(e) => {
                                 const v = parseFloat(e.target.value);
                                 if (isNaN(v) || v <= 0) {
@@ -5508,7 +5501,8 @@ export default function FormulationWizard() {
                               type="number"
                               min={1}
                               step={1}
-                              value={displayTotalUnits}
+                              value={displayTotalUnits > 0 ? displayTotalUnits : ''}
+                              placeholder="count"
                               onChange={(e) => {
                                 const v = parseFloat(e.target.value);
                                 if (isNaN(v) || v <= 0) {
@@ -5541,10 +5535,12 @@ export default function FormulationWizard() {
                                 type="number"
                                 min={1}
                                 step={1}
-                                value={suppPerUnitWeightMg}
+                                value={suppPerUnitWeightMg > 0 ? suppPerUnitWeightMg : ''}
+                                placeholder="weight"
                                 onChange={(e) => {
                                   const v = parseFloat(e.target.value);
-                                  if (!isNaN(v) && v > 0) setSuppPerUnitWeightMg(v);
+                                  if (isNaN(v) || v <= 0) setSuppPerUnitWeightMg(0);
+                                  else setSuppPerUnitWeightMg(v);
                                 }}
                                 className="w-full text-center border border-emerald-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
                               />
@@ -5569,11 +5565,21 @@ export default function FormulationWizard() {
                             {' '}per serving.
                           </p>
                           <p className="mt-0.5">
-                            <span className="font-semibold">Serving Size (mass):</span>{' '}
-                            <span className="font-mono">{formatMassDisplay(derivedServingMassMg)}</span>
-                            <span className="text-gray-400 mx-2">·</span>
-                            <span className="font-semibold">Package Size (mass):</span>{' '}
-                            <span className="font-mono">{derivedPackageMassG.toFixed(2)} g</span>
+                            {suppPerUnitWeightMg > 0 ? (
+                              <>
+                                <span className="font-semibold">Serving Size (mass):</span>{' '}
+                                <span className="font-mono">{formatMassDisplay(derivedServingMassMg)}</span>
+                                {derivedPackageMassG > 0 && (
+                                  <>
+                                    <span className="text-gray-400 mx-2">·</span>
+                                    <span className="font-semibold">Package Size (mass):</span>{' '}
+                                    <span className="font-mono">{derivedPackageMassG.toFixed(2)} g</span>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-gray-400 italic">Enter per-{noun.singular.toLowerCase()} weight to compute serving &amp; package mass.</span>
+                            )}
                           </p>
                           <p className="mt-0.5 text-[10px] text-gray-400 italic">
                             Computed from count inputs + per-unit weight. Serving Size mass is no longer directly editable for {suppDeliveryForm} forms.
