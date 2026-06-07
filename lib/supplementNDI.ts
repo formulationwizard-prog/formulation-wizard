@@ -133,7 +133,7 @@ export const NDI_TABLE: NDIEntry[] = [
   { keywords: ['vitamin a', 'retinyl', 'retinol'], displayName: 'Vitamin A', status: 'grandfathered' },
   { keywords: ['beta-carotene', 'beta carotene'], displayName: 'Beta-Carotene', status: 'grandfathered' },
   { keywords: ['vitamin c', 'ascorbic acid', 'sodium ascorbate', 'calcium ascorbate'], displayName: 'Vitamin C', status: 'grandfathered' },
-  { keywords: ['vitamin d', 'cholecalciferol', 'ergocalciferol'], displayName: 'Vitamin D', status: 'grandfathered' },
+  { keywords: ['vitamin d', 'vitamin d3', 'vitamin d2', 'cholecalciferol', 'ergocalciferol'], displayName: 'Vitamin D', status: 'grandfathered', note: 'Source-independent: lichen/lanolin/algal cholecalciferol is the identical molecule — a different botanical/animal SOURCE is not a chemical alteration, so vegan (lichen-sourced) D3 inherits the same pre-1994 ODI status. The "vitamin d3"/"vitamin d2" keywords are explicit because the whole-word boundary regex does not let bare "vitamin d" match "Vitamin D3" (d→3 is no word boundary), and source-qualified SKU names (e.g. "Vitamin D3 Vegan (Lichen-Sourced)") carry "cholecalciferol" only in the sub-ingredient, not the display name. Added 2026-06-06.' },
   { keywords: ['vitamin e', 'tocopherol'], displayName: 'Vitamin E', status: 'grandfathered' },
   { keywords: ['vitamin k', 'phytonadione', 'menaquinone', 'mk-4', 'mk-7'], displayName: 'Vitamin K', status: 'grandfathered', note: 'MK-7 specifically has a more recent NDI — GRAS notified.' },
   { keywords: ['thiamin', 'thiamine', 'vitamin b1'], displayName: 'Thiamin (B1)', status: 'grandfathered' }, // Wave 1.5d: 'thiamin' partial-token expanded to ['thiamin', 'thiamine'] for whole-word matching

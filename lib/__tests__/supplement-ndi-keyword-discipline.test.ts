@@ -113,6 +113,38 @@ describe('NDI whole-word boundary — keyword discipline holds across compound n
 });
 
 // ──────────────────────────────────────────────────────────────
+// Surface 2b — Vitamin D3/D2 naming gap (2026-06-06)
+// The whole-word "vitamin d" keyword cannot match "Vitamin D3" (d→3 is
+// not a word boundary), and source-qualified vegan SKUs carry
+// "cholecalciferol" only in the sub-ingredient, not the display name — so
+// the lichen D3 SKU fell through to UNKNOWN despite cholecalciferol being a
+// grandfathered ODI. Operator-surfaced via the live NDI panel.
+// ──────────────────────────────────────────────────────────────
+
+describe('NDI Vitamin D3/D2 naming — source-qualified SKUs classify correctly', () => {
+  it('"Vitamin D3 Vegan (Lichen-Sourced)" classifies as grandfathered (was UNKNOWN)', () => {
+    const r = classifyIngredientNDI('Vitamin D3 Vegan (Lichen-Sourced)');
+    expect(r.status).toBe('grandfathered');
+    expect(r.match?.displayName).toBe('Vitamin D');
+  });
+
+  it('"Vitamin D3 Cholecalciferol (100,000 IU/g on MCC)" still classifies as grandfathered', () => {
+    const r = classifyIngredientNDI('Vitamin D3 Cholecalciferol (100,000 IU/g on MCC)');
+    expect(r.status).toBe('grandfathered');
+  });
+
+  it('"Vitamin D2 (Ergocalciferol, USP)" classifies as grandfathered', () => {
+    const r = classifyIngredientNDI('Vitamin D2 (Ergocalciferol, USP)');
+    expect(r.status).toBe('grandfathered');
+  });
+
+  it('bare "Vitamin D3" (no chemical name in display) classifies as grandfathered', () => {
+    const r = classifyIngredientNDI('Vitamin D3');
+    expect(r.status).toBe('grandfathered');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────
 // Surface 3 — Expanded partial-token keywords still match
 // ──────────────────────────────────────────────────────────────
 
