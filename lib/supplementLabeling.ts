@@ -615,8 +615,22 @@ export function formatSupplementAmount(amount: number, unit: string): string {
  * for low values; rounded to nearest 2/5/10 as amount grows.
  * We follow the same rounding as the food panel for simplicity.
  */
-export function formatSupplementDV(pct: number | null): string {
+// %DV rounding is SECTOR-SPECIFIC (the rule conflation that caused the 100%-vs-99%
+// bug, surfaced 2026-06-07):
+//   • Dietary supplements (SFP) — 21 CFR 101.36(b)(2)(iii)(C): NEAREST WHOLE PERCENT.
+//   • Food (NFP)               — 21 CFR 101.9(c)(8)(iii): increment rounding
+//                                (nearest 2% ≤10, 5% ≤50, 10% >50).
+// Default is 'supplements' because this function only feeds the Supplement Facts
+// panel today; the increment branch preserves the correct behavior for any future
+// food caller.
+export function formatSupplementDV(pct: number | null, mode: ModeId = 'supplements'): string {
   if (pct === null) return '†';
+  if (mode === 'supplements') {
+    // 21 CFR 101.36(b)(2)(iii)(C) — nearest whole percent.
+    if (pct < 1) return '<1%'; // FLAG: confirm SFP sub-1% presentation vs primary source
+    return `${Math.round(pct)}%`;
+  }
+  // 21 CFR 101.9(c)(8)(iii) — food NFP increment rounding.
   if (pct < 1) return '<1%';
   if (pct < 2) return '1%';
   if (pct <= 10) return `${Math.round(pct / 2) * 2}%`;

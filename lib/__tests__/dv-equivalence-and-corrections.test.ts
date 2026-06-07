@@ -8,7 +8,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { resolveEquivalenceFactor, equivalenceNote } from '../nutrientEquivalence';
-import { DV_TABLE, findDVEntry, dvProvenance, buildSupplementFacts } from '../supplementLabeling';
+import { DV_TABLE, findDVEntry, dvProvenance, buildSupplementFacts, formatSupplementDV } from '../supplementLabeling';
 import type { Ingredient } from '../../types';
 
 describe('source-form equivalence factors (Opus item 4 — CFR footnote ratios)', () => {
@@ -75,6 +75,22 @@ function facts(ings: Ingredient[]) {
     macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },
   });
 }
+
+describe('%DV rounding is sector-specific (the 101.36-vs-101.9 conflation fix)', () => {
+  it('SUPPLEMENT (default) → nearest whole percent per 101.36(b)(2)(iii)(C)', () => {
+    expect(formatSupplementDV(98.9)).toBe('99%');   // Vit C 89/90
+    expect(formatSupplementDV(96.2)).toBe('96%');   // Riboflavin 1.25/1.3
+    expect(formatSupplementDV(192.3)).toBe('192%'); // aggregated Riboflavin 2.5/1.3
+    expect(formatSupplementDV(94.4)).toBe('94%');   // Vit C 85/90 (was wrongly 90%)
+    expect(formatSupplementDV(125)).toBe('125%');   // Niacin 20/16 (was wrongly 130%)
+    expect(formatSupplementDV(null)).toBe('†');
+  });
+  it('FOOD (mode=fb) → 101.9 increment rounding preserved (2/5/10)', () => {
+    expect(formatSupplementDV(98.9, 'fb')).toBe('100%'); // >50 → nearest 10
+    expect(formatSupplementDV(6.7, 'fb')).toBe('6%');    // ≤10 → nearest 2
+    expect(formatSupplementDV(33, 'fb')).toBe('35%');    // ≤50 → nearest 5
+  });
+});
 
 describe('end-to-end conversion through the Supplement Facts panel', () => {
   it('β-carotene 900 mcg → 450 mcg RAE → 50% DV (not 100%)', () => {
