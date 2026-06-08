@@ -1,19 +1,21 @@
 // ============================================================
 // Unit-economics cost math — count-based supplements vs mass-based F&B.
 // ------------------------------------------------------------
-// Pure + test-locked. F&B uses a "fraction of a batch" model. Supplements use
-// a per-serving model under CONVENTION A (the August launch contract, see
-// lib/supplementMath.ts SUPPLEMENT_CONVENTION_B_ENABLED): each entered
-// ingredient row IS one serving's dose, so the summed ingredient cost (totalCost)
-// IS the per-serving cost. perServingScale is therefore 1.0 — the caller passes
-// computePerServingScale(...), which returns identity while the Convention-B gate
-// is off. The per-serving model also avoids the bogus "serving > batch" warning
-// that F&B's fraction model tripped on a multi-capsule serving.
+// Pure + test-locked. F&B uses a "fraction of a batch" model. Supplements use a
+// per-serving model under CONVENTION B (recipe-ratio — LIVE since 2026-06-07,
+// SUPPLEMENT_CONVENTION_B_ENABLED = true): the entered ingredient rows are the
+// RECIPE (proportions), and one serving delivers (servingMass / formulaMass)× of it.
+// So per-serving cost = totalCost × perServingScale, where the caller passes
+// perServingScale = computePerServingScale(...) — the SAME factor the SFP doses and
+// the UL / dosage checks use. Cost therefore TRACKS the panel: when the SFP shows
+// 377 mg at a 660 mg fill, the per-serving cost reflects that 377 mg, not the
+// recipe's 200 mg. The per-serving model also avoids the bogus "serving > batch"
+// warning that F&B's fraction model tripped on a multi-capsule serving.
 //
-// perServingScale is RETAINED as the seam for post-launch Convention B (formula-
-// as-recipe scaled to a real fill weight). It stays 1.0 until that gate flips;
-// do not reintroduce capsule-capacity scaling here without that work — that is
-// exactly what produced the ~4× SFP + cost inflation retired on 2026-06-05.
+// Blank-until-real safety net: an UNSET fill → computePerServingScale returns
+// identity (1.0) → cost = the entered recipe's cost, never a capsule-capacity-
+// inflated value. That capacity-scaling inflation was the ~4× SFP + cost bug
+// retired 2026-06-05 — do NOT reintroduce capsule-capacity scaling here.
 // ============================================================
 
 /** 1 lb in grams (matches the constant in lib/netQuantity.ts). */
