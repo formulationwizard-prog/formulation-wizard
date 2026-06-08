@@ -678,8 +678,10 @@ function tierFromPercent(pct: number, limit: SupplementSafetyLimit): SafetyTier 
  * The main checker — compute safety findings for a formulation.
  *
  * @param ingredients           Full formulation ingredient list.
- * @param perServingMgByName    Map of ingredient name → grams per serving of that ingredient.
- *                              (The caller scales by serving / total batch mass before passing in.)
+ * @param perServingMgByName    Map of ingredient name → MILLIGRAMS (mg) per serving of that
+ *                              ingredient (ingredient mass × potencyFactor, already serving-scaled
+ *                              by the caller: g × scale × 1000 × potency). Elemental conversion
+ *                              happens inside. NOT grams — the math + name are mg.
  * @param audience              Population context — tightens thresholds where applicable.
  */
 export function checkSupplementSafety(
