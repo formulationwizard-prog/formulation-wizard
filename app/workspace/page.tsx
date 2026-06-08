@@ -111,7 +111,8 @@ import { computePerServingScale, deriveSupplementServingMassG } from '@/lib/supp
 import { validateServingSizeInput } from '@/lib/servingSize';
 import { formatMassDisplay } from '@/lib/formatMass';
 import { computeOverages, formatDose, CATEGORY_LABEL, type StorageCondition } from '@/lib/supplementStability';
-import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, buildDisclaimers } from '@/lib/supplementClaims';
+import { detectNutrientContentClaims, detectStructureFunctionClaims, analyzeDraftClaim, evaluateDiseaseClaimGate, buildDisclaimers } from '@/lib/supplementClaims';
+import { buildRAReviewPacket } from '@/lib/raReviewPacket';
 import { selectSupplementDisclaimer } from '@/lib/supplementDisclaimer';
 import {
   type SupplementDeliveryForm,
@@ -8131,6 +8132,75 @@ export default function FormulationWizard() {
                   </>
                 )}
               </div>
+
+              {/* ═══════════════════════════════════════════════════════════
+                  RA REVIEW PACKET (#18, supplements mode only)
+                  Aggregates the verified surfaces (Safety/UL, NDI, Allergen,
+                  Claims, Stability, Producibility, Determination) into the
+                  qualified-reviewer sign-off bundle. Pure render of
+                  buildRAReviewPacket (lib/raReviewPacket.ts). The engine
+                  assembles; the reviewer signs.
+                  ═══════════════════════════════════════════════════════════ */}
+              {mode === 'supplements' && ingredients.length > 0 && (() => {
+                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
+                const pmByName = new Map<string, number>();
+                for (const ing of ingredients) {
+                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
+                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor) ? ing.foodData.data.potencyFactor : 1;
+                  pmByName.set(ing.name, g * scale * 1000 * potency);
+                }
+                const seedServings = servingsPerContainerOverride ?? 0;
+                const seedTotalUnits = totalUnitsOverride ?? deriveTotalUnits(seedServings, suppUnitsPerServing);
+                const reconciled = reconcileCountInputs({ servings: seedServings, totalUnits: seedTotalUnits, unitsPerServing: suppUnitsPerServing, lastEdited: lastEditedCountField });
+                const capacityMg = (suppDeliveryForm === 'capsule' || suppDeliveryForm === 'softgel') ? capsuleCapacityMg(suppCapsuleSize) : 0;
+                const packet = buildRAReviewPacket({
+                  formulaName: formulationName || 'Untitled Formula',
+                  productClass: 'Dietary Supplement',
+                  safetyFindings: checkSupplementSafety(ingredients, pmByName, suppAudience),
+                  ndiSummary: analyzeNDI(ingredients.map(i => i.name)),
+                  allergenMatches: allergenStatement,
+                  allergenGate: evaluateAllergenGate({ allergenMatches: allergenStatement }),
+                  diseaseClaimGate: evaluateDiseaseClaimGate(analyzeDraftClaim(suppDraftClaim || '')),
+                  overageSummary: computeOverages(ingredients, pmByName, { shelfLifeMonths: suppShelfLifeMonths, storage: suppStorage, amberPackaging: suppAmberPkg, desiccant: suppDesiccant, nitrogenFlush: suppNitrogen, tocopherolAntioxidant: suppTocopherol }),
+                  producibility: assessProducibility({ form: suppDeliveryForm, totalMassG: totalBatchGrams, totalUnits: reconciled.totalUnits, capacityMg }),
+                  determination: determineFilingRequirement(null, {}, 'supplements'),
+                });
+                const verdictStyle = (v: string) =>
+                  v === 'hard-stop' ? 'bg-red-100 text-red-800 border-red-300'
+                  : v === 'attention' ? 'bg-amber-100 text-amber-800 border-amber-300'
+                  : v === 'advisory' ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                const raManual = suppCardsManuallyToggled['ra-packet'];
+                const raExpanded = raManual !== undefined ? raManual : packet.hardStopCount > 0;
+                return (
+                  <div id="supp-card-ra-packet" className="rounded-xl border-2 border-gray-200 bg-white p-6 print:break-inside-avoid">
+                    <button type="button" onClick={() => toggleSuppCard('ra-packet', raExpanded)} className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left">
+                      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <span className="text-xs opacity-60">{raExpanded ? '▼' : '▶'}</span>
+                        📋 RA Review Packet — {packet.overallState === 'has-hard-stops' ? `${packet.hardStopCount} hard-stop${packet.hardStopCount === 1 ? '' : 's'} to resolve` : 'Ready for reviewer sign-off'}
+                      </h2>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">Sign-off bundle · 21 CFR 111</span>
+                    </button>
+                    {raExpanded && (<>
+                      <div className="space-y-2 mb-4">
+                        {packet.sections.map(s => (
+                          <div key={s.id} className="border border-gray-200 rounded-lg p-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="font-semibold text-sm text-gray-800">{s.title}</span>
+                              <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border ${verdictStyle(s.verdict)}`}>{s.verdict}{s.needsReviewerSignoff ? ' · sign-off' : ''}</span>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-1 leading-snug">{s.summary}</p>
+                            {(s.authority || s.citations.length > 0) && (
+                              <p className="text-[10px] text-gray-400 mt-1">{s.authority}{s.citations.length ? ` · ${s.citations.join(' · ')}` : ''}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-gray-500 italic leading-snug border-t border-gray-200 pt-3">{packet.disclaimer}</p>
+                    </>)}
+                  </div>
+                );
+              })()}
 
               {/* ═══════════════════════════════════════════════════════════
                   STABILITY & OVERAGE (supplements mode only)
