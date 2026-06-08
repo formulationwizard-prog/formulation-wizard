@@ -409,7 +409,7 @@ export default function FormulationWizard() {
   // and volume-based (liquid) forms use constrained unit dropdowns.
   // Types + categorization helpers in lib/servingModel.ts.
   const [suppDeliveryForm, setSuppDeliveryForm] = useState<SupplementDeliveryForm>('capsule');
-  const [suppUnitsPerServing, setSuppUnitsPerServing] = useState<number>(2);
+  const [suppUnitsPerServing, setSuppUnitsPerServing] = useState<number>(0); // 0 = unset (blank-until-real, like the other count inputs)
   const [suppCapsuleSize, setSuppCapsuleSize] = useState<CapsuleSize>('0');
   /** Which ingredient row's provenance popover is open (null = none). Provenance render
    *  (2026-06-05): a chip on the ingredient row reveals per-value source on click — lives in
@@ -1075,10 +1075,13 @@ export default function FormulationWizard() {
    *  can audit which supplement-mode callsites legitimately need override
    *  semantics vs which are vestigial. */
   const [servingsPerContainerOverride, setServingsPerContainerOverride] = useState<number | null>(null);
-  /** Effective servings count. Always equals autoServingsPerContainer at this
-   *  commit (override is always null). The `?? autoServingsPerContainer`
-   *  fallback preserves the existing aggregation pattern for callsites. */
-  const servingsPerContainer = servingsPerContainerOverride ?? autoServingsPerContainer;
+  /** Effective servings count — BLANK-UNTIL-REAL. For supplements, falls back to 0
+   *  (→ SFP renders "—") unless the operator has actually entered a count, instead of
+   *  a fabricated default. F&B keeps the package/serving auto-derivation. Fixes the
+   *  "Servings Per Container: 30" that appeared on fresh formulas with blank inputs. */
+  const hasOperatorCountInput = servingsPerContainerOverride !== null || totalUnitsOverride !== null || lastEditedCountField !== null;
+  const servingsPerContainer = servingsPerContainerOverride
+    ?? (mode === 'supplements' && !hasOperatorCountInput ? 0 : autoServingsPerContainer);
 
   /**
    * FDA-formatted "X servings per container" display per 21 CFR 101.9(b)(8).
@@ -4469,7 +4472,7 @@ export default function FormulationWizard() {
               (() => {
                 // Reconcile count inputs for totalUnits (matches Serving &
                 // Package Size card derivation in 5b sync useEffect).
-                const seedServings = servingsPerContainerOverride ?? 30;
+                const seedServings = servingsPerContainerOverride ?? 0; // blank-until-real (was ?? 30 — fabricated default)
                 const seedTotalUnits = totalUnitsOverride ?? deriveTotalUnits(seedServings, suppUnitsPerServing);
                 const reconciled = reconcileCountInputs({
                   servings: seedServings,
@@ -5515,7 +5518,7 @@ export default function FormulationWizard() {
                               className="w-full text-center border border-emerald-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
                             />
                             <p className="text-[10px] text-gray-500 mt-1 leading-tight">
-                              Auto-syncs with Servings × Units Per Serving ({suppUnitsPerServing}).
+                              Auto-syncs with Servings × Units Per Serving ({suppUnitsPerServing > 0 ? suppUnitsPerServing : '—'}).
                             </p>
                           </div>
                           {/* Per-Unit Weight — operator-editable for all count
@@ -5561,8 +5564,11 @@ export default function FormulationWizard() {
                         <div className="mt-3 p-2 bg-gray-50 rounded-lg text-xs text-gray-700 leading-relaxed">
                           <p>
                             <span className="font-semibold">Label will read:</span>{' '}
-                            <span className="font-mono">&ldquo;{suppUnitsPerServing} {unitWord}&rdquo;</span>
-                            {' '}per serving.
+                            {suppUnitsPerServing > 0 ? (
+                              <><span className="font-mono">&ldquo;{suppUnitsPerServing} {unitWord}&rdquo;</span>{' '}per serving.</>
+                            ) : (
+                              <span className="text-gray-400 italic">enter units per serving.</span>
+                            )}
                           </p>
                           <p className="mt-0.5">
                             {suppPerUnitWeightMg > 0 ? (
@@ -5769,8 +5775,9 @@ export default function FormulationWizard() {
                           type="number"
                           min={1}
                           step={1}
-                          value={suppUnitsPerServing}
-                          onChange={(e) => setSuppUnitsPerServing(Math.max(1, parseInt(e.target.value) || 1))}
+                          value={suppUnitsPerServing > 0 ? suppUnitsPerServing : ''}
+                          placeholder="count"
+                          onChange={(e) => { const v = parseInt(e.target.value); setSuppUnitsPerServing(Number.isFinite(v) && v > 0 ? v : 0); }}
                           className="w-full text-center border border-gray-300 rounded-lg px-2 py-2 text-lg font-bold focus:outline-none focus:border-emerald-500"
                         />
                       </div>
@@ -6963,9 +6970,12 @@ export default function FormulationWizard() {
                   const noun = SUPP_FORM_NOUN[suppDeliveryForm];
                   const unitWord = suppUnitsPerServing === 1 ? noun.singular : noun.plural;
                   const countable = ['capsule', 'tablet', 'softgel', 'gummy', 'lozenge', 'chewable'].includes(suppDeliveryForm);
-                  const servingSizeLabel = countable
-                    ? `${suppUnitsPerServing} ${unitWord}`
-                    : `${suppUnitsPerServing} ${unitWord} (${servingSize}${servingUnit})`;
+                  // Blank-until-real: no units-per-serving entered → serving size "—", not "0 Capsules".
+                  const servingSizeLabel = suppUnitsPerServing <= 0
+                    ? '—'
+                    : countable
+                      ? `${suppUnitsPerServing} ${unitWord}`
+                      : `${suppUnitsPerServing} ${unitWord} (${servingSize}${servingUnit})`;
                   // §B4 SFP renderer disclaimer routing: compute the active
                   // structure/function claim count so the DSHEA disclaimer
                   // at the bottom of the panel routes through the locked-
@@ -9782,7 +9792,7 @@ export default function FormulationWizard() {
                     <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
                       <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / capsule</div>
                       <div className="text-2xl font-bold text-emerald-700 mt-1">{ue.perUnit !== null ? `$${ue.perUnit.toFixed(3)}` : '—'}</div>
-                      <div className="text-[10px] text-gray-400 mt-1">{suppUnitsPerServing} {suppUnitsPerServing === 1 ? 'unit' : 'units'} / serving</div>
+                      <div className="text-[10px] text-gray-400 mt-1">{suppUnitsPerServing > 0 ? `${suppUnitsPerServing} ${suppUnitsPerServing === 1 ? 'unit' : 'units'} / serving` : '— units / serving'}</div>
                     </div>
                     <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
                       <div className="text-[10px] uppercase tracking-wide text-gray-500">Ingredient $ / serving</div>

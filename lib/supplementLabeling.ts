@@ -491,11 +491,16 @@ export function buildSupplementFacts(params: {
     // REGULATION: 21 CFR 101.36(b)(2)(iii)(B) — %DV on the unrounded summed amount.
     const percentDV = dv.dv > 0 ? (amount / dv.dv) * 100 : null;
     const rowUnit = dv.basis ? `${dv.unit} ${basisLabel(dv.basis)}` : dv.unit;
-    // REGULATION: 21 CFR 101.36(d)(2) — sources descending by weight; (d) — drop redundant "(as X)".
-    const sourceNames = acc.sources
-      .filter(s => shouldShowSource(s.name, dv.displayName))
-      .sort((a, b) => b.grams - a.grams || a.name.localeCompare(b.name))
-      .map(s => cleanFormName(s.name));
+    // REGULATION: 21 CFR 101.36(d)(2) — sources in parens descending by weight; (d)
+    // exception applied ELEMENT-WISE — clean each source name FIRST, then drop a source
+    // only when its cleaned name equals the nutrient (so a plain "Riboflavin" drops but a
+    // distinct form like "Riboflavin 5-Phosphate" stays), then dedupe.
+    const sourceNames = [...new Set(
+      acc.sources
+        .sort((a, b) => b.grams - a.grams || a.name.localeCompare(b.name))
+        .map(s => cleanFormName(s.name))
+        .filter(n => n.toLowerCase() !== dv.displayName.toLowerCase()),
+    )];
     const displayName = dv.displayName + (sourceNames.length ? ` (as ${sourceNames.join(', ')})` : '');
     const subDeclaration = acc.folicAcidMg > 0
       ? { name: 'folic acid', amount: toUnit(acc.folicAcidMg), unit: dv.unit }
