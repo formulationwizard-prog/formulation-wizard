@@ -114,3 +114,29 @@ describe('end-to-end conversion through the Supplement Facts panel', () => {
     expect(r.subDeclaration).toBeUndefined();
   });
 });
+
+describe('nutrient aggregation + CFR ordering (101.36(d)(2) / (b)(2)(i)(B)) — the cutover fix', () => {
+  const indMg = (name: string, qty: number, unit = 'mg'): Ingredient =>
+    ({ name, qty, unit, foodData: { type: 'industrial', data: { category: /calcium|magnesium|zinc|iron/i.test(name) ? 'Minerals' : 'Vitamins' } } } as unknown as Ingredient);
+  const u2g = (u: string) => u === 'mcg' ? 1e-6 : u === 'g' ? 1 : 1e-3;
+  const factsOf = (ings: Ingredient[]) => buildSupplementFacts({
+    ingredients: ings, mode: 'supplements', servingSizeInGrams: 0,
+    totalBatchGrams: ings.reduce((s, i) => s + i.qty * u2g(i.unit), 0),
+    servingsPerContainer: 30, servingSizeLabel: '1 Capsule', caloriesPerServing: 0,
+    macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },
+  });
+
+  it('two riboflavin sources → ONE combined Riboflavin row (2.5 mg, 192% unrounded)', () => {
+    const rows = factsOf([indMg('Vitamin B2 (Riboflavin USP)', 1.25), indMg('Riboflavin 5-Phosphate', 1.25)])
+      .vitaminMineralRows.filter(r => /Riboflavin/i.test(r.displayName));
+    expect(rows.length).toBe(1);                 // was 2 (the bug)
+    expect(rows[0].amount).toBeCloseTo(2.5, 3);  // summed dietary-ingredient weight
+    expect(rows[0].percentDV).toBeCloseTo(192.3, 0);
+  });
+
+  it('rows render in CFR declaration order regardless of entry order (vitamin before mineral)', () => {
+    const rows = factsOf([indMg('Calcium Carbonate', 500), indMg('Vitamin C (Ascorbic Acid)', 90)]).vitaminMineralRows;
+    expect(rows[0].displayName).toMatch(/Vitamin C/);  // entered 2nd, but sorts 1st
+    expect(rows[1].displayName).toMatch(/Calcium/);
+  });
+});

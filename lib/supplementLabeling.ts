@@ -373,6 +373,11 @@ export function buildSupplementFacts(params: {
   const otherActivesRows: SupplementFactRow[] = [];
   const excipientList: { name: string; grams: number }[] = [];
   const nearZeroActiveWarnings: NearZeroActiveWarning[] = [];
+  // (b)(2) nutrient aggregation — accumulate by nutrient so multiple sources of one
+  // nutrient render as ONE summed row (21 CFR 101.36(d)(2)), not one row per source.
+  // Emitted, CFR-ordered, after the loop.
+  type NutrientAccum = { dv: DVEntry; sumActiveMg: number; sources: { name: string; grams: number }[]; folicAcidMg: number };
+  const nutrientAccum = new Map<string, NutrientAccum>();
 
   for (const ing of ingredients) {
     const cat = ing.foodData?.type === 'industrial' ? ing.foodData.data?.category : undefined;
@@ -413,30 +418,23 @@ export function buildSupplementFacts(params: {
       // safety check never disagree on elemental mass. Same values as the DV
       // table — the ?? dv.elementalFactor keeps any DV-only form working.
       const activeMg = gramsPerServing * 1000 * (resolveElementalFactor(ing.name) ?? dv.elementalFactor ?? 1);
-      // Source-form equivalence (β-carotene→RAE, folic acid→DFE, tryptophan→NE,
-      // all-rac→α-tocopherol): CFR-canonical conversion so %DV compares like-to-like
-      // with the basis the DV is expressed in. 1.0 when the active is already in basis.
+      // REGULATION: 21 CFR 101.9(c)(8)(iv) fn3-7 — source-form equivalence (β-carotene→RAE,
+      // folic acid→DFE, tryptophan→NE, all-rac→α-tocopherol). 1.0 when already in basis.
       const equiv = dv.basis ? resolveEquivalenceFactor(ing.name, dv.basis) : 1;
       const equivMg = activeMg * equiv;
       const toUnit = (mg: number) => dv.unit === 'mcg' ? mg * 1000 : dv.unit === 'g' ? mg / 1000 : mg;
-      const amount = toUnit(equivMg);
-      const percentDV = dv.dv > 0 ? (amount / dv.dv) * 100 : null;
-      // Label suffix carries the equivalence basis (mcg DFE / mcg RAE / mg NE / mg α-tocopherol).
-      const rowUnit = dv.basis ? `${dv.unit} ${basisLabel(dv.basis)}` : dv.unit;
-      // Folic-acid parenthetical (c)(8)(vii): folate (mcg DFE) line + folic acid (mcg) in parens.
-      // Fires only when a DFE source was actually converted (equiv ≠ 1 ⇒ folic acid).
-      const subDeclaration = (dv.basis === 'DFE' && equiv !== 1)
-        ? { name: 'folic acid', amount: toUnit(activeMg), unit: dv.unit }
-        : undefined;
-      vitaminMineralRows.push({
-        displayName: dv.displayName + (shouldShowSource(ing.name, dv.displayName) ? ` (as ${cleanFormName(ing.name)})` : ''),
-        amount, unit: rowUnit, percentDV, group,
-        sourceName: ing.name,
-        ...(subDeclaration ? { subDeclaration } : {}),
-      });
+      // REGULATION: 21 CFR 101.36(d)(2) — accumulate by nutrient (displayName+basis); ONE
+      // summed row is emitted after the loop, not one row per source ingredient.
+      const key = `${dv.displayName}|${dv.basis ?? ''}`;
+      const acc = nutrientAccum.get(key) ?? { dv, sumActiveMg: 0, sources: [], folicAcidMg: 0 };
+      acc.sumActiveMg += equivMg;
+      acc.sources.push({ name: ing.name, grams: gramsPerServing });
+      // (c)(8)(vii) folate parenthetical: only a converted folic-acid source contributes.
+      if (dv.basis === 'DFE' && equiv !== 1) acc.folicAcidMg += activeMg;
+      nutrientAccum.set(key, acc);
       warnDisplayName = dv.displayName;
       warnLabelUnit = dv.unit;
-      labelRoundsToZero = formatSupplementAmount(amount, dv.unit) === '0';
+      labelRoundsToZero = formatSupplementAmount(toUnit(equivMg), dv.unit) === '0';
     } else {
       // No DV — display in mg (or g if >= 1000 mg) with "†"
       const mgPerServing = gramsPerServing * 1000;
@@ -475,6 +473,37 @@ export function buildSupplementFacts(params: {
         });
       }
     }
+  }
+
+  // REGULATION: 21 CFR 101.36 — emit aggregated (b)(2) nutrient rows: one per nutrient,
+  // CFR declaration order, sources in parens descending by weight, redundant "(as X)"
+  // dropped, %DV on the unrounded summed amount.
+  const dvOrder = new Map<string, number>();
+  DV_TABLE.forEach((e, i) => { if (!dvOrder.has(e.displayName)) dvOrder.set(e.displayName, i); });
+  // REGULATION: 21 CFR 101.36(b)(2)(i)(B) — fixed CFR declaration order.
+  const accums = [...nutrientAccum.values()].sort(
+    (a, b) => (dvOrder.get(a.dv.displayName) ?? 999) - (dvOrder.get(b.dv.displayName) ?? 999),
+  );
+  for (const acc of accums) {
+    const { dv } = acc;
+    const toUnit = (mg: number) => dv.unit === 'mcg' ? mg * 1000 : dv.unit === 'g' ? mg / 1000 : mg;
+    const amount = toUnit(acc.sumActiveMg);
+    // REGULATION: 21 CFR 101.36(b)(2)(iii)(B) — %DV on the unrounded summed amount.
+    const percentDV = dv.dv > 0 ? (amount / dv.dv) * 100 : null;
+    const rowUnit = dv.basis ? `${dv.unit} ${basisLabel(dv.basis)}` : dv.unit;
+    // REGULATION: 21 CFR 101.36(d)(2) — sources descending by weight; (d) — drop redundant "(as X)".
+    const sourceNames = acc.sources
+      .filter(s => shouldShowSource(s.name, dv.displayName))
+      .sort((a, b) => b.grams - a.grams || a.name.localeCompare(b.name))
+      .map(s => cleanFormName(s.name));
+    const displayName = dv.displayName + (sourceNames.length ? ` (as ${sourceNames.join(', ')})` : '');
+    const subDeclaration = acc.folicAcidMg > 0
+      ? { name: 'folic acid', amount: toUnit(acc.folicAcidMg), unit: dv.unit }
+      : undefined;
+    vitaminMineralRows.push({
+      displayName, amount, unit: rowUnit, percentDV, group: dv.group, sourceName: acc.sources[0].name,
+      ...(subDeclaration ? { subDeclaration } : {}),
+    });
   }
 
   // Excipients ordered by descending weight (ingredient statement)
