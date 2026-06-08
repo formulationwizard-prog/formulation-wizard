@@ -626,11 +626,11 @@ export function formatSupplementAmount(amount: number, unit: string): string {
 export function formatSupplementDV(pct: number | null, mode: ModeId = 'supplements'): string {
   if (pct === null) return '†';
   if (mode === 'supplements') {
-    // 21 CFR 101.36(b)(2)(iii)(C) — nearest whole percent.
+    // REGULATION: 21 CFR 101.36(b)(2)(iii)(C) — SFP %DV nearest whole percent
     if (pct < 1) return '<1%'; // FLAG: confirm SFP sub-1% presentation vs primary source
     return `${Math.round(pct)}%`;
   }
-  // 21 CFR 101.9(c)(8)(iii) — food NFP increment rounding.
+  // REGULATION: 21 CFR 101.9(c)(8)(iii) — food NFP %DV increment rounding (2/5/10)
   if (pct < 1) return '<1%';
   if (pct < 2) return '1%';
   if (pct <= 10) return `${Math.round(pct / 2) * 2}%`;
