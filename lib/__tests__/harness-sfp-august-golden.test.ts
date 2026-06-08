@@ -79,3 +79,27 @@ describe('HARNESS · GOLDEN A — Calm & Sleep recipe-ratio × input states', ()
     expect(find(sfp(CALM, 0, 2), /Magnesium/)!.amount).toBeNull();
   });
 });
+
+// ── #2 ingredient statement — 21 CFR 101.36(d) source-declaration choice ──────
+// Either/or, never both: sources in the SFP parens (default) OR in a separate ingredient
+// statement (§101.4(g)) — but not duplicated. Data-level here (SFP parens on/off); the
+// render gates (full-statement box / Other-Ingredients line) are page.tsx + screenshot-sampled.
+describe('HARNESS · #2 source-declaration — 101.36(d) (no double declaration of dietary actives)', () => {
+  const MIN = [ing('Magnesium Glycinate', 200, 'Minerals')];
+  const decl = (omitSourceParens: boolean) =>
+    buildSupplementFacts({
+      ingredients: MIN, mode: 'supplements', servingSizeInGrams: 0,
+      totalBatchGrams: 0.2, supplementServingMassG: 0.2, servingsPerContainer: 0,
+      servingSizeLabel: '1 Capsule', caloriesPerServing: 0, omitSourceParens,
+      macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },
+    }).vitaminMineralRows.find(r => /Magnesium/.test(r.displayName))!;
+
+  it('mode 1 — sources in SFP (default): Magnesium row carries the "(as …Glycinate)" source parens', () => {
+    expect(decl(false).displayName).toMatch(/\(as .*Glycinate/i);
+  });
+  it('mode 2 — sources in ingredient statement: SFP row DROPS the parens (sources declared once, in the statement)', () => {
+    const dn = decl(true).displayName;
+    expect(dn).toBe('Magnesium');
+    expect(dn).not.toMatch(/\(as/i);
+  });
+});

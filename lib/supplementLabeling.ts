@@ -359,9 +359,13 @@ export function buildSupplementFacts(params: {
   servingSizeLabel: string;
   caloriesPerServing: number;
   macroPerServing: { totalFat: number; totalCarbs: number; protein: number; sodium: number; totalSugars: number };
+  /** REGULATION: 21 CFR 101.36(d) — when true, omit the "(as source)" parens in the SFP
+   *  because the manufacturer is declaring sources in a separate ingredient statement
+   *  (§101.4(g)) instead. Either/or, never both. Default false (sources in the SFP). */
+  omitSourceParens?: boolean;
 }): SupplementFactsData {
   const { ingredients, mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG, servingsPerContainer, servingSizeLabel,
-          caloriesPerServing, macroPerServing } = params;
+          caloriesPerServing, macroPerServing, omitSourceParens = false } = params;
 
   // Per-serving scaling — routes through the shared helper so the SFP
   // matches the Safety / Determination / NDI / Claims / Stability surfaces.
@@ -525,7 +529,12 @@ export function buildSupplementFacts(params: {
         .map(s => cleanFormName(s.name))
         .filter(n => n.toLowerCase() !== dv.displayName.toLowerCase()),
     )];
-    const displayName = dv.displayName + (sourceNames.length ? ` (as ${sourceNames.join(', ')})` : '');
+    // REGULATION: 21 CFR 101.36(d) — source-form parens in the SFP ONLY when sources are
+    // declared here (default); omitted when the manufacturer moves sources to the ingredient
+    // statement (§101.4(g)). Never both — no duplicate dietary-active declaration.
+    const displayName = omitSourceParens
+      ? dv.displayName
+      : dv.displayName + (sourceNames.length ? ` (as ${sourceNames.join(', ')})` : '');
     // REGULATION: 21 CFR 101.36(b)(2)(i) — a (b)(2) ingredient below the declarable
     // threshold (<2% RDI) SHALL NOT be declared. Suppress the row, but record it so the
     // operator gets an advisory (never a silent disappearance).

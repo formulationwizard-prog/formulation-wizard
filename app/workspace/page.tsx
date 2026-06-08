@@ -411,6 +411,12 @@ export default function FormulationWizard() {
   const [suppDeliveryForm, setSuppDeliveryForm] = useState<SupplementDeliveryForm>('capsule');
   const [suppUnitsPerServing, setSuppUnitsPerServing] = useState<number>(0); // 0 = unset (blank-until-real, like the other count inputs)
   const [suppCapsuleSize, setSuppCapsuleSize] = useState<CapsuleSize>('0');
+  // 21 CFR 101.36(d): source-declaration CHOICE (either/or, never both — no duplicate
+  // dietary-active declaration). 'sfp' (default, the standard commercial pattern) = sources
+  // in the SFP parens + excipients as "Other Ingredients" below; 'statement' = sources moved
+  // to a full ingredient statement (§101.4(g)), SFP parens dropped. F&B always uses the full
+  // statement (§101.4). See docs/audits/cfr-101-4-ingredient-statement-2026-06-08.md.
+  const [suppSourceDeclaration, setSuppSourceDeclaration] = useState<'sfp' | 'statement'>('sfp');
   /** Which ingredient row's provenance popover is open (null = none). Provenance render
    *  (2026-06-05): a chip on the ingredient row reveals per-value source on click — lives in
    *  workspace chrome, never on the byte-faithful SFP. Consumes PROVENANCE_BY_NAME. */
@@ -6914,6 +6920,25 @@ export default function FormulationWizard() {
                     📄 Print/Save
                   </button>
                 </div>
+                {/* Source-declaration choice — 21 CFR 101.36(d). Either/or, never both. Default
+                    'sfp' is the standard commercial pattern (sources in the SFP parens + excipients
+                    as "Other Ingredients"); 'statement' moves sources into the full ingredient
+                    statement (§101.4(g)) and drops the SFP parens. */}
+                {mc.labelMode === 'supplement-facts' && (
+                  <div className="mb-3 print:hidden flex items-center gap-2 text-xs flex-wrap">
+                    <span className="text-gray-600 font-medium">Dietary-ingredient sources:</span>
+                    <select
+                      value={suppSourceDeclaration}
+                      onChange={(e) => setSuppSourceDeclaration(e.target.value as 'sfp' | 'statement')}
+                      className="border border-gray-300 rounded px-2 py-1 text-xs bg-white"
+                      title="21 CFR 101.36(d): declare dietary-ingredient sources in the Supplement Facts panel OR in a separate ingredient statement — not both."
+                    >
+                      <option value="sfp">In Supplement Facts (e.g. &ldquo;as Magnesium Glycinate&rdquo;)</option>
+                      <option value="statement">In a separate ingredient statement</option>
+                    </select>
+                    <span className="text-gray-400">101.36(d) — choose one, never both</span>
+                  </div>
+                )}
                 {/* Print-only header with formulation context */}
                 <div className="hidden print:block mb-4 pb-3 border-b-2 border-gray-800">
                   <h1 className="text-xl font-bold text-gray-900">{formulationName || 'Formulation Label'}</h1>
@@ -6991,6 +7016,9 @@ export default function FormulationWizard() {
                     supplementServingMassG: suppServingMassG,
                     servingsPerContainer,
                     servingSizeLabel,
+                    // 21 CFR 101.36(d): drop the SFP source parens when the operator declares
+                    // sources in a separate ingredient statement instead (either/or, never both).
+                    omitSourceParens: suppSourceDeclaration === 'statement',
                     caloriesPerServing: perServing(nutrition.calories),
                     macroPerServing: {
                       totalFat: perServing(nutrition.totalFat),
@@ -7071,10 +7099,12 @@ export default function FormulationWizard() {
 
                       <div className="border-b-8 border-black" />
 
-                      {/* "Other Ingredients" — excipients only, in descending-weight order (ingredient statement).
-                          Omitted entirely when no excipients present (per FDA convention — empty Other Ingredients
-                          line has no regulatory meaning and clutters the panel). */}
-                      {facts.otherIngredientsStatement && (
+                      {/* "Other Ingredients" — excipients only, descending weight. REGULATION: 21 CFR
+                          101.36(d)/101.4(g) — shown only when sources are declared in the SFP (default);
+                          when the operator moves sources to the full ingredient statement, that statement
+                          already lists excipients, so this line is suppressed (no duplicate). Also omitted
+                          when no excipients present (empty line has no regulatory meaning). */}
+                      {suppSourceDeclaration === 'sfp' && facts.otherIngredientsStatement && (
                         <p className="text-[10px] mt-2 leading-tight">
                           <span className="font-bold">Other Ingredients:</span>{' '}
                           {facts.otherIngredientsStatement}
@@ -7557,16 +7587,21 @@ export default function FormulationWizard() {
                   </div>
                 )}
 
-                {/* Ingredient Statement — directly beneath the nutrition panel */}
-                <div className="mt-5 pt-4 border-t border-gray-200">
-                  <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">Ingredients</h3>
-                  <p className="text-[10px] text-gray-500 mb-2">FDA-compliant • Descending by weight • Sub-ingredients in parens</p>
-                  {ingredientStatement ? (
-                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-gray-800 text-xs leading-relaxed">{ingredientStatement}</div>
-                  ) : (
-                    <div className="text-center py-3 text-gray-400 text-xs italic">Ingredient statement appears here as you add ingredients.</div>
-                  )}
-                </div>
+                {/* Ingredient Statement (full 101.4 list). REGULATION: 21 CFR 101.36(d) — F&B
+                    always shows it; a SUPPLEMENT shows it ONLY when sources are declared here
+                    instead of in the SFP. Default supplements (sources-in-SFP) suppress it so the
+                    dietary actives aren't declared twice (the misbranding pattern). */}
+                {(mode !== 'supplements' || suppSourceDeclaration === 'statement') && (
+                  <div className="mt-5 pt-4 border-t border-gray-200">
+                    <h3 className="text-sm font-bold text-gray-800 mb-1 uppercase tracking-wide">Ingredients</h3>
+                    <p className="text-[10px] text-gray-500 mb-2">FDA-compliant • Descending by weight • Sub-ingredients in parens</p>
+                    {ingredientStatement ? (
+                      <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-gray-800 text-xs leading-relaxed">{ingredientStatement}</div>
+                    ) : (
+                      <div className="text-center py-3 text-gray-400 text-xs italic">Ingredient statement appears here as you add ingredients.</div>
+                    )}
+                  </div>
+                )}
 
                 {/* Allergen Statement — immediately after ingredient statement, per FDA convention */}
                 <div className="mt-4">
