@@ -38,7 +38,7 @@ Each is a compliance/quality surface; each needs its rule set enumerated to prim
 | 4 | Claims validator | 21 CFR 101.93 / DSHEA structure-function | ⏳ enumerate |
 | 5 | Dosage / UL safety | IOM ULs via NIH ODS | ⏳ audit (next inherited table) |
 | 6 | NDI compliance | DSHEA §8 / 21 CFR 190.6 | ⏳ enumerate |
-| 7 | Stability & overage | 101.36(b)(3)(iv) / USP <1150> | ⏳ enumerate |
+| 7 | Stability & overage | 101.36(f)→101.9(g) / USP <1150> | ✅ audited (citation corrected 2026-06-08) |
 | 8 | Producibility (fit/blend) | USP <905>/<2040>, capsule specs | ⏳ capsule-density audit |
 | 9 | Cost / Unit Economics | operator inputs (no fab tags) | ⏳ spec |
 | 10 | cGMP program | 21 CFR 111 | ⏳ enumerate |

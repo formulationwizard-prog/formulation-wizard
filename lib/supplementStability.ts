@@ -3,8 +3,11 @@
 // ------------------------------------------------------------
 // Computes label-claim-through-expiry overages for dietary
 // supplement ingredients. Label claims must remain true at end
-// of shelf life — 21 CFR 101.36(b)(3)(iv) — so the amount
-// formulated at time=0 must exceed the label claim by the
+// of shelf life — REGULATION: 21 CFR 101.36(f), which incorporates
+// the compliance/accuracy provisions of 21 CFR 101.9(g)(1)-(8),(10),(11)
+// (NOT 101.36(b)(3)(iv), which is the "Daily Value not established"
+// asterisk rule — corrected 2026-06-08 authority-anchor audit) — so the
+// amount formulated at time=0 must exceed the label claim by the
 // predicted degradation loss over the shelf-life period.
 //
 // Modelled as simple proportional degradation:

@@ -8137,7 +8137,7 @@ export default function FormulationWizard() {
                   Per-ingredient degradation prediction over the target shelf
                   life, with storage + packaging modifiers. Output: required
                   formulate-at amounts so the Supplement Facts label claim
-                  stays true through expiry — 21 CFR 101.36(b)(3)(iv).
+                  stays true through expiry — 21 CFR 101.36(f) (incorporating 101.9(g)).
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && ingredients.length > 0 && (() => {
                 // Per-serving scaling via shared helper. Round 11 Phase 3
@@ -8189,7 +8189,7 @@ export default function FormulationWizard() {
                         <span className="text-xs opacity-60">{stabExpanded ? '▼' : '▶'}</span>
                         🧪 Stability & Overage — {suppShelfLifeMonths}mo shelf life
                       </h2>
-                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.36(b)(3)(iv) · USP &lt;1150&gt;</span>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">21 CFR 101.36(f) / 101.9(g) · USP &lt;1150&gt;</span>
                     </button>
                     {stabExpanded && (<>
                     {/* Condition controls */}
