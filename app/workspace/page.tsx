@@ -7034,7 +7034,7 @@ export default function FormulationWizard() {
                             <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                             {formatSupplementAmount(row.amount, row.unit)}{row.unit}
                           </div>
-                          <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
+                          <div className="font-bold">{row.amount === null ? '—' : formatSupplementDV(row.percentDV)}</div>
                         </div>
                       ))}
 
@@ -7047,7 +7047,7 @@ export default function FormulationWizard() {
                                 <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                                 {formatSupplementAmount(row.amount, row.unit)} {row.unit}
                               </div>
-                              <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
+                              <div className="font-bold">{row.amount === null ? '—' : formatSupplementDV(row.percentDV)}</div>
                             </div>
                           ))}
                         </>
@@ -7063,7 +7063,7 @@ export default function FormulationWizard() {
                                 <span className="font-bold">{stripCatalogQaTokens(row.displayName)}</span>{' '}
                                 {formatSupplementAmount(row.amount, row.unit)} {row.unit}
                               </div>
-                              <div className="font-bold">{formatSupplementDV(row.percentDV)}</div>
+                              <div className="font-bold">{row.amount === null ? '—' : formatSupplementDV(row.percentDV)}</div>
                             </div>
                           ))}
                         </>

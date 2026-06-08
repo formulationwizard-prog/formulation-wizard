@@ -71,6 +71,7 @@ function facts(ings: Ingredient[]) {
   return buildSupplementFacts({
     ingredients: ings, mode: 'supplements',
     servingSizeInGrams: 0, totalBatchGrams: ings.reduce((s, i) => s + i.qty / 1e6, 0),
+    supplementServingMassG: ings.reduce((s, i) => s + i.qty / 1e6, 0), // serving = formula → scale 1.0 (tests conversion math, not blank-state)
     servingsPerContainer: 30, servingSizeLabel: '1 Capsule', caloriesPerServing: 0,
     macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },
   });
@@ -122,6 +123,7 @@ describe('nutrient aggregation + CFR ordering (101.36(d)(2) / (b)(2)(i)(B)) — 
   const factsOf = (ings: Ingredient[]) => buildSupplementFacts({
     ingredients: ings, mode: 'supplements', servingSizeInGrams: 0,
     totalBatchGrams: ings.reduce((s, i) => s + i.qty * u2g(i.unit), 0),
+    supplementServingMassG: ings.reduce((s, i) => s + i.qty * u2g(i.unit), 0), // serving = formula → scale 1.0
     servingsPerContainer: 30, servingSizeLabel: '1 Capsule', caloriesPerServing: 0,
     macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },
   });

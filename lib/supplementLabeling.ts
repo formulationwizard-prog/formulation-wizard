@@ -26,6 +26,8 @@ import { computePerServingScale } from './supplementMath';
 import { keywordMatch } from './keywordMatch';
 import { resolveElementalFactor } from './elementalFactors';
 import { resolveEquivalenceFactor } from './nutrientEquivalence';
+import { SUPPLEMENT_CONVENTION_B_ENABLED } from './supplementMath';
+import { combine, real, UNSET, isUnset, valueOf, type MaybeValue } from './servingDoseEngine';
 
 // ============================================================
 // REFERENCE DAILY VALUES (21 CFR 101.36 Table 1, adults & kids 4+)
@@ -226,8 +228,9 @@ export function findDVEntry(name: string): DVEntry | null {
 export interface SupplementFactRow {
   /** Display name for the row (e.g., "Vitamin C (as Ascorbic Acid)"). */
   displayName: string;
-  /** Amount per serving, already converted to the display unit. */
-  amount: number;
+  /** Amount per serving in the display unit. NULL = unset/pending serving → renders "—"
+   *  (blank-until-real: no fill entered yet, so there is no defined per-serving dose). */
+  amount: number | null;
   /** Display unit: mg / mcg / IU / g. */
   unit: string;
   /** Percent Daily Value (0-9999). Null when no DV established → shows "†". */
@@ -378,10 +381,18 @@ export function buildSupplementFacts(params: {
   const excipientList: { name: string; grams: number }[] = [];
   const nearZeroActiveWarnings: NearZeroActiveWarning[] = [];
   const belowThresholdSuppressed: SupplementFactsData['belowThresholdSuppressed'] = [];
+  // Engine MaybeValue for the SFP amount path (blank-until-real → "—"): in supplements
+  // recipe-ratio mode an UNSET serving mass (no fill entered) propagates to UNSET doses
+  // ("—"), instead of the identity fallback that would render recipe proportions AS doses.
+  const recipeRatioMode = mode === 'supplements' && SUPPLEMENT_CONVENTION_B_ENABLED;
+  const formulaMassMaybe: MaybeValue<number> = totalBatchGrams > 0 ? real(totalBatchGrams) : UNSET;
+  const servingMassMaybe: MaybeValue<number> = recipeRatioMode
+    ? (supplementServingMassG && supplementServingMassG > 0 ? real(supplementServingMassG) : UNSET)
+    : real(scale * totalBatchGrams); // non-recipe modes (F&B / supp-A): reproduce the scalar `scale`
   // (b)(2) nutrient aggregation — accumulate by nutrient so multiple sources of one
-  // nutrient render as ONE summed row (21 CFR 101.36(d)(2)), not one row per source.
-  // Emitted, CFR-ordered, after the loop.
-  type NutrientAccum = { dv: DVEntry; sumActiveMg: number; sources: { name: string; grams: number }[]; folicAcidMg: number };
+  // nutrient render as ONE summed row (21 CFR 101.36(d)(2)), not one per source. Sums are
+  // MaybeValue so an UNSET serving mass propagates to "—". Emitted, CFR-ordered, after loop.
+  type NutrientAccum = { dv: DVEntry; sumActive: MaybeValue<number>; sources: { name: string; grams: number }[]; folicAcid: MaybeValue<number> };
   const nutrientAccum = new Map<string, NutrientAccum>();
 
   for (const ing of ingredients) {
@@ -422,29 +433,35 @@ export function buildSupplementFacts(params: {
       // via the shared resolver (lib/elementalFactors.ts) so the label and the UL
       // safety check never disagree on elemental mass. Same values as the DV
       // table — the ?? dv.elementalFactor keeps any DV-only form working.
-      const activeMg = gramsPerServing * 1000 * (resolveElementalFactor(ing.name) ?? dv.elementalFactor ?? 1);
+      const elemental = resolveElementalFactor(ing.name) ?? dv.elementalFactor ?? 1;
       // REGULATION: 21 CFR 101.9(c)(8)(iv) fn3-7 — source-form equivalence (β-carotene→RAE,
       // folic acid→DFE, tryptophan→NE, all-rac→α-tocopherol). 1.0 when already in basis.
       const equiv = dv.basis ? resolveEquivalenceFactor(ing.name, dv.basis) : 1;
-      const equivMg = activeMg * equiv;
       const toUnit = (mg: number) => dv.unit === 'mcg' ? mg * 1000 : dv.unit === 'g' ? mg / 1000 : mg;
+      // Active mass per serving in the DV basis, as MaybeValue: ingredient grams in the
+      // serving = (ingredient ÷ formula) × serving mass; UNSET serving → UNSET → "—".
+      const ingInServingG = combine(combine(real(ingredientGrams(ing)), formulaMassMaybe, (i, t) => i / t), servingMassMaybe, (p, s) => p * s);
+      const activeMgMaybe = combine(ingInServingG, real(potency * 1000 * elemental * equiv), (g, f) => g * f);
+      const folicMgMaybe = combine(ingInServingG, real(potency * 1000 * elemental), (g, f) => g * f); // pre-DFE (folic acid mass)
       // REGULATION: 21 CFR 101.36(d)(2) — accumulate by nutrient (displayName+basis); ONE
       // summed row is emitted after the loop, not one row per source ingredient.
       const key = `${dv.displayName}|${dv.basis ?? ''}`;
-      const acc = nutrientAccum.get(key) ?? { dv, sumActiveMg: 0, sources: [], folicAcidMg: 0 };
-      acc.sumActiveMg += equivMg;
+      const acc = nutrientAccum.get(key) ?? { dv, sumActive: real(0), sources: [], folicAcid: real(0) };
+      acc.sumActive = combine(acc.sumActive, activeMgMaybe, (a, b) => a + b);
       acc.sources.push({ name: ing.name, grams: gramsPerServing });
       // (c)(8)(vii) folate parenthetical: only a converted folic-acid source contributes.
-      if (dv.basis === 'DFE' && equiv !== 1) acc.folicAcidMg += activeMg;
+      if (dv.basis === 'DFE' && equiv !== 1) acc.folicAcid = combine(acc.folicAcid, folicMgMaybe, (a, b) => a + b);
       nutrientAccum.set(key, acc);
       warnDisplayName = dv.displayName;
       warnLabelUnit = dv.unit;
-      labelRoundsToZero = formatSupplementAmount(toUnit(equivMg), dv.unit) === '0';
+      labelRoundsToZero = !isUnset(activeMgMaybe) && formatSupplementAmount(toUnit(valueOf(activeMgMaybe)!), dv.unit) === '0';
     } else {
-      // No DV — display in mg (or g if >= 1000 mg) with "†"
-      const mgPerServing = gramsPerServing * 1000;
-      const displayAmount = mgPerServing >= 1000 ? mgPerServing / 1000 : mgPerServing;
-      const displayUnit = mgPerServing >= 1000 ? 'g' : 'mg';
+      // No DV — display in mg (or g if >= 1000 mg) with "†". MaybeValue so an UNSET
+      // serving mass (blank fill, recipe-ratio) → "—", not the entered amount.
+      const mgMaybe = combine(combine(combine(real(ingredientGrams(ing)), formulaMassMaybe, (i, t) => i / t), servingMassMaybe, (p, s) => p * s), real(potency * 1000), (g, f) => g * f);
+      const mg = isUnset(mgMaybe) ? null : valueOf(mgMaybe)!;
+      const displayAmount: number | null = mg === null ? null : (mg >= 1000 ? mg / 1000 : mg);
+      const displayUnit = mg !== null && mg >= 1000 ? 'g' : 'mg';
       otherActivesRows.push({
         displayName: cleanFormName(ing.name),
         amount: displayAmount, unit: displayUnit, percentDV: null, group,
@@ -452,7 +469,7 @@ export function buildSupplementFacts(params: {
       });
       warnDisplayName = cleanFormName(ing.name);
       warnLabelUnit = displayUnit;
-      labelRoundsToZero = formatSupplementAmount(displayAmount, displayUnit) === '0';
+      labelRoundsToZero = mg !== null && formatSupplementAmount(mg, displayUnit) === '0';
     }
 
     // Manufacturability + silent-zero net (advisory only — never touches the
@@ -491,10 +508,12 @@ export function buildSupplementFacts(params: {
   );
   for (const acc of accums) {
     const { dv } = acc;
-    const toUnit = (mg: number) => dv.unit === 'mcg' ? mg * 1000 : dv.unit === 'g' ? mg / 1000 : mg;
-    const amount = toUnit(acc.sumActiveMg);
-    // REGULATION: 21 CFR 101.36(b)(2)(iii)(B) — %DV on the unrounded summed amount.
-    const percentDV = dv.dv > 0 ? (amount / dv.dv) * 100 : null;
+    const unitF = dv.unit === 'mcg' ? 1000 : dv.unit === 'g' ? 0.001 : 1; // mg → display unit
+    const amountMaybe = combine(acc.sumActive, real(unitF), (a, f) => a * f);
+    // Blank-until-real: UNSET serving mass → null → renders "—" (not entered-amount).
+    const amount: number | null = isUnset(amountMaybe) ? null : valueOf(amountMaybe)!;
+    // REGULATION: 21 CFR 101.36(b)(2)(iii)(B) — %DV on the unrounded summed amount (null when serving unset).
+    const percentDV = (amount !== null && dv.dv > 0) ? (amount / dv.dv) * 100 : null;
     const rowUnit = dv.basis ? `${dv.unit} ${basisLabel(dv.basis)}` : dv.unit;
     // REGULATION: 21 CFR 101.36(d)(2) — sources in parens descending by weight; (d)
     // exception applied ELEMENT-WISE — clean each source name FIRST, then drop a source
@@ -516,12 +535,12 @@ export function buildSupplementFacts(params: {
       // double-advise the same nutrient — only add the below-threshold notice when no
       // blend-floor advisory already covers it.
       if (!nearZeroActiveWarnings.some(w => w.displayName === dv.displayName)) {
-        belowThresholdSuppressed.push({ displayName, amount, unit: rowUnit, percentDV });
+        belowThresholdSuppressed.push({ displayName, amount: amount!, unit: rowUnit, percentDV });
       }
       continue;
     }
-    const subDeclaration = acc.folicAcidMg > 0
-      ? { name: 'folic acid', amount: toUnit(acc.folicAcidMg), unit: dv.unit }
+    const subDeclaration = (!isUnset(acc.folicAcid) && valueOf(acc.folicAcid)! > 0)
+      ? { name: 'folic acid', amount: valueOf(acc.folicAcid)! * unitF, unit: dv.unit }
       : undefined;
     vitaminMineralRows.push({
       displayName, amount, unit: rowUnit, percentDV, group: dv.group, sourceName: acc.sources[0].name,
@@ -643,7 +662,8 @@ function cleanFormName(name: string): string {
  * Vitamins/minerals: integer mcg/mg where appropriate; no trailing zeros.
  * Returns the string (no unit — caller appends it).
  */
-export function formatSupplementAmount(amount: number, unit: string): string {
+export function formatSupplementAmount(amount: number | null, unit: string): string {
+  if (amount === null) return '—'; // unset/pending serving (blank-until-real)
   if (!isFinite(amount) || amount <= 0) return '0';
   if (unit === 'mcg' || unit === 'IU') {
     // Whole numbers for mcg and IU

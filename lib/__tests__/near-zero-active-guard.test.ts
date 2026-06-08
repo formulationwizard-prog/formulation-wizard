@@ -29,7 +29,8 @@ function params(ingredients: Ingredient[]) {
   const totalBatchGrams = ingredients.reduce((s, i) => s + i.qty * (UNIT_TO_GRAMS[i.unit] || 0), 0);
   return {
     ingredients, mode: 'supplements' as const,
-    servingSizeInGrams: 1, totalBatchGrams,            // supplementServingMassG omitted → identity scale (Convention A)
+    servingSizeInGrams: 1, totalBatchGrams,
+    supplementServingMassG: totalBatchGrams,           // serving = formula → scale 1.0 (recipe-ratio identity-equivalent; tests dose math, not blank-state)
     servingsPerContainer: 30, servingSizeLabel: '2 Capsules',
     caloriesPerServing: 0,
     macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },

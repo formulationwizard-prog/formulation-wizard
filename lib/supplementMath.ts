@@ -190,10 +190,14 @@ export function computePerServingScale(params: PerServingScaleParams): number {
 // inflation above.
 // ============================================================
 
-/** Master gate for Convention B per-serving scaling. FALSE for the
- *  August 2026 launch (Convention A / identity holds). Do not flip
- *  without the post-launch density-aware fill-weight work. */
-export const SUPPLEMENT_CONVENTION_B_ENABLED = false;
+/** Master gate for Convention B per-serving scaling. TRUE since 2026-06-07
+ *  (operator-confirmed recipe-ratio + M2-1 engine-wire). Per-serving dose =
+ *  ingredient % of formula × fill-driven serving mass. SAFE because per-unit FILL
+ *  weight is blank-until-real (6f1e200): unset fill → serving mass 0 → the engine
+ *  yields UNSET ("—"), never the capsule-capacity default that caused the AM revert.
+ *  The SFP consumes the serving/dose engine (servingDoseEngine.ts), so unset
+ *  propagates to "—" by construction. */
+export const SUPPLEMENT_CONVENTION_B_ENABLED = true;
 
 export interface SupplementServingMassParams {
   /** Active vertical / mode. Non-supplement modes always return 0. */
