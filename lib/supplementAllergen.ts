@@ -665,3 +665,19 @@ export function evaluateAllergenGate(
     evidence,
   };
 }
+
+/** Per-product refining-grade taxonomy for the highly-refined-oil exemption. */
+export type FalcpaExemptionStatus = 'exempt' | 'operator-decision' | 'not-exempt';
+
+/**
+ * REGULATION: 21 U.S.C. 321(qq)(2)(A) (FALCPA §203) — "Any highly refined oil derived from a
+ * food specified in paragraph (1) and any ingredient derived from such highly refined oil" is
+ * NOT a major food allergen. The B6-analog per-ingredient override on the generic allergen
+ * detector: only the 'exempt' state (e.g., RBD soybean oil, <1 ppm residual protein) skips
+ * allergen declaration. 'operator-decision' (e.g., coconut oil RBD), 'not-exempt' (cold-pressed /
+ * virgin — protein-bearing), and undefined (refining grade not yet flagged) ALL conservatively
+ * declare — the safe direction. Pure function; the detector trusts whatever survives this gate.
+ */
+export function isFalcpaRefinedOilExempt(status: FalcpaExemptionStatus | undefined): boolean {
+  return status === 'exempt';
+}

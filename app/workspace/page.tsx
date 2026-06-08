@@ -59,7 +59,7 @@ import type { Confidence, SustainabilityCert, LeadTimeBucket, SupplierQualificat
 import { PRODUCT_CLASS_LABEL } from '@/types';
 import { DOC_TYPE_LABELS, DOC_TYPE_ICONS, getQualificationStatus, loadQualifications, saveQualifications, summarizeQualifications } from '@/lib/supplierQualifications';
 import { generatePartNumber } from '@/lib/partNumber';
-import { detectAllergensDetailed, evaluateAllergenGate, formatAllergenListBody, type AllergenMatch } from '@/lib/supplementAllergen';
+import { detectAllergensDetailed, evaluateAllergenGate, formatAllergenListBody, isFalcpaRefinedOilExempt, type AllergenMatch } from '@/lib/supplementAllergen';
 
 /**
  * Adapter — extracts species-or-category strings from rich AllergenMatch[]
@@ -1190,7 +1190,8 @@ export default function FormulationWizard() {
       // (cold-pressed / virgin) and undefined (refining grade not yet flagged)
       // all default to "conservative declare" — allergens flow through normally.
       const industrialData = item.foodData?.type === 'industrial' ? item.foodData.data : null;
-      const falcpaExempt = industrialData?.falcpaExemptionStatus === 'exempt';
+      // REGULATION: 21 U.S.C. 321(qq)(2)(A) — single-sourced via the cited helper.
+      const falcpaExempt = isFalcpaRefinedOilExempt(industrialData?.falcpaExemptionStatus);
 
       if (!falcpaExempt) {
         // Detector pass — extracts species from ingredient name PLUS sub-ingredients
