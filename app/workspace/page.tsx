@@ -5558,7 +5558,7 @@ export default function FormulationWizard() {
                             </div>
                             {semantics === 'capacity-derived' ? (
                               <p className="text-[10px] text-gray-500 mt-1 leading-tight">
-                                Max {capsuleCapacityMg(suppCapsuleSize)} mg (#{suppCapsuleSize} capacity). Lower if your formula doesn&apos;t pack to full.
+                                Max {capsuleCapacityMg(suppCapsuleSize)} mg (#{suppCapsuleSize} capacity, at dense ~1 g/mL powder). Lower-density blends fill less — verify the real fit against your blend&apos;s bulk density.
                               </p>
                             ) : (
                               <p className="text-[10px] text-gray-500 mt-1 leading-tight">
