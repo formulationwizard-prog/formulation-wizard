@@ -139,4 +139,15 @@ describe('nutrient aggregation + CFR ordering (101.36(d)(2) / (b)(2)(i)(B)) — 
     expect(rows[0].displayName).toMatch(/Vitamin C/);  // entered 2nd, but sorts 1st
     expect(rows[1].displayName).toMatch(/Calcium/);
   });
+
+  it('below-2%-RDI nutrient suppressed from panel + listed in belowThresholdSuppressed (101.36(b)(2)(i))', () => {
+    const f = factsOf([indMg('Vitamin C (Ascorbic Acid)', 1)]); // 1/90 = 1.1% DV < 2%
+    expect(f.vitaminMineralRows.find(r => /Vitamin C/.test(r.displayName))).toBeUndefined();
+    expect(f.belowThresholdSuppressed.some(s => /Vitamin C/.test(s.displayName))).toBe(true);
+  });
+  it('at/above 2% RDI → declared, not suppressed', () => {
+    const f = factsOf([indMg('Vitamin C (Ascorbic Acid)', 90)]);
+    expect(f.vitaminMineralRows.find(r => /Vitamin C/.test(r.displayName))).toBeTruthy();
+    expect(f.belowThresholdSuppressed.length).toBe(0);
+  });
 });

@@ -315,6 +315,10 @@ export interface SupplementFactsData {
   needsDaggerFootnote: boolean;
   /** Actives whose label amount rounds to 0 despite a non-zero entry (silent-zero guard). */
   nearZeroActiveWarnings: NearZeroActiveWarning[];
+  /** (b)(2) nutrients omitted from the panel because they fell below the 2%-RDI
+   *  declarable threshold (21 CFR 101.36(b)(2)(i)) — surfaced as an operator advisory
+   *  so the omission is never silent. */
+  belowThresholdSuppressed: { displayName: string; amount: number; unit: string; percentDV: number }[];
 }
 
 /**
@@ -373,6 +377,7 @@ export function buildSupplementFacts(params: {
   const otherActivesRows: SupplementFactRow[] = [];
   const excipientList: { name: string; grams: number }[] = [];
   const nearZeroActiveWarnings: NearZeroActiveWarning[] = [];
+  const belowThresholdSuppressed: SupplementFactsData['belowThresholdSuppressed'] = [];
   // (b)(2) nutrient aggregation — accumulate by nutrient so multiple sources of one
   // nutrient render as ONE summed row (21 CFR 101.36(d)(2)), not one row per source.
   // Emitted, CFR-ordered, after the loop.
@@ -502,6 +507,19 @@ export function buildSupplementFacts(params: {
         .filter(n => n.toLowerCase() !== dv.displayName.toLowerCase()),
     )];
     const displayName = dv.displayName + (sourceNames.length ? ` (as ${sourceNames.join(', ')})` : '');
+    // REGULATION: 21 CFR 101.36(b)(2)(i) — a (b)(2) ingredient below the declarable
+    // threshold (<2% RDI) SHALL NOT be declared. Suppress the row, but record it so the
+    // operator gets an advisory (never a silent disappearance).
+    if (percentDV !== null && percentDV < 2) {
+      // The blend-floor / rounds-to-zero advisory (raised per-ingredient above) is the
+      // priority, actionable signal (it carries the "enter product mass" fix). Don't
+      // double-advise the same nutrient — only add the below-threshold notice when no
+      // blend-floor advisory already covers it.
+      if (!nearZeroActiveWarnings.some(w => w.displayName === dv.displayName)) {
+        belowThresholdSuppressed.push({ displayName, amount, unit: rowUnit, percentDV });
+      }
+      continue;
+    }
     const subDeclaration = acc.folicAcidMg > 0
       ? { name: 'folic acid', amount: toUnit(acc.folicAcidMg), unit: dv.unit }
       : undefined;
@@ -545,6 +563,7 @@ export function buildSupplementFacts(params: {
     otherIngredientsStatement,
     needsDaggerFootnote,
     nearZeroActiveWarnings,
+    belowThresholdSuppressed,
   };
 }
 

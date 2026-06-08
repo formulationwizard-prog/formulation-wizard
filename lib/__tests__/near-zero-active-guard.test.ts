@@ -37,18 +37,20 @@ function params(ingredients: Ingredient[]) {
 }
 
 describe('near-zero / blend-floor active guard', () => {
-  it('flags a carrier-loaded D3 SKU entered as direct mcg (label rounds to 0 AND below blend floor)', () => {
+  it('carrier-loaded D3 as direct mcg: below 2% DV → SUPPRESSED from panel (101.36(b)(2)(i)); blend-floor advisory is the single signal', () => {
     const carrier = ind('Vitamin D3 Cholecalciferol (100,000 IU/g on MCC)', 8, 'mcg', { potencyFactor: 0.0025 });
     const f = buildSupplementFacts(params([carrier]));
-    // the label row genuinely rounds to 0 ...
-    const row = f.vitaminMineralRows.find(r => /Vitamin D/.test(r.displayName))!;
-    expect(formatSupplementAmount(row.amount, row.unit)).toBe('0');
-    // ... and exactly one advisory is raised (blend-floor takes priority — it carries the fix)
+    // Post-#12: the D3 active rounds to ~0% DV → OMITTED from the panel, not rendered
+    // as a (non-compliant) "0" row.
+    expect(f.vitaminMineralRows.find(r => /Vitamin D/.test(r.displayName))).toBeUndefined();
+    // Blend-floor advisory is the priority, actionable signal (carries the "enter product mass" fix)...
     expect(f.nearZeroActiveWarnings).toHaveLength(1);
     expect(f.nearZeroActiveWarnings[0]).toMatchObject({
       displayName: 'Vitamin D', reason: 'below-blend-threshold',
       enteredAmount: 8, enteredUnit: 'mcg', labelUnit: 'mcg', potencyFactor: 0.0025,
     });
+    // ...and it is NOT double-advised as below-threshold (deduped — blend-floor wins).
+    expect(f.belowThresholdSuppressed.some(s => /Vitamin D/.test(s.displayName))).toBe(false);
   });
 
   it('flags a carrier SKU entered as direct mcg even when potencyFactor was NEVER set (the structural net)', () => {

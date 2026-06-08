@@ -7120,6 +7120,19 @@ export default function FormulationWizard() {
                         </ul>
                       </div>
                     )}
+                    {/* 21 CFR 101.36(b)(2)(i) — nutrients below the 2%-RDI declarable
+                        threshold are omitted from the panel; advise so it's never silent. */}
+                    {facts.belowThresholdSuppressed.length > 0 && (
+                      <div className="max-w-sm mx-auto mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                        <p className="text-amber-900 font-semibold text-sm">⚠️ Not shown on the panel (below 2% DV)</p>
+                        <p className="text-amber-800 text-[11px] mt-0.5 leading-snug">Per 21 CFR 101.36(b)(2)(i), a vitamin/mineral below 2% of its Daily Value is declared as zero — so it&rsquo;s omitted from the Supplement Facts panel:</p>
+                        <ul className="mt-1 space-y-1 list-disc list-inside">
+                          {facts.belowThresholdSuppressed.map((s, i) => (
+                            <li key={`bts-${i}`} className="text-amber-800 text-xs leading-snug">{s.displayName} — {formatSupplementAmount(s.amount, s.unit)} {s.unit} ({s.percentDV < 1 ? '<1' : Math.round(s.percentDV)}% DV)</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     </>
                   );
                 })()}
