@@ -1,0 +1,19 @@
+# ai.txt — AI / TDM (text-and-data-mining) usage policy for Formulation Wizard
+# Reinforces robots.txt for AI-training crawlers. data-flow-exposure-audit-2026-06-08 §C.3.
+
+# All content on this domain — including the ingredient catalog, its verified provenance,
+# citations, synonym mappings, the compliance/labeling logic, and all brand/marketing
+# material — is proprietary. It is NOT licensed for use as AI/ML training data, for
+# text-and-data-mining, retrieval-augmented generation, or model fine-tuning.
+
+# Operator data (formulations, COAs, spec sheets, supplier/cost data) is private to the
+# operator and is never available to crawlers or third parties.
+
+User-Agent: *
+Disallow: /
+
+# Explicit deny for named AI-training agents (see robots.txt for the full list):
+# GPTBot, anthropic-ai, ClaudeBot, CCBot, Google-Extended, PerplexityBot, Bytespider,
+# Amazonbot, Applebot-Extended, Meta-ExternalAgent, cohere-ai, Diffbot, YouBot.
+
+# Contact for licensing inquiries: formulationwizard@gmail.com

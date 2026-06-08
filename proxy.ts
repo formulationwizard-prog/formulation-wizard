@@ -45,7 +45,43 @@ function verifyCookie(value: string, secret: string): boolean {
   }
 }
 
+// ─── Rate limiter (baseline) — data-flow-exposure-audit-2026-06-08 §C.4 ───
+// HONEST CAVEAT (engine doctrine — do not claim more than is true): in-memory,
+// per-instance counter. On serverless/edge the Map does NOT persist reliably across
+// invocations or regions — a naive-burst speed bump + the STRUCTURE for the real
+// limiter, NOT a global guarantee. Production hardening (queued for the #17 session):
+// shared store (Upstash Redis / Vercel KV) keyed by IP. The effective quick-wins today
+// are robots.txt + the security headers (next.config.ts); this is the scaffold.
+const RL_WINDOW_MS = 60_000;
+const RL_LIMIT_AUTH = 100; // req/min, passcode-authorized (easier to relax than tighten)
+const RL_LIMIT_ANON = 30;  // req/min, unauthenticated
+const rlHits = new Map<string, { count: number; resetAt: number }>();
+function rateLimit(key: string, limit: number): { limited: boolean; retryAfter: number } {
+  const now = Date.now();
+  const e = rlHits.get(key);
+  if (!e || now > e.resetAt) { rlHits.set(key, { count: 1, resetAt: now + RL_WINDOW_MS }); return { limited: false, retryAfter: 0 }; }
+  e.count += 1;
+  if (e.count > limit) return { limited: true, retryAfter: Math.ceil((e.resetAt - now) / 1000) };
+  return { limited: false, retryAfter: 0 };
+}
+
 export async function proxy(request: NextRequest) {
+  // 0. Per-IP rate limit (baseline; see note above). Runs FIRST so a crawler /
+  //    brute-force hits the throttle before the session-refresh + auth work.
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
+  const rlAuthed = !!request.cookies.get("fw_access");
+  const rl = rateLimit(`${ip}:${rlAuthed ? "a" : "n"}`, rlAuthed ? RL_LIMIT_AUTH : RL_LIMIT_ANON);
+  if (rl.limited) {
+    console.warn(`[rate-limit] ${ip} exceeded ${rlAuthed ? RL_LIMIT_AUTH : RL_LIMIT_ANON}/min`);
+    return new NextResponse("Too Many Requests", {
+      status: 429,
+      headers: { "Retry-After": String(rl.retryAfter), "Content-Type": "text/plain" },
+    });
+  }
+
   // 1. Refresh the Supabase auth session on every matched request, regardless
   //    of passcode state. The returned NextResponse carries the rotated auth
   //    cookies and is what we hand back when the request is allowed through.
@@ -84,6 +120,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|marketing|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|ai.txt|marketing|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

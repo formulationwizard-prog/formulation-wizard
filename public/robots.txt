@@ -1,0 +1,46 @@
+# Formulation Wizard — robots.txt
+# Policy (data-flow-exposure-audit-2026-06-08 §C.3): allow legitimate search +
+# utility crawlers; block AI-TRAINING crawlers specifically. NOT a blanket block —
+# we want search engines to index the marketing pages.
+
+# ─── Search + utility crawlers: ALLOWED (marketing pages only) ───
+User-agent: Googlebot
+User-agent: Bingbot
+User-agent: DuckDuckBot
+User-agent: Slackbot
+User-agent: Twitterbot
+User-agent: LinkedInBot
+Allow: /
+Disallow: /workspace
+Disallow: /api/
+
+# ─── AI-training / TDM crawlers: BLOCKED everywhere ───
+# (List grows — cross-check Cloudflare's published AI-bot list periodically.)
+User-agent: GPTBot
+User-agent: ChatGPT-User
+User-agent: OAI-SearchBot
+User-agent: anthropic-ai
+User-agent: ClaudeBot
+User-agent: Claude-Web
+User-agent: CCBot
+User-agent: Google-Extended
+User-agent: PerplexityBot
+User-agent: Bytespider
+User-agent: Amazonbot
+User-agent: Applebot-Extended
+User-agent: FacebookBot
+User-agent: Meta-ExternalAgent
+User-agent: cohere-ai
+user-agent: Diffbot
+User-agent: ImagesiftBot
+User-agent: Omgilibot
+User-agent: Timpibot
+User-agent: PanguBot
+User-agent: YouBot
+Disallow: /
+
+# ─── Everyone else: allow marketing, protect the app + data paths ───
+User-agent: *
+Allow: /
+Disallow: /workspace
+Disallow: /api/
