@@ -2614,14 +2614,26 @@ export default function FormulationWizard() {
                   </form>
                 </div>
               ) : (
-                <a
-                  href="/auth"
-                  title="Sign in to save your formulas to the cloud"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-sm hover:bg-emerald-700 transition"
-                >
-                  <LogIn className="h-4 w-4" aria-hidden="true" />
-                  Sign in to save
-                </a>
+                <div className="flex items-center gap-2">
+                  {/* Decision A (2026-06-14): conspicuous Trial-mode labeling so
+                      local-only state is unmissable, not inferred-after-loss
+                      (the Trial-#1 silent lost-formulas failure). */}
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-800"
+                    title="Trial mode — your work is saved on this device only and will not persist or sync across devices until you sign in."
+                  >
+                    <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                    Trial mode — this device only
+                  </span>
+                  <a
+                    href="/auth"
+                    title="Sign in to save your formulas to the cloud"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-sm hover:bg-emerald-700 transition"
+                  >
+                    <LogIn className="h-4 w-4" aria-hidden="true" />
+                    Sign in to save
+                  </a>
+                </div>
               )}
             </div>
             <div className="flex gap-2 flex-wrap">
@@ -3494,6 +3506,13 @@ export default function FormulationWizard() {
           {savedFormulations.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400 text-lg">
               No saved formulations yet. Build one on the 🔬 Build tab and hit 💾 Save.
+              {authEmail === null && (
+                <div className="mt-3 text-sm text-amber-700">
+                  Heads up — you&apos;re in <span className="font-semibold">Trial mode</span>: saved formulas live on
+                  this device only until you{' '}
+                  <a href="/auth" className="font-medium underline underline-offset-2 hover:text-amber-900">sign in</a>.
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid gap-4">
