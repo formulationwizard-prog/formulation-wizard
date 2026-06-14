@@ -2090,8 +2090,12 @@ export default function FormulationWizard() {
     mirrorToCloud([newSave]);
     writeCompositionSpec(assignedPartNumber);
     setPartNumber(assignedPartNumber);
-    setSaveMessage(`✅ "${formulationName}" saved as ${assignedPartNumber} (v1.0.0)`);
-    setTimeout(() => setSaveMessage(''), 3000);
+    setSaveMessage(
+      authEmail === null
+        ? `✅ "${formulationName}" saved on this device as ${assignedPartNumber} — sign in to keep it across devices.`
+        : `✅ "${formulationName}" saved as ${assignedPartNumber} (v1.0.0)`,
+    );
+    setTimeout(() => setSaveMessage(''), authEmail === null ? 6000 : 3000);
   };
 
   const loadFormulation = (f: SavedFormulation) => {
@@ -4837,6 +4841,13 @@ export default function FormulationWizard() {
                 </div>
                 <button onClick={saveFormulation} className="w-full md:w-auto px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium">💾 Save formulation</button>
                 {saveMessage && <p className="mt-3 text-emerald-600 font-medium">{saveMessage}</p>}
+                {authEmail === null && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    Trial mode — saves to this device only.{' '}
+                    <a href="/auth" className="font-medium underline underline-offset-2 hover:text-amber-900">Sign in</a>{' '}
+                    to keep it across devices.
+                  </p>
+                )}
               </div>
 
               {/* Bulk Paste Panel */}
