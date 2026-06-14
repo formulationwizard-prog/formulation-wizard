@@ -2326,7 +2326,9 @@ export default function FormulationWizard() {
           { id: 'saved', label: 'Saved Formulas', icon: '💾' },
           { id: 'database', label: 'Ingredient Library', icon: '📦' },
         ];
-        tabs.forEach(t => {
+        tabs
+          .filter(t => !(mode === 'supplements' && (t.id === 'filing' || t.id === 'packaging')))
+          .forEach(t => {
           if (!q || t.label.toLowerCase().includes(q)) {
             results.push({
               type: 'tab',
@@ -2624,7 +2626,7 @@ export default function FormulationWizard() {
             </div>
             <div className="flex gap-2 flex-wrap">
               {(['home', 'build', 'batch', 'packaging', 'cost', ...(MASTER_SPECS_FEATURE_FLAG ? ['masterSpecs' as const] : []), 'sourcing', 'filing', 'services', 'authorities', 'saved', 'database'] as const)
-                .filter(tab => !(mode === 'supplements' && tab === 'filing'))
+                .filter(tab => !(mode === 'supplements' && (tab === 'filing' || tab === 'packaging')))
                 .map(tab => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   className={`px-4 py-2 rounded-lg font-medium transition text-sm ${activeTab === tab ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -3418,8 +3420,8 @@ export default function FormulationWizard() {
       {activeTab === 'database' && (
         <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
           <div className="mb-6">
-            <h2 className="text-2xl font-bold text-gray-800">Industrial Ingredient Library</h2>
-            <p className="text-gray-500 text-sm mt-1">Curated industrial-grade ingredients with verified suppliers, specs, and sustainability profiles{dbSearch || dbCategory !== 'All' ? ` — ${filteredDB.length} match current filters` : ''}.</p>
+            <h2 className="text-2xl font-bold text-gray-800">{mode === 'supplements' ? 'Supplement Ingredient Library' : 'Industrial Ingredient Library'}</h2>
+            <p className="text-gray-500 text-sm mt-1">Curated {mode === 'supplements' ? 'supplement-grade' : 'industrial-grade'} ingredients with verified suppliers, specs, and sustainability profiles{dbSearch || dbCategory !== 'All' ? ` — ${filteredDB.length} match current filters` : ''}.</p>
           </div>
           <div className="flex flex-wrap gap-3 mb-6">
             <input type="text" placeholder="Search ingredients..." value={dbSearch}
@@ -10764,8 +10766,8 @@ export default function FormulationWizard() {
             <div className="flex items-start gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="text-sm">
-                <span className="font-bold text-amber-900">PREVIEW — Save backend pending.</span>
-                <span className="text-amber-800"> Batch-level captures (Batch #, Operator, Production Date, ingredient actuals/lots, signatures) will not persist across page reload until launch-blocker #4 (Supabase persistence) lands. Process Instructions + QA Checkpoints DO persist via localStorage. Design is stable as of 2026-05-26 polish round.</span>
+                <span className="font-bold text-amber-900">PREVIEW — Batch captures are session-only.</span>
+                <span className="text-amber-800"> Batch-level run data (Batch #, Operator, Production Date, ingredient actuals/lots, signatures) is not yet persisted — it won&apos;t survive a page reload, so print or export the Batch Sheet before closing. (Formula save itself is live; this is the separate batch-run capture layer. Process Instructions + QA Checkpoints persist via localStorage.)</span>
               </div>
             </div>
           </div>
@@ -11667,7 +11669,7 @@ export default function FormulationWizard() {
               <NautilusMark size={64} />
               <div>
                 <h2 className="text-3xl font-semibold text-emerald-700 tracking-tight">Formulation Wizard Services</h2>
-                <p className="text-sm text-gray-500 italic">R&amp;D, reformulation, and scale-up for food and beverage manufacturers.</p>
+                <p className="text-sm text-gray-500 italic">R&amp;D, reformulation, and scale-up for the products you make.</p>
               </div>
             </div>
             <p className="text-sm text-gray-700 leading-relaxed max-w-3xl mt-4">
@@ -11684,7 +11686,7 @@ export default function FormulationWizard() {
               <div className="text-3xl mb-2">🧪</div>
               <h3 className="font-bold text-gray-800 mb-1">Bench-Top Sample Development</h3>
               <p className="text-xs text-gray-600 leading-relaxed">
-                We produce and ship bench-top samples to your team — real product, your formula, made to your target specs. Taste, adjust, iterate before committing to a production run. Typical 1–3 week turnaround.
+                We produce and ship bench-top samples to your team — real product, your formula, made to your target specs. Evaluate, adjust, iterate before committing to a production run. Typical 1–3 week turnaround.
               </p>
             </button>
 
@@ -11693,9 +11695,9 @@ export default function FormulationWizard() {
               className={`text-left bg-white rounded-xl border-2 p-5 hover:shadow-lg transition ${serviceRequestType === 'reform' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200 hover:border-emerald-400'}`}
             >
               <div className="text-3xl mb-2">🎯</div>
-              <h3 className="font-bold text-gray-800 mb-1">Reformulation to Flavor Expectation</h3>
+              <h3 className="font-bold text-gray-800 mb-1">Reformulation</h3>
               <p className="text-xs text-gray-600 leading-relaxed">
-                You know what it should taste like. We&apos;ll reformulate to match. Whether you&apos;re matching a benchmark competitor, bringing a family recipe to scale, or swapping ingredients for cost, clean-label, or regulatory reasons — we get the flavor profile right.
+                Whether you&apos;re matching a benchmark, bringing a recipe to scale, or swapping ingredients for cost, clean-label, or regulatory reasons — we reformulate to hit your target and keep it compliant.
               </p>
             </button>
 
@@ -11736,6 +11738,9 @@ export default function FormulationWizard() {
               const formulaLines = ingredients.length > 0
                 ? ingredients.map(i => `  - ${i.name}: ${i.qty}${i.unit}`).join('\n')
                 : '  (no formula entered yet)';
+              // P2 (2026-06-13): pH/aw/classification are F&B specs. In supplements mode they
+              // degrade gracefully to "(specs not yet computed)", but this line should be
+              // sector-aware — emit supplement-relevant specs in supplements mode. Not August-blocking.
               const specsLine = specs.pH > 0
                 ? `  • pH: ${specs.pH.toFixed(2)} • aw: ${specs.aw.toFixed(3)} • Classification: ${specs.productClassification}`
                 : '  (specs not yet computed)';
@@ -11798,7 +11803,7 @@ ${serviceNotes || '(none)'}
                   <div className="md:col-span-2">
                     <label className="text-xs font-semibold text-gray-700">Notes / specific requests</label>
                     <textarea rows={4} value={serviceNotes} onChange={e => setServiceNotes(e.target.value)}
-                      placeholder={serviceRequestType === 'bench' ? 'Quantity of samples needed, flavor profile targets, shipping address preferences...' :
+                      placeholder={serviceRequestType === 'bench' ? 'Quantity of samples needed, target specs, shipping address preferences...' :
                                    serviceRequestType === 'reform' ? 'What are you matching? Any specific ingredient constraints? Allergen requirements?' :
                                    serviceRequestType === 'scaleup' ? 'Target batch size, timeline, current pilot status, any regulatory blocks...' :
                                    'Volume estimate, target market geography, required certifications, timeline...'}
