@@ -1,5 +1,7 @@
 # The Fork: Platform vs Infrastructure
 
+> **⚠️ SUPERSEDED 2026-06-13** by [`platform-infrastructure-sequence-2026-06-13.md`](platform-infrastructure-sequence-2026-06-13.md). The fork was reframed as a **sequence** (Platform first, Infrastructure second — a dependency, not a choice). This doc is retained for history; the sequence doc is canonical.
+
 **Status:** DECISION DOC — for Wizard. Not CC's or Opus's call to make. Surfaced in the 2026-06-07 strategy pass.
 **What it decides:** the 5-year identity of the company. Different answers = different companies.
 **When it must be decided:** see "Decide-by trigger" — roughly **before we commit to the second post-MVP surface (≈ Q3 start / late August).** Not now. But not "someday," because the option closes by accretion.
