@@ -33,7 +33,44 @@ const ADAPTERS = {
 };
 
 /**
- * Dispatch fetch to the registered adapter for this entry.
+ * Retry a fetch with exponential backoff. eCFR/govinfo have occasional
+ * transient blips (timeouts, 5xx, brief unreachability) that self-heal in
+ * seconds. Without retry, a single blip throws → the entry is reported as
+ * fetch-error → the weekly workflow hard-fails and emails an alarm for
+ * something that needs no action (alert fatigue). Retrying absorbs the
+ * transient case; a genuinely persistent failure (moved URL, API change,
+ * sustained outage) still throws after the final attempt, so real problems
+ * still surface + alert. Retry notices go to stderr (console.warn) so they
+ * never pollute the stdout the --github issue-parsing step reads.
+ *
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @param {{ attempts?: number, baseDelayMs?: number }} [opts]
+ * @returns {Promise<T>}
+ */
+async function withRetry(fn, { attempts = 3, baseDelayMs = 1000 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < attempts) {
+        const delay = baseDelayMs * 2 ** (attempt - 1); // 1s, 2s, 4s
+        console.warn(
+          `[cfr-watch] fetch attempt ${attempt}/${attempts} failed (${err.message}); retrying in ${delay}ms`,
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Dispatch fetch to the registered adapter for this entry, with transient-blip
+ * retry (see withRetry). Retry lives here (the dispatcher) so both adapters get
+ * it uniformly and neither has to implement its own.
  *
  * @param {WatchEntry} entry
  * @returns {Promise<RegContent>}
@@ -43,5 +80,5 @@ export async function fetchRegContent(entry) {
   if (!adapter) {
     throw new Error(`No fetcher registered for "${entry.fetcher}" (entry ${entry.id})`);
   }
-  return adapter(entry.source);
+  return withRetry(() => adapter(entry.source));
 }
