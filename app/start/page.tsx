@@ -244,14 +244,14 @@ function SaveConversion({ assembled, name }: { assembled: AssembledFacts; name: 
       <div className="max-w-sm mx-auto rounded-xl border border-emerald-300 bg-emerald-50 p-5 text-center">
         <p className="text-sm font-semibold text-emerald-900">✓ Saved on this device</p>
         <p className="mt-1 text-xs text-emerald-800 leading-snug">
-          Sign in to keep it everywhere — your work moves to your account, syncs across devices, and the full
+          Sign in to save it permanently — your work moves to your account, syncs across devices, and the full
           workspace opens.
         </p>
         <a
           href="/auth?next=/workspace"
           className="mt-3 inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
         >
-          Sign in to keep it →
+          Sign in to save →
         </a>
       </div>
     );
@@ -263,7 +263,7 @@ function SaveConversion({ assembled, name }: { assembled: AssembledFacts; name: 
         onClick={save}
         className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700"
       >
-        Save my work
+        Save
       </button>
       <p className="mt-2 text-xs text-slate-500">Keep this label and pick up where you left off.</p>
     </div>
@@ -277,9 +277,9 @@ const TIER_UI: Record<SafetyTier, { label: string; ring: string; bg: string; tex
   ok: null, // all-clear is rendered as one calm summary, not per-ingredient
   caution: { label: 'Approaching the limit', ring: 'border-yellow-300', bg: 'bg-yellow-50', text: 'text-yellow-900' },
   warning: { label: 'Over the upper limit', ring: 'border-amber-400', bg: 'bg-amber-50', text: 'text-amber-900' },
-  critical: { label: 'Over a safety limit', ring: 'border-red-400', bg: 'bg-red-50', text: 'text-red-900' },
+  critical: { label: 'Far over the upper limit', ring: 'border-red-400', bg: 'bg-red-50', text: 'text-red-900' },
   banned: { label: 'Not legal in US supplements', ring: 'border-red-500', bg: 'bg-red-50', text: 'text-red-900' },
-  interaction: { label: 'Drug interaction to know', ring: 'border-sky-300', bg: 'bg-sky-50', text: 'text-sky-900' },
+  interaction: { label: 'Known drug interaction', ring: 'border-sky-300', bg: 'bg-sky-50', text: 'text-sky-900' },
 };
 
 /**
@@ -332,8 +332,8 @@ function CatchReview({ assembled }: { assembled: AssembledFacts }) {
       {assembled.dsheaDisclaimer && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
           <p className="text-xs text-sky-900 leading-snug">
-            <span className="font-semibold">We added the FDA disclaimer for you.</span> Your formula makes a
-            structure/function claim, so the required statement is on the panel (21 CFR 101.93).
+            <span className="font-semibold">Your structure/function claim requires the DSHEA disclaimer (21 CFR 101.93).</span>{' '}
+            Added to the panel.
           </p>
         </div>
       )}
@@ -381,7 +381,7 @@ export default function StartPage() {
             "Build your label. Catch what would have shipped wrong. Ready for the manufacturer." */}
         <header className="mb-10 text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Build your first Supplement Facts panel
+            Build a Supplement Facts panel
           </h1>
           <p className="mt-3 text-slate-600">
             In five minutes — correct, cited, and ready to hand a manufacturer. No account needed to start.
@@ -457,8 +457,8 @@ export default function StartPage() {
                   </>
                 ) : (
                   <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
-                    We couldn&rsquo;t confidently match any of those lines to the catalog yet. Try the
-                    example, or check the spelling and amounts.
+                    No confident catalog match for these lines yet. Check the spelling and amounts, or try
+                    the example.
                   </div>
                 )}
 
