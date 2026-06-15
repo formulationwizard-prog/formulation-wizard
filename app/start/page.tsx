@@ -53,7 +53,7 @@ import { parsePastedFormula, type ParsedRow } from '@/lib/parseFormula';
 import { checkSupplementSafety, type SafetyFinding, type SafetyTier } from '@/lib/supplementSafetyLimits';
 import { coerceUnitToAllowed, UNIT_TO_GRAMS } from '@/lib/utils';
 import { SupplementFactsPanel } from '@/components/SupplementFactsPanel';
-import type { Ingredient, IndustrialIngredient } from '@/types';
+import type { Ingredient, IndustrialIngredient, SavedFormulation, FormulationVersion } from '@/types';
 
 type Path = 'choose' | 'example' | 'paste';
 
@@ -71,6 +71,8 @@ interface AssembledFacts {
   findings: SafetyFinding[];
   /** How many actives were screened — drives the "we checked N things" reassurance. */
   activeCount: number;
+  /** The resolved ingredients — carried so the save-as-conversion can persist them. */
+  ingredients: Ingredient[];
 }
 
 /**
@@ -161,7 +163,111 @@ function assembleSupplementFacts(
     dsheaDisclaimer,
     findings,
     activeCount: ingredients.length,
+    ingredients,
   };
+}
+
+/**
+ * Build a VALID SavedFormulation from a /start formula — mirrors the workspace's
+ * saveFormulation (app/workspace/page.tsx:2047) field-for-field so the workspace
+ * can open it and cloudSync.toRow can serialize it. Written to the SAME
+ * localStorage cache (`fw_savedFormulations`) the workspace reads on load, so on
+ * sign-in the existing migration (page.tsx:978-981) pushes it to the cloud — new
+ * saves carry a `crypto.randomUUID()` id, which is the migration's gate.
+ */
+function buildStartSavedFormulation(name: string, ingredients: Ingredient[]): SavedFormulation {
+  // Event-handler context (not render) — Date / crypto are fine here.
+  const now = new Date().toISOString();
+  const catalogSnapshot = { kind: 'legacy-pre-schema-lock' as const };
+  const snapshot: FormulationVersion = {
+    version: '1.0.0',
+    timestamp: now,
+    author: 'Formulator',
+    reasonForChange: 'Created in /start',
+    ingredients: [...ingredients],
+    servingSize: 1,
+    servingUnit: 'Capsule',
+    packageSize: 30,
+    packageUnit: 'Capsule',
+    packagingName: null,
+    closureName: null,
+    productType: null,
+    productClass: 'supplement',
+    catalogSnapshot,
+  };
+  return {
+    id: crypto.randomUUID(),
+    name,
+    mode: 'supplements',
+    productType: null,
+    productClass: 'supplement',
+    ingredients: [...ingredients],
+    servingSize: 1,
+    servingUnit: 'Capsule',
+    packageSize: 30,
+    packageUnit: 'Capsule',
+    packagingName: null,
+    closureName: null,
+    createdAt: now,
+    lastModified: now,
+    currentVersion: '1.0.0',
+    versions: [snapshot],
+    status: 'draft',
+    catalogSnapshot,
+  };
+}
+
+/**
+ * Save-as-conversion (increment 6). The conversion moment: the visitor built a
+ * real artifact; we keep it locally (trial) and offer sign-in to make it
+ * permanent + open the full workspace. VOICE FIRST-PASS — flagged for operator.
+ */
+function SaveConversion({ assembled, name }: { assembled: AssembledFacts; name: string }) {
+  const [saved, setSaved] = useState(false);
+
+  function save() {
+    const sf = buildStartSavedFormulation(name, assembled.ingredients);
+    try {
+      const raw = window.localStorage.getItem('fw_savedFormulations');
+      const parsed = raw ? JSON.parse(raw) : [];
+      const next = Array.isArray(parsed) ? [...parsed, sf] : [sf];
+      window.localStorage.setItem('fw_savedFormulations', JSON.stringify(next));
+    } catch {
+      /* localStorage unavailable (private mode / quota) — still flip to the
+         signed-out CTA; the user can rebuild after signing in. */
+    }
+    setSaved(true);
+  }
+
+  if (saved) {
+    return (
+      <div className="max-w-sm mx-auto rounded-xl border border-emerald-300 bg-emerald-50 p-5 text-center">
+        <p className="text-sm font-semibold text-emerald-900">✓ Saved on this device</p>
+        <p className="mt-1 text-xs text-emerald-800 leading-snug">
+          Sign in to keep it everywhere — your work moves to your account, syncs across devices, and the full
+          workspace opens.
+        </p>
+        <a
+          href="/auth?next=/workspace"
+          className="mt-3 inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+        >
+          Sign in to keep it →
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-sm mx-auto text-center">
+      <button
+        onClick={save}
+        className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700"
+      >
+        Save my work
+      </button>
+      <p className="mt-2 text-xs text-slate-500">Keep this label and pick up where you left off.</p>
+    </div>
+  );
 }
 
 // Catch-as-save tier presentation. VOICE IS FIRST-PASS — flagged for operator's
@@ -347,6 +453,7 @@ export default function StartPage() {
                       dsheaDisclaimer={pasteResult.assembled.dsheaDisclaimer}
                     />
                     <CatchReview assembled={pasteResult.assembled} />
+                    <SaveConversion assembled={pasteResult.assembled} name="My formula" />
                   </>
                 ) : (
                   <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
@@ -407,6 +514,7 @@ export default function StartPage() {
                   dsheaDisclaimer={example.dsheaDisclaimer}
                 />
                 <CatchReview assembled={example} />
+                <SaveConversion assembled={example} name="Magnesium Glycinate (sample)" />
               </>
             ) : (
               <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
@@ -414,14 +522,6 @@ export default function StartPage() {
                 required real catalog row.)
               </div>
             )}
-
-            {/* Increment 6 wires this to save-as-conversion (anon work migrates up on sign-in). */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 text-center">
-              <p className="text-sm text-slate-600">
-                This panel is built on the same engine that catches dosing, allergen, and claim problems
-                before they ship. Save your work to keep building.
-              </p>
-            </div>
           </div>
         )}
       </div>
