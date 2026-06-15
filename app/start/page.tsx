@@ -50,6 +50,7 @@ import { detectAllergensDetailed, type AllergenMatch } from '@/lib/supplementAll
 import { detectStructureFunctionClaims } from '@/lib/supplementClaims';
 import { selectSupplementDisclaimer } from '@/lib/supplementDisclaimer';
 import { parsePastedFormula, type ParsedRow } from '@/lib/parseFormula';
+import { checkSupplementSafety, type SafetyFinding, type SafetyTier } from '@/lib/supplementSafetyLimits';
 import { coerceUnitToAllowed, UNIT_TO_GRAMS } from '@/lib/utils';
 import { SupplementFactsPanel } from '@/components/SupplementFactsPanel';
 import type { Ingredient, IndustrialIngredient } from '@/types';
@@ -66,6 +67,10 @@ interface AssembledFacts {
   servingsPerContainer: number;
   allergenStatement: AllergenMatch[];
   dsheaDisclaimer: string;
+  /** Safety-engine findings (UL / banned / interaction) for the catch-as-save review. */
+  findings: SafetyFinding[];
+  /** How many actives were screened — drives the "we checked N things" reassurance. */
+  activeCount: number;
 }
 
 /**
@@ -123,6 +128,19 @@ function assembleSupplementFacts(
   const claimCount = detectStructureFunctionClaims(ingredients.map((i) => i.name)).length;
   const dsheaDisclaimer = selectSupplementDisclaimer(claimCount);
 
+  // Safety engine — same checker the workspace Safety card uses. perServingMg is
+  // ingredient mass × scale × 1000 × potency (elemental conversion happens inside
+  // checkSupplementSafety). scale = 1 here (serving mass = formula mass), matching
+  // the panel's per-serving scaling so the catch review and the SFP never disagree.
+  const perServingMgByName = new Map<string, number>();
+  for (const ing of ingredients) {
+    const grams = ing.qty * (UNIT_TO_GRAMS[ing.unit] ?? 1);
+    const potency =
+      ing.foodData?.type === 'industrial' ? ing.foodData.data?.potencyFactor ?? 1 : 1;
+    perServingMgByName.set(ing.name, grams * 1000 * potency);
+  }
+  const findings = checkSupplementSafety(ingredients, perServingMgByName, 'general');
+
   const facts = buildSupplementFacts({
     ingredients,
     mode: 'supplements',
@@ -136,7 +154,85 @@ function assembleSupplementFacts(
     macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },
   });
 
-  return { facts, servingsPerContainer: opts.servingsPerContainer, allergenStatement, dsheaDisclaimer };
+  return {
+    facts,
+    servingsPerContainer: opts.servingsPerContainer,
+    allergenStatement,
+    dsheaDisclaimer,
+    findings,
+    activeCount: ingredients.length,
+  };
+}
+
+// Catch-as-save tier presentation. VOICE IS FIRST-PASS — flagged for operator's
+// voice lock (joy-of-mastery / operator-voice). The mechanism (which findings,
+// citations, mitigations) is engine-driven and correct; the WORDS are a draft.
+const TIER_UI: Record<SafetyTier, { label: string; ring: string; bg: string; text: string } | null> = {
+  ok: null, // all-clear is rendered as one calm summary, not per-ingredient
+  caution: { label: 'Approaching the limit', ring: 'border-yellow-300', bg: 'bg-yellow-50', text: 'text-yellow-900' },
+  warning: { label: 'Over the upper limit', ring: 'border-amber-400', bg: 'bg-amber-50', text: 'text-amber-900' },
+  critical: { label: 'Over a safety limit', ring: 'border-red-400', bg: 'bg-red-50', text: 'text-red-900' },
+  banned: { label: 'Not legal in US supplements', ring: 'border-red-500', bg: 'bg-red-50', text: 'text-red-900' },
+  interaction: { label: 'Drug interaction to know', ring: 'border-sky-300', bg: 'bg-sky-50', text: 'text-sky-900' },
+};
+
+/**
+ * Catch-as-save review — renders BELOW the byte-faithful panel (chrome, not a
+ * regulated surface). Reframes the safety engine as "here's what we verified and
+ * what we caught," with the citation that backs each catch. The whole point of
+ * /start: the artifact is the pitch, and the catch is the proof the engine works.
+ */
+function CatchReview({ assembled }: { assembled: AssembledFacts }) {
+  const flagged = assembled.findings.filter((f) => f.tier !== 'ok');
+  const allClear = flagged.length === 0;
+
+  return (
+    <div className="max-w-sm mx-auto space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">What we checked</p>
+
+      {allClear ? (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3">
+          <p className="text-sm font-semibold text-emerald-900">✓ All clear — nothing to flag</p>
+          <p className="mt-1 text-xs text-emerald-800 leading-snug">
+            Screened {assembled.activeCount} active{assembled.activeCount === 1 ? '' : 's'} against published
+            upper limits (IOM / FDA / ODS), the banned-ingredient list, and drug-interaction flags. All within range.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {flagged.map((f, i) => {
+            const ui = TIER_UI[f.tier];
+            if (!ui) return null;
+            return (
+              <li key={`f-${i}`} className={`rounded-lg border ${ui.ring} ${ui.bg} p-3`}>
+                <p className={`text-sm font-semibold ${ui.text}`}>
+                  {ui.label} · {f.ingredientName}
+                </p>
+                <p className={`mt-1 text-xs ${ui.text} leading-snug`}>{f.hazard}</p>
+                {f.percentOfUL !== null && f.effectiveUL !== null && (
+                  <p className={`mt-1 text-xs ${ui.text} opacity-90`}>
+                    {f.amountPerServing}{f.unit} per serving — {Math.round(f.percentOfUL)}% of the{' '}
+                    {f.limitName} limit ({f.effectiveUL}{f.unit}).
+                  </p>
+                )}
+                <p className={`mt-1 text-xs font-medium ${ui.text}`}>→ {f.mitigation}</p>
+                <p className="mt-1.5 text-[10px] text-slate-500">{f.authority} · {f.citation}</p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {assembled.dsheaDisclaimer && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+          <p className="text-xs text-sky-900 leading-snug">
+            <span className="font-semibold">We added the FDA disclaimer for you.</span> Your formula makes a
+            structure/function claim, so the required statement is on the panel (21 CFR 101.93).
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface PasteResult {
@@ -242,13 +338,16 @@ export default function StartPage() {
             {pasteResult && (
               <div className="space-y-6 pt-2">
                 {pasteResult.assembled ? (
-                  <SupplementFactsPanel
-                    facts={pasteResult.assembled.facts}
-                    servingsPerContainer={pasteResult.assembled.servingsPerContainer}
-                    allergenStatement={pasteResult.assembled.allergenStatement}
-                    suppSourceDeclaration="sfp"
-                    dsheaDisclaimer={pasteResult.assembled.dsheaDisclaimer}
-                  />
+                  <>
+                    <SupplementFactsPanel
+                      facts={pasteResult.assembled.facts}
+                      servingsPerContainer={pasteResult.assembled.servingsPerContainer}
+                      allergenStatement={pasteResult.assembled.allergenStatement}
+                      suppSourceDeclaration="sfp"
+                      dsheaDisclaimer={pasteResult.assembled.dsheaDisclaimer}
+                    />
+                    <CatchReview assembled={pasteResult.assembled} />
+                  </>
                 ) : (
                   <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
                     We couldn&rsquo;t confidently match any of those lines to the catalog yet. Try the
@@ -299,13 +398,16 @@ export default function StartPage() {
             </div>
 
             {example ? (
-              <SupplementFactsPanel
-                facts={example.facts}
-                servingsPerContainer={example.servingsPerContainer}
-                allergenStatement={example.allergenStatement}
-                suppSourceDeclaration="sfp"
-                dsheaDisclaimer={example.dsheaDisclaimer}
-              />
+              <>
+                <SupplementFactsPanel
+                  facts={example.facts}
+                  servingsPerContainer={example.servingsPerContainer}
+                  allergenStatement={example.allergenStatement}
+                  suppSourceDeclaration="sfp"
+                  dsheaDisclaimer={example.dsheaDisclaimer}
+                />
+                <CatchReview assembled={example} />
+              </>
             ) : (
               <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
                 Example ingredient not found in the catalog. (This should not happen — the entry is a
