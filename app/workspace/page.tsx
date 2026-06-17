@@ -2554,7 +2554,7 @@ export default function FormulationWizard() {
                 <h1 className="text-4xl font-semibold text-emerald-700 tracking-tight leading-none">
                   formulation<span className="text-gray-600 font-light tracking-[0.32em] ml-2 text-2xl uppercase">wizard</span>
                 </h1>
-                <p className="text-gray-500 text-xs mt-2 italic max-w-xl">Formulation, labeling, and Process Authority documentation — for food and nutraceutical product developers.</p>
+                <p className="text-gray-500 text-xs mt-2 italic max-w-xl">Build your label. Catch what would have shipped wrong. Ready for the manufacturer.</p>
                 <p className="text-gray-600 text-sm mt-1 font-medium">
                   {mc.icon} {mc.name}
                   <span className="text-gray-400 font-normal"> — {mc.tagline}</span>
@@ -3087,19 +3087,10 @@ export default function FormulationWizard() {
           .sort((a, b) => b[1] - a[1])
           .slice(0, 8);
 
-        // ─── Portfolio sustainability average ───
-        let avgSustainability = 0;
-        if (totalFormulas > 0) {
-          const scores = savedFormulations.map(f => {
-            const rows = f.ingredients.map(i => ({
-              name: i.name,
-              category: i.foodData?.type === 'industrial' ? (i.foodData.data as IndustrialIngredient).category : '',
-              massG: i.qty * (UNIT_TO_GRAMS[i.unit] || 1),
-            }));
-            return computeFormulationSustainability(rows).score;
-          });
-          avgSustainability = Math.round(scores.reduce((s, n) => s + n, 0) / scores.length);
-        }
+        // AVG SUSTAINABILITY KPI cut per first-run-experience-spec §5 — vanity
+        // metric with no benchmark / threshold / fix. Restore only when it ties
+        // to an action. computeFormulationSustainability still drives the real
+        // Sustainability & Sourcing panel.
 
         const statusColor: Record<string, string> = {
           'draft': 'gray', 'in-pilot': 'amber', 'launched': 'emerald', 'on-hold': 'rose',
@@ -3159,7 +3150,7 @@ export default function FormulationWizard() {
             </div>
 
             {/* Portfolio KPI tiles */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Total Formulas</div>
                 <div className="text-3xl font-bold font-mono tabular-nums tracking-tight text-gray-800 mt-1">{totalFormulas}</div>
@@ -3179,13 +3170,6 @@ export default function FormulationWizard() {
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">📝 Drafts</div>
                 <div className="text-3xl font-bold font-mono tabular-nums tracking-tight text-gray-700 mt-1">{byStatus.draft}</div>
                 <div className="text-[10px] text-gray-400 mt-1">early development</div>
-              </div>
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">🌱 Avg Sustainability</div>
-                <div className={`text-3xl font-bold font-mono tabular-nums tracking-tight mt-1 ${
-                  avgSustainability >= 75 ? 'text-emerald-700' : avgSustainability >= 55 ? 'text-amber-700' : 'text-rose-700'
-                }`}>{avgSustainability}</div>
-                <div className="text-[10px] text-gray-400 mt-1">/100 across portfolio</div>
               </div>
             </div>
 
