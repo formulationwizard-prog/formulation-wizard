@@ -34,6 +34,14 @@ const BROAD_VECTOR_CATEGORIES = new Set<string>([
 ]);
 const BROAD_METALS: HeavyMetal[] = ['Pb', 'As', 'Cd'];
 
+// NATE-REFINEMENT QUEUE (2026-06-17 code-review pickups; NOT blockers — for the
+// per-class refinement regroup, all approved as real gaps):
+//   • Hg: add `mackerel`, `tuna` — primary higher-Hg fish-oil / supplement sources.
+//   • Cd: add `oyster|mussel|clam` — bivalves are notable Cd accumulators (filter
+//     seawater); `oyster` currently matches Hg only, missing the Cd pathway.
+//   • New vector class for organ/glandular powders (desiccated/bovine liver → Cd
+//     from environmental exposure) — Nate's call on adding an 'organ-derived' class
+//     (likely not in BROAD_VECTOR_CATEGORIES today).
 /** Source-level signals (name + subIngredients), independent of category.
  *  Lowercased substring match against the entry's name + subIngredients. */
 const SOURCE_SIGNALS: { metal: HeavyMetal; patterns: RegExp }[] = [
