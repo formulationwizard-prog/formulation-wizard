@@ -108,6 +108,23 @@ Per the `product_id`-incident fix: every architectural call this schema makes is
 
 ---
 
+## §4-bis — Review-pass amendments (2026-06-17, post-local-green + Opus review)
+
+`0003` as built incorporates these catches (they **supersede the as-drafted §4.5/§4.6** where noted):
+
+- **Restrictive append-only deny (supersedes §4.6's "absence of policy").** `lot_events`, `master_spec_observations`, **and** `master_spec_revisions` get **RESTRICTIVE `using(false)`** UPDATE+DELETE policies — AND'd with any future permissive policy, so append-only can never be re-enabled by an accidental permissive copy-paste. Absence-of-policy was verified-denying but not *future-locked*. **Harness proves it:** a deliberately-added permissive UPDATE policy is still denied.
+- **`master_spec_revisions` is now append-only + supersession** (was a standard mutable table — the worst-of-both per the review). The carry-forward decision is "once per (formulation × version × metric)" = immutable. Corrections follow the QA **never-erase / strike-through** doctrine: a NEW row with `supersedes_id` (the strikethrough link) + `correction_reason` (the marginal note); `owner_id` = the initials, `created_at` = the date. Dropped `updated_at` + its touch trigger.
+- **`master_spec_observations` gains the same supersession** (`supersedes_id` + `correction_reason`) + **`is_void`** (void-without-replacement: contaminated sample, no retest — original stays). Replaces the dropped `superseded_by` (which would have needed a mutating UPDATE).
+- **`lot_events` corrections** = compensating events (`adjustment`), not supersession — inventory is compositional (sum the stream).
+- **"Current value" = leaf-of-chain** (`WHERE NOT EXISTS (SELECT 1 FROM <t> s WHERE s.supersedes_id = <t>.id)`) — timestamp-independent + audit-grade, NOT latest-by-`created_at`. `supersedes_id` indexed on both tables.
+- **`lots` discriminator integrity CHECK:** a `material` lot MUST have `material_id` + null `batch_of_origin_id`; a `finished-good` lot the reverse. No orphans (recall-trace depends on it). Rejected at INSERT.
+- **DELETE policy = owner OR workspace-owner** (more restrictive than SELECT/UPDATE's owner-OR-member) — **intentional, matches `0002`'s formulations DELETE pattern** (members read/write; owner/workspace-owner deletes).
+- **`workspace_id` nullable uniformly** on every spine table; the INSERT policy's `workspace_id is null` branch is **live, not dead** — the solo case (creating entities before/without a workspace), matching `0002`'s nullable `formulations.workspace_id`. Harness solo-case test verifies it holds uniformly.
+
+**Verified LOCAL-GREEN 2026-06-17:** apply clean (EXIT 0) + full harness PASS — cross-tenant isolation on every spine table, restrictive-deny-beats-permissive, supersession leaf-of-chain, `lots` CHECK rejection, solo case. Prod-apply still gated (§6).
+
+---
+
 ## §5 — Deferred (NOT in `0003`; additive later, no rebuild)
 
 - `inventory` internals: on-hand qty, location, expiry roll-ups (identity `lot_id` only now).

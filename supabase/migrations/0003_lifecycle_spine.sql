@@ -161,9 +161,12 @@ create table if not exists public.master_spec_revisions (
     master_spec_id uuid not null,
     formulation_version_id uuid not null,
     metric_invalidated_by_revision boolean default false not null,
+    supersedes_id uuid,                -- strike-through link to the row this corrects (append-only; leaf-of-chain = current)
+    correction_reason text,            -- the marginal note (required when supersedes_id is set)
     created_at timestamp with time zone default now() not null,
-    updated_at timestamp with time zone default now() not null,
-    constraint master_spec_revisions_sector_check check ((sector = any (array['fb'::text,'baking'::text,'catering'::text,'feeds'::text,'sausage'::text,'supplements'::text])))
+    -- NOTE: append-only (the QA "never erase" doctrine) — NO updated_at, NO touch trigger; corrections are new rows.
+    constraint master_spec_revisions_sector_check check ((sector = any (array['fb'::text,'baking'::text,'catering'::text,'feeds'::text,'sausage'::text,'supplements'::text]))),
+    constraint master_spec_revisions_correction_check check ((supersedes_id is null) or (correction_reason is not null))
 );
 alter table public.master_spec_revisions owner to postgres;
 
@@ -183,9 +186,13 @@ create table if not exists public.master_spec_observations (
     batch_id uuid,
     coa_id uuid,
     observed_at timestamp with time zone default now() not null,
+    supersedes_id uuid,                -- strike-through link (append-only; leaf-of-chain = current)
+    correction_reason text,            -- marginal note (required when supersedes_id is set)
+    is_void boolean default false not null,  -- void-without-replacement (contaminated sample, no retest); original stays
     created_at timestamp with time zone default now() not null,
     constraint master_spec_observations_sector_check check ((sector = any (array['fb'::text,'baking'::text,'catering'::text,'feeds'::text,'sausage'::text,'supplements'::text]))),
-    constraint master_spec_observations_scale_check check ((scale = any (array['bench'::text,'pilot'::text,'production'::text,'coa'::text])))
+    constraint master_spec_observations_scale_check check ((scale = any (array['bench'::text,'pilot'::text,'production'::text,'coa'::text]))),
+    constraint master_spec_observations_correction_check check ((supersedes_id is null) or (correction_reason is not null))
 );
 alter table public.master_spec_observations owner to postgres;
 
@@ -244,7 +251,13 @@ create table if not exists public.lots (
     updated_at timestamp with time zone default now() not null,
     constraint lots_sector_check check ((sector = any (array['fb'::text,'baking'::text,'catering'::text,'feeds'::text,'sausage'::text,'supplements'::text]))),
     constraint lots_lot_kind_check check ((lot_kind = any (array['material'::text,'finished-good'::text]))),
-    constraint lots_status_check check ((status = any (array['available'::text,'reserved'::text,'consumed'::text,'quarantined'::text,'released'::text,'expired'::text,'recalled'::text])))
+    constraint lots_status_check check ((status = any (array['available'::text,'reserved'::text,'consumed'::text,'quarantined'::text,'released'::text,'expired'::text,'recalled'::text]))),
+    -- Discriminator INTEGRITY (review catch): a material lot MUST have a material + no batch-of-origin;
+    -- a finished-good lot MUST have a batch-of-origin + no material. No orphans — recall-trace depends on it.
+    constraint lots_discriminator_check check (
+      ((lot_kind = 'material'::text)      and (material_id is not null) and (batch_of_origin_id is null)) or
+      ((lot_kind = 'finished-good'::text) and (material_id is null)     and (batch_of_origin_id is not null))
+    )
 );
 alter table public.lots owner to postgres;
 
@@ -375,6 +388,9 @@ do $$ begin
   alter table only public.master_spec_observations add constraint master_spec_observations_ws_fkey    foreign key (workspace_id) references public.workspaces(id) on delete cascade;
   alter table only public.master_spec_observations add constraint master_spec_observations_ms_fkey    foreign key (master_spec_id) references public.master_specs(id) on delete cascade;
   alter table only public.master_spec_observations add constraint master_spec_observations_rev_fkey   foreign key (revision_id)  references public.formulation_versions(id) on delete cascade;
+  -- supersession self-references (the strike-through chain) — set null on cascade so deleting a parent never orphans
+  alter table only public.master_spec_revisions    add constraint master_spec_revisions_supersedes_fkey    foreign key (supersedes_id) references public.master_spec_revisions(id)    on delete set null;
+  alter table only public.master_spec_observations add constraint master_spec_observations_supersedes_fkey foreign key (supersedes_id) references public.master_spec_observations(id) on delete set null;
 
   alter table only public.packaging_specs          add constraint packaging_specs_owner_fkey          foreign key (owner_id)     references auth.users(id)        on delete cascade;
   alter table only public.packaging_specs          add constraint packaging_specs_ws_fkey             foreign key (workspace_id) references public.workspaces(id) on delete cascade;
@@ -424,6 +440,8 @@ create index if not exists idx_master_specs_ws_sector         on public.master_s
 create index if not exists idx_master_specs_formulation       on public.master_specs            using btree (formulation_id, metric_id);
 create index if not exists idx_msr_master_spec                on public.master_spec_revisions    using btree (master_spec_id, formulation_version_id);
 create index if not exists idx_mso_master_spec                on public.master_spec_observations using btree (master_spec_id, scale, revision_id);
+create index if not exists idx_msr_supersedes                 on public.master_spec_revisions    using btree (supersedes_id);  -- leaf-of-chain query
+create index if not exists idx_mso_supersedes                 on public.master_spec_observations using btree (supersedes_id);  -- leaf-of-chain query
 create index if not exists idx_packaging_specs_version        on public.packaging_specs          using btree (formulation_version_id);
 create index if not exists idx_bench_top_runs_version         on public.bench_top_runs           using btree (formulation_version_id);
 create index if not exists idx_lots_ws_sector                 on public.lots                     using btree (workspace_id, sector);
@@ -443,7 +461,7 @@ create or replace trigger touch_suppliers_updated_at                before updat
 create or replace trigger touch_materials_updated_at                before update on public.materials                for each row execute function public.touch_updated_at();
 create or replace trigger touch_target_specs_updated_at             before update on public.target_specs            for each row execute function public.touch_updated_at();
 create or replace trigger touch_master_specs_updated_at             before update on public.master_specs            for each row execute function public.touch_updated_at();
-create or replace trigger touch_master_spec_revisions_updated_at     before update on public.master_spec_revisions    for each row execute function public.touch_updated_at();
+-- master_spec_revisions: NO touch trigger — append-only (no updated_at; corrections via supersession).
 create or replace trigger touch_packaging_specs_updated_at          before update on public.packaging_specs          for each row execute function public.touch_updated_at();
 create or replace trigger touch_bench_top_runs_updated_at           before update on public.bench_top_runs           for each row execute function public.touch_updated_at();
 create or replace trigger touch_lots_updated_at                     before update on public.lots                     for each row execute function public.touch_updated_at();
@@ -479,7 +497,7 @@ do $$
 declare t text;
   standard_tables text[] := array[
     'formulation_versions','spec_metrics','suppliers','materials','target_specs',
-    'master_specs','master_spec_revisions','packaging_specs','bench_top_runs',
+    'master_specs','packaging_specs','bench_top_runs',
     'lots','batches','coas','inventory'
   ];
 begin
@@ -498,13 +516,19 @@ end $$;
 -- Append-only tables: SELECT + INSERT only (no UPDATE/DELETE policy → denied to all)
 do $$
 declare t text;
-  append_only_tables text[] := array['lot_events','master_spec_observations'];
+  append_only_tables text[] := array['lot_events','master_spec_observations','master_spec_revisions'];
 begin
   foreach t in array append_only_tables loop
     execute format('drop policy if exists %I on public.%I', t||'_sel', t);
     execute format('drop policy if exists %I on public.%I', t||'_ins', t);
+    execute format('drop policy if exists %I on public.%I', t||'_no_update', t);
+    execute format('drop policy if exists %I on public.%I', t||'_no_delete', t);
     execute format('create policy %I on public.%I for select using (auth.uid() = owner_id or public.is_internal_member(workspace_id))', t||'_sel', t);
     execute format('create policy %I on public.%I for insert with check (auth.uid() = owner_id and (workspace_id is null or public.is_internal_member(workspace_id)))', t||'_ins', t);
+    -- RESTRICTIVE deny (review catch): AND-ed with any future permissive policy → UPDATE/DELETE can NEVER be
+    -- re-enabled by an accidental permissive copy-paste. The doctrine-correct append-only lock ("never erase").
+    execute format('create policy %I on public.%I as restrictive for update using (false)', t||'_no_update', t);
+    execute format('create policy %I on public.%I as restrictive for delete using (false)', t||'_no_delete', t);
   end loop;
 end $$;
 

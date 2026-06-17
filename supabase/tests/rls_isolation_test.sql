@@ -29,6 +29,12 @@ begin;
 \set evB   'b0000005-0000-0000-0000-00000000000b'
 \set obsA  'a0000006-0000-0000-0000-00000000000a'
 \set obsB  'b0000006-0000-0000-0000-00000000000b'
+\set supA  'a0000007-0000-0000-0000-00000000000a'
+\set supB  'b0000007-0000-0000-0000-00000000000b'
+\set matA  'a0000008-0000-0000-0000-00000000000a'
+\set matB  'b0000008-0000-0000-0000-00000000000b'
+\set revA  'a0000009-0000-0000-0000-00000000000a'
+\set revB  'b0000009-0000-0000-0000-00000000000b'
 
 -- Seed as the privileged role (bypasses RLS).
 insert into auth.users (id, email) values (:'alice','alice@test.dev'),(:'bob','bob@test.dev') on conflict (id) do nothing;
@@ -49,9 +55,19 @@ insert into public.spec_metrics (id, owner_id, workspace_id, sector, name) value
 insert into public.master_specs (id, owner_id, workspace_id, sector, formulation_id, metric_id) values
   (:'msA', :'alice', :'wsA', 'supplements', :'fA', :'mA'),
   (:'msB', :'bob',   :'wsB', 'supplements', :'fB', :'mB');
-insert into public.lots (id, owner_id, workspace_id, sector, lot_kind, lot_code) values
-  (:'lotA', :'alice', :'wsA', 'supplements', 'material', 'LOT-A'),
-  (:'lotB', :'bob',   :'wsB', 'supplements', 'material', 'LOT-B');
+insert into public.master_spec_revisions (id, owner_id, workspace_id, sector, master_spec_id, formulation_version_id, metric_invalidated_by_revision) values
+  (:'revA', :'alice', :'wsA', 'supplements', :'msA', :'vA', false),
+  (:'revB', :'bob',   :'wsB', 'supplements', :'msB', :'vB', false);
+insert into public.suppliers (id, owner_id, workspace_id, sector, name) values
+  (:'supA', :'alice', :'wsA', 'supplements', 'Supplier A'),
+  (:'supB', :'bob',   :'wsB', 'supplements', 'Supplier B');
+insert into public.materials (id, owner_id, workspace_id, sector, name, supplier_id) values
+  (:'matA', :'alice', :'wsA', 'supplements', 'Mag Glycinate', :'supA'),
+  (:'matB', :'bob',   :'wsB', 'supplements', 'Mag Glycinate', :'supB');
+-- material lots now require material_id (discriminator CHECK)
+insert into public.lots (id, owner_id, workspace_id, sector, lot_kind, material_id, lot_code) values
+  (:'lotA', :'alice', :'wsA', 'supplements', 'material', :'matA', 'LOT-A'),
+  (:'lotB', :'bob',   :'wsB', 'supplements', 'material', :'matB', 'LOT-B');
 insert into public.lot_events (id, owner_id, workspace_id, sector, lot_id, event_type, quantity_delta) values
   (:'evA', :'alice', :'wsA', 'supplements', :'lotA', 'receipt', 10),
   (:'evB', :'bob',   :'wsB', 'supplements', :'lotB', 'receipt', 10);
@@ -136,6 +152,7 @@ begin
   assert (select count(*) from public.lot_events) = 1, 'LEAK: Alice sees lot_events beyond her workspace';
   assert (select count(*) from public.master_specs) = 1, 'LEAK: Alice sees master_specs beyond her workspace';
   assert (select count(*) from public.master_spec_observations) = 1, 'LEAK: Alice sees observations beyond her workspace';
+  assert (select count(*) from public.master_spec_revisions) = 1, 'LEAK: Alice sees revisions beyond her workspace';
 end $$;
 
 -- Append-only proof (§4.6): INSERT into own workspace OK; UPDATE/DELETE denied (no policy → 0 rows)
@@ -153,14 +170,23 @@ begin
   update public.master_spec_observations set value = 'tampered' where id = 'a0000006-0000-0000-0000-00000000000a';
   get diagnostics n = row_count;
   assert n = 0, 'APPEND-ONLY VIOLATION: Alice updated an observation';
+  delete from public.master_spec_observations where id = 'a0000006-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  assert n = 0, 'APPEND-ONLY VIOLATION: Alice deleted an observation';
+  update public.master_spec_revisions set metric_invalidated_by_revision = true where id = 'a0000009-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  assert n = 0, 'APPEND-ONLY VIOLATION: Alice updated a revision';
+  delete from public.master_spec_revisions where id = 'a0000009-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  assert n = 0, 'APPEND-ONLY VIOLATION: Alice deleted a revision';
 end $$;
 
 -- Alice cannot author a lot into workspace B (with-check: owner AND member of B; she is neither)
 do $$
 begin
   begin
-    insert into public.lots (owner_id, workspace_id, sector, lot_kind, lot_code)
-      values ('11111111-1111-1111-1111-111111111111','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','supplements','material','evil-lot');
+    insert into public.lots (owner_id, workspace_id, sector, lot_kind, material_id, lot_code)
+      values ('11111111-1111-1111-1111-111111111111','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','supplements','material','a0000008-0000-0000-0000-00000000000a','evil-lot');
     assert false, 'LEAK: Alice authored a lot into workspace B';
   exception
     when others then
@@ -169,7 +195,64 @@ begin
       else null; end if;
   end;
 end $$;
+
+-- Supersession (the strike-through): a correction is a NEW row pointing at the original; leaf-of-chain = current
+do $$
+begin
+  insert into public.master_spec_revisions (owner_id, workspace_id, sector, master_spec_id, formulation_version_id, metric_invalidated_by_revision, supersedes_id, correction_reason)
+    values ('11111111-1111-1111-1111-111111111111','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','supplements','a0000004-0000-0000-0000-00000000000a','a0000001-0000-0000-0000-00000000000a', true, 'a0000009-0000-0000-0000-00000000000a', 'reclassified after re-review');
+  -- leaf-of-chain (canonical "current"): the row no other row supersedes
+  assert (select count(*) from public.master_spec_revisions r
+            where r.master_spec_id = 'a0000004-0000-0000-0000-00000000000a'
+              and not exists (select 1 from public.master_spec_revisions s where s.supersedes_id = r.id)) = 1,
+    'SUPERSESSION: leaf-of-chain should be exactly the 1 correction row';
+  assert (select r.metric_invalidated_by_revision from public.master_spec_revisions r
+            where r.master_spec_id = 'a0000004-0000-0000-0000-00000000000a'
+              and not exists (select 1 from public.master_spec_revisions s where s.supersedes_id = r.id)) = true,
+    'SUPERSESSION: leaf should be the correction (invalidated=true), not the original';
+  assert (select count(*) from public.master_spec_revisions where master_spec_id = 'a0000004-0000-0000-0000-00000000000a') = 2,
+    'SUPERSESSION: the original must still be queryable in history (never erased)';
+end $$;
+
+-- lots discriminator CHECK rejects an impossible row (material lot, no material) at INSERT
+do $$
+begin
+  begin
+    insert into public.lots (owner_id, workspace_id, sector, lot_kind, lot_code)
+      values ('11111111-1111-1111-1111-111111111111','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','supplements','material','orphan-lot');
+    assert false, 'CHECK MISSING: lots accepted a material lot with NULL material_id';
+  exception
+    when check_violation then null;       -- expected: discriminator CHECK rejected
+    when others then if sqlstate = 'P0004' then raise; else null; end if;
+  end;
+end $$;
+
+-- Solo case (workspace_id NULL): owner can create + read a spine row with no workspace (uniform across the spine)
+do $$
+declare n int;
+begin
+  insert into public.suppliers (owner_id, workspace_id, sector, name)
+    values ('11111111-1111-1111-1111-111111111111', null, 'supplements', 'Solo Supplier');
+  get diagnostics n = row_count;
+  assert n = 1, 'SOLO: owner cannot insert a spine row with NULL workspace_id';
+  assert (select count(*) from public.suppliers where name = 'Solo Supplier') = 1, 'SOLO: owner cannot read their own NULL-workspace row';
+end $$;
 reset role;
+
+-- RESTRICTIVE deny actually beats a (future) permissive UPDATE policy — the whole point of the catch
+create policy lot_events_evil_permit on public.lot_events for update using (true) with check (true);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+set local request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+do $$
+declare n int;
+begin
+  update public.lot_events set quantity_delta = 777 where id = 'a0000005-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  assert n = 0, 'RESTRICTIVE-DENY FAILED: a permissive UPDATE policy got through — append-only NOT locked';
+end $$;
+reset role;
+drop policy lot_events_evil_permit on public.lot_events;
 
 -- anon reads NOTHING from the spine tables
 set local role anon;
@@ -181,6 +264,7 @@ begin
   assert (select count(*) from public.lot_events) = 0, 'LEAK: anon reads lot_events';
   assert (select count(*) from public.master_spec_observations) = 0, 'LEAK: anon reads observations';
   assert (select count(*) from public.formulation_versions) = 0, 'LEAK: anon reads versions';
+  assert (select count(*) from public.master_spec_revisions) = 0, 'LEAK: anon reads revisions';
 end $$;
 reset role;
 
