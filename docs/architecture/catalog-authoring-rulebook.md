@@ -92,6 +92,23 @@ Four fields where an empty/null/missing value MUST be interpreted as **UNDOCUMEN
 
 **Honesty-first extends to the measurement layer (Amendment 4, 2026-06-17).** A benchmark or coverage metric whose enforcing field is absent from the schema reports as `null` / structurally-0 — *"not measurable in current schema"* — never as fabricated coverage or zero-dressed-as-data. A missing field is an honest gap to close, not a number to invent. The audit engine (§I.6) enforces this by construction: the bar is *specified* in this Rulebook; where the enforcing field doesn't yet exist, the gap is reported truthfully, not papered over.
 
+### 5a. Heavy-Metals / Contaminant Risk (harm-critical, class-level) — Amendment 5, 2026-06-17
+
+Ratified from Decision G (`wave-17-session-inputs-packet-2026-06-13.md §5`, ratified 2026-06-17). A fifth harm-critical dimension — but **class-level**, not a per-entry empty-field default like the four fields above.
+
+**The Rule:** ingredient classes that are known heavy-metal vectors carry a class-level risk flag. The catalog **flags the vector; it does not certify metal content.**
+
+**Flagged classes** (categorical shape ratified; per-class list refined with Nate before catalog implementation): botanicals; minerals (per USP &lt;2232&gt; elemental-contamination scope — e.g. limestone-sourced calcium carbonate, iron oxides carry source-rock Pb/As); marine / fish-derived (Hg — incl. fish oil / krill); rice-derived (As); cocoa & leafy (Cd).
+
+**Operator-facing contract (ratified verbatim):**
+> "This ingredient class is a known heavy-metal vector (Pb / As / Cd / Hg). Formulation Wizard flags the risk but cannot certify levels — finished product must be COA-tested to USP &lt;232&gt; before label claims or California (Prop 65) shipping."
+
+**Two enforcement layers (per §5):** (1) **formulation-time risk-flag** — August-shaped, doctrine-preserving, surfaces the boundary honestly; THE August deliverable. (2) **COA-vs-USP &lt;232&gt; reconciliation** — measured enforcement, deferred (post-launch — COA entity operational maturity; out of August scope).
+
+**Rendering mechanism (acknowledgment-required vs advisory-dismissible) — DEFERRED to the Nate regroup.** Considerations: acknowledgment-required treats the flag as compliance-load-bearing (consistent with flag-not-certify intent); advisory-dismissible reduces friction at the cost of potential ship-without-testing risk. Not blocking for this constitution edit.
+
+**Schema:** a class-derived heavy-metals-vector flag lands with the §II.8 schema-fields directive (alongside `confidenceLevel` / `tier` / `citation` / canonical-ID).
+
 ## 6. World-Class Quality Benchmarks (measurable bar)
 
 | Benchmark | Measurement | Target |
