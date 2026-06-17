@@ -1,35 +1,44 @@
-# #17 Architecture Session — Inputs Packet (lifecycle reframe; revised 2026-06-14)
+# #17 Architecture Session — Inputs Packet (lifecycle reframe; revised 2026-06-16)
 
-**This packet supersedes the "save backend + version state" framing.** #17 is now scoped as **the lifecycle workspace schema** — the data spine that lets FW replace the operator's whole Excel portfolio (formulation → master spec → batch → COA → inventory → recall traceability), not just the save mechanics. The immediate *execution* unblock (auth reconciliation) is unchanged and sits inside this; the *schema design* is the bigger session.
+> **2026-06-16 reconciliation:** spine count **9 → 12**; **TargetSpec** (the design/regulatory contract) split out from **MasterSpec** (verified-from-production); **BenchTopRun** + **PackagingSpec** added; Material + Supplier promoted to first-class entities. Every prior "Master Spec = the contract" framing rewritten to TargetSpec. See the [workflow architecture audit](workflow-architecture-audit-2026-06-16.md) §8.
+
+**This packet supersedes the "save backend + version state" framing.** #17 is now scoped as **the lifecycle workspace schema** — the data spine that lets FW replace the operator's whole Excel portfolio (formulation → target spec → batch → COA → inventory → recall traceability), not just the save mechanics. The immediate *execution* unblock (auth reconciliation) is unchanged and sits inside this; the *schema design* is the bigger session.
 
 **Why the reframe (the strategic anchor):** the operator doesn't switch from seven Excel sheets for a formulation tool — they switch for the end-to-end system. The **Excel portfolio is the real competitor, not CogniLens.** End-to-end coverage is the moat; the schema decision at #17 determines whether 2028 Inventory is a *feature delivery* or a *six-month migration*.
 
-**Source docs:** `wave-17-save-backend-brief-2026-06-08.md` (build state), `wave-17-rls-verification-findings-2026-06-08.md` (RLS-verified workspace model — supersedes the brief's Decision A), `ai-reasoning-data-moat-analysis-2026-06-13.md` §3-§4 (opt-in/anonymization), `master-specs-data-model-2026-05-27.md` (the Master-Spec contract-anchor), `supabase/tests/rls_isolation_test.sql`.
+**Source docs:** `wave-17-save-backend-brief-2026-06-08.md` (build state), `wave-17-rls-verification-findings-2026-06-08.md` (RLS-verified workspace model — supersedes the brief's Decision A), `ai-reasoning-data-moat-analysis-2026-06-13.md` §3-§4 (opt-in/anonymization), `master-specs-data-model-2026-05-27.md` (the spec data model + tier engine — ⚠️ this source doc still frames the entity as "the contract" / "authoritative validated specs"; it needs the same TargetSpec/MasterSpec reconciliation, flagged in the summary), `supabase/tests/rls_isolation_test.sql`.
 
 ---
 
 ## 0. The lifecycle spine (the reframe)
-The data spine FW must hold: **Master Spec** (the contract) → **Formulation** (recipe to hit the spec) → **Batch** (per-run execution) → **COA** (lab measurement of the actual batch) → **spec reconciliation** (did the batch hit contract?) → **Lot-in** (raw materials consumed, traceable to supplier COA) → **Lot-out / Customer Lot** (finished goods shipped) → **recall traceability** (lot fails QA → which formulations / CMs / customers).
+The data spine FW must hold: **TargetSpec** (the contract) → **Formulation** (recipe to hit the spec) → **Batch** (per-run execution) → **COA** (lab measurement of the actual batch) → **spec reconciliation** (did the batch hit the TargetSpec?) → **MasterSpec** (verified-from-production evidence accumulates; tier promotes) → **Lot-in** (raw materials consumed, traceable to supplier COA) → **Lot-out / Customer Lot** (finished goods shipped) → **recall traceability** (lot fails QA → which formulations / CMs / customers).
 
-**9 entities the schema must hold:**
-| Entity | What it is |
-|---|---|
-| **Master Spec** | the contract (brand↔CM, brand↔retailer), versioned — the reference everything points back to |
-| **Formulation** | the recipe, versioned, references Master Spec |
-| **Material** | raw ingredient catalog entry, supplier-specific |
-| **Supplier** | with attached documents (COA, allergen statement, certs) |
-| **Lot** | a specific batch of a Material from a Supplier |
-| **Batch** | one production run; references Formulation, consumes Lots |
-| **COA** | lab measurement against Master Spec, per Batch |
-| **Inventory** | on-hand quantities by Lot, location, expiry |
-| **Customer Lot** | finished goods shipped; references Batch |
+**12 entities the schema must hold:**
+| # | Entity | What it is |
+|---|---|---|
+| 1 | **Formulation** | the recipe, versioned, references its TargetSpec |
+| 2 | **TargetSpec** | *(new — split from Master Spec)* the design/regulatory **contract** per Formulation Version — frozen on status-advance, authored by brand owner + RA; referenced by CM agreements, label-claim defenses, retailer contracts. Cadence: per-version revision |
+| 3 | **MasterSpec** | *(renamed; role clarified)* **verified-from-production** — append-only ObservationLogEntry stream + tier-engine ComputedStats. Cadence: event-sourced. **An evidence record, NOT a contract** |
+| 4 | **Material** | *(promote — was a catalog row; now first-class)* raw ingredient, supplier-specific |
+| 5 | **Supplier** | *(promote — was a string; now first-class)* with attached documents (COA, allergen statement, certs) |
+| 6 | **Lot** | a specific batch of a Material from a Supplier |
+| 7 | **BenchTopRun** | *(new)* a lab-scale R&D run (formulation_version, date, operator, batch_size, notes); its measurements feed MasterSpec's tier engine tagged `scale='bench'` |
+| 8 | **Batch** | one production run; references Formulation, consumes Lots; measurements tagged `scale='production'` |
+| 9 | **COA** | lab measurement against the TargetSpec, per Batch; tagged `scale='coa'` |
+| 10 | **PackagingSpec** | *(new — PDS-extraction Phase 1)* the operator-authored **production-and-packaging workflow** — the production-floor "how-to-package this product" sequence, user inputs paramount. **NOT a static attribute bag** (container/closure/material specs are inputs, not the entity) |
+| 11 | **Inventory** | on-hand quantities by Lot, location, expiry |
+| 12 | **Customer Lot** | finished goods shipped; references Batch |
 
-UI ships across phases (Formulation + Batch surfaced 2026; Master Spec UI 2027 F&B; COA reconciliation 2027-28; Inventory 2028; recall traceability 2029). **The schema in #17 must hold the spine now.**
+**TargetSpec ⇄ MasterSpec convergence:** when MasterSpec's verified range earns formal sign-off, it can become the next-version TargetSpec.
+
+**BenchTopRun / Batch / COA share one stats engine:** all three feed MasterSpec's tier engine, tagged by `scale` (`'bench'` / `'production'` / `'coa'`). No parallel stats stack; predicted-vs-measured emerges as a query filtered by scale.
+
+UI ships across phases (Formulation + Batch surfaced 2026; TargetSpec/MasterSpec UI 2027 F&B; COA reconciliation 2027-28; Inventory 2028; recall traceability 2029). **The schema in #17 must hold the spine now.**
 
 ---
 
 ## 1. The decision rule — spine now, internals later
-**Commit the spine, not the entities' internals.** What is brutal to retrofit is the *relationship graph* — stable IDs, the FK chain Material→Lot→Batch→Formulation→Customer Lot, `workspace_id` tenancy on every node, and versioning anchored on Master Spec. That must be right in #17 or 2028 Inventory is a migration project. What you should *not* design now is the column shape of Inventory / COA reconciliation / expiry — a 2026 schema built against imagined 2028 requirements is *more* wrong than a clean additive table later. Over-specifying future entities is the mirror failure of under-designing the spine.
+**Commit the spine, not the entities' internals.** What is brutal to retrofit is the *relationship graph* — stable IDs, the FK chain Material→Lot→Batch→Formulation→Customer Lot, `workspace_id` tenancy on every node, and versioning anchored on TargetSpec. That must be right in #17 or 2028 Inventory is a migration project. What you should *not* design now is the column shape of Inventory / COA reconciliation / expiry — a 2026 schema built against imagined 2028 requirements is *more* wrong than a clean additive table later. Over-specifying future entities is the mirror failure of under-designing the spine.
 
 **Migration-test gate (the per-entity rule, so the session isn't a judgment call per entity):**
 > *Does deferring it force a later identity/FK migration, or just an additive column/table?*
@@ -42,17 +51,30 @@ A Lot must *exist and link* in #17; it does not need its inventory columns until
 ## 2. Existing-vs-greenfield asymmetry (session prep — what's deciding-work vs lift-in)
 | Entity | State | Session work |
 |---|---|---|
-| **Master Spec** | data model + localStorage impl + Phase-1.5 Postgres-migration plan **all exist** (`master-specs-data-model-2026-05-27`) | **lift-in** as contract-anchor; not greenfield |
+| **TargetSpec** | *(new split)* the design contract — currently **fused into Master Specs** as the `validated_value`/`validated_tolerance`/`authorized_*` seed + the Base Sheet "target spec value + tolerance" | **deciding-work**: extract as its own entity; migrate the seed fields out of MasterSpec (sequence step C) |
+| **MasterSpec** | data model + localStorage impl + Phase-1.5 Postgres-migration plan **all exist** (`master-specs-data-model-2026-05-27`) — the tier engine | **lift-in** as the **verified-from-production evidence record**; not greenfield |
 | **Formulation** | production (the live workspace) | **lift-in**; already carries `.mode` |
-| **Material** | exists as the mode-aware Ingredient DB (`mc.ingredientDB`) | **deciding-work**: identity-vs-supplier-variant split |
-| **Batch** | surface exists (Batch Sheet); captures are session-only (component state) | **deciding-work**: persistence shape may need hardening |
-| **Supplier** | exists only as **strings** (supplier names on ingredients) | **deciding-work**: promote to an entity with attached docs |
+| **Material** | exists as the mode-aware Ingredient DB (`mc.ingredientDB`) | **deciding-work**: **promote to entity**; identity-vs-supplier-variant split |
+| **Supplier** | exists only as **strings** (supplier names on ingredients) | **deciding-work**: **promote to an entity** with attached docs |
+| **Batch** | surface exists (Batch Sheet); captures are session-only (component state) | **deciding-work**: persist (LB#4 second half); measurements tagged `scale='production'` |
+| **BenchTopRun** | *(new)* **greenfield as entity** — but the tier engine it feeds already exists | identity + FK; reuse MasterSpec stats tagged `scale='bench'` |
+| **PackagingSpec** | *(new)* PDS-tab scaffold exists (read-only views + phase-deferred placeholders) | **deciding-work**: model the operator-authored production-and-packaging workflow; PDS-extraction Phase 1 |
 | **Lot / COA / Inventory / Customer Lot** | **greenfield as entities** | identity + FK only in #17; internals deferred |
 
 ---
 
-## 3. Master Spec = contract-anchor (not greenfield)
-Everything in the spine version-references the Master Spec. It already has a data model, a localStorage implementation, and a documented Phase-1.5 Postgres-migration plan — #17 folds that in as the contract reference, it does not design it from zero. **Flagged-off in the August UI is correct for Nutraceuticals scope** (DSHEA doesn't require a Master Spec the way a retailer contract does); it is **launch-critical for the F&B path**, so the entity lands in #17 even though the UI ships 2027.
+## 3. TargetSpec = the contract; MasterSpec = verified-from-production
+**The split (locked 2026-06-16).** What everything version-references is the **TargetSpec** — the design/regulatory contract per Formulation Version (frozen on status-advance, signed by brand owner + RA; the anchor for CM agreements, label-claim defenses, retailer contracts). **MasterSpec** is the *separate* verified-from-production evidence record (append-only observations + tier-engine ComputedStats); **it is NOT a contract.**
+
+**Why split, not columns on one entity:** CM agreements anchor on the design contract; fusing the contract with the production-verified range means every contract reference silently shifts as production σ accumulates — a regulatory liability, not just a modeling smell. Different authors, cadence, and signing authority → different entities.
+
+**They converge at tier promotion:** when MasterSpec's verified range earns formal sign-off, it can become the next-version TargetSpec.
+
+**Existing build:** MasterSpec already has a data model + localStorage impl + Phase-1.5 Postgres-migration plan (`master-specs-data-model-2026-05-27`) — but today it **holds the TargetSpec seed inside itself** (`validated_value` / `validated_tolerance` / `authorized_*`). #17 extracts TargetSpec out (sequence step C); MasterSpec keeps only the production-verified role.
+
+**August UI:** flagged-off for Nutraceuticals scope is correct (DSHEA doesn't require a TargetSpec contract the way a retailer contract does); **launch-critical for the F&B path**, so both entities land in #17 even though the UI ships 2027.
+
+**Parked open question (to formalize before schema laying — NOT resolved here):** is **MasterSpec Formulation-level** (one continuous spec history, observations tagged by version, per-metric carry-forward via `metric_invalidated_by_revision`) or **Version-level** (one per Version)? TargetSpec is clearly Version-level; MasterSpec's coupling needs an explicit call.
 
 ---
 
@@ -94,7 +116,7 @@ RLS-first verification + this session's code sweep:
 - **A. Auth reconciliation [immediate unblock].** Make `auth.uid()` reliably present for a saving user ("sign in to save"). Largely settled by the verified workspace model; this is the narrow unblock.
 - **B. Version-state semantics.** *Recorded settled 2026-06-08* (status-triggered freeze; August = snapshots + RA-packet version-stamp + freeze-hook) — **confirm or reopen** (not Wizard-locked in-session; provenance is the START-HERE doc). Open: snapshot-in-`data` vs `formulation_versions` table; who moves transitions.
 - **C. Schema version-control.** Dump the live workspace schema → versioned migration; RLS harness in CI.
-- **D. The lifecycle spine (§0-§2)** — the 9 entities as IDs + FK + tenancy + Master-Spec version-anchor; internals deferred per the migration-test gate.
+- **D. The lifecycle spine (§0-§2)** — the 12 entities as IDs + FK + tenancy + TargetSpec version-anchor; internals deferred per the migration-test gate.
 - **E. Sector as a per-entity schema constraint (§6).**
 - **F. Opt-in contribution + anonymization foundation** — granular per-formula/per-data-type/per-purpose flags; anonymization pipeline; **physical separation** (separate schema/role) as defense-in-depth; harness for opted-out isolation. Schema *supports* it; no stream populated for August.
 - **G. Heavy-metals harm-critical contract (§5).**
@@ -110,7 +132,7 @@ Mode-filter the saved-work lists (Saved tab, Qualification Tracker, command-pale
 ## 9. Implementation sequence (post-decision — CC-driveable)
 1. Version-control the live schema → migration (C); RLS harness in CI.
 2. Reconcile auth (A) — `auth.uid()` reliably present ("sign in to save").
-3. **Lay the lifecycle spine** (D) — entity tables + FK + `workspace_id` + sector field + Master-Spec version-anchor. Internals deferred.
+3. **Lay the lifecycle spine** (D) — the 12 entity tables + FK + `workspace_id` + sector field + TargetSpec version-anchor. Internals deferred. *(MasterSpec coupling — Formulation-level vs Version-level — formalized in step-B prep, before tables.)*
 4. Wire hydrate-on-mount + mirror-on-save on `workspace_id`; localStorage stays optimistic cache.
 5. Version-state (B); opt-in/anonymization scaffolding (F, foundation only).
 6. Heavy-metals risk-flag layer (G); sector-scope the saved-work lists (E/§8).
@@ -118,4 +140,4 @@ Mode-filter the saved-work lists (Saved tab, Qualification Tracker, command-pale
 
 **Posture (locked 2026-06-13):** WORKFLOW FIRST; August scope = #17 + #18 + #16 + §8 sweep; August AI = explanation-only (*explanation ≠ suggestion*); data-flywheel architecture goes in as **foundation**, not feature.
 
-**Bottom line:** #17 is not "save backend." It is **lifecycle-workspace-schema-through-inventory** — commit the 9-entity spine + sector constraint now so 2028 Inventory is a feature, not a migration. Auth reconciliation is step 1; the spine is the bet.
+**Bottom line:** #17 is not "save backend." It is **lifecycle-workspace-schema-through-inventory** — commit the 12-entity spine + sector constraint now so 2028 Inventory is a feature, not a migration. Auth reconciliation is step 1; the spine is the bet.
