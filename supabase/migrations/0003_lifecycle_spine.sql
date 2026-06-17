@@ -192,7 +192,11 @@ create table if not exists public.master_spec_observations (
     created_at timestamp with time zone default now() not null,
     constraint master_spec_observations_sector_check check ((sector = any (array['fb'::text,'baking'::text,'catering'::text,'feeds'::text,'sausage'::text,'supplements'::text]))),
     constraint master_spec_observations_scale_check check ((scale = any (array['bench'::text,'pilot'::text,'production'::text,'coa'::text]))),
-    constraint master_spec_observations_correction_check check ((supersedes_id is null) or (correction_reason is not null))
+    -- Audit invariant (review catch): ANY deviation from a normal append — superseding OR voiding —
+    -- requires a reason. Voiding is the regulator's strikethrough; the note is not optional on it.
+    constraint master_spec_observations_correction_check check (
+      (correction_reason is not null) or ((supersedes_id is null) and (is_void = false))
+    )
 );
 alter table public.master_spec_observations owner to postgres;
 

@@ -227,6 +227,19 @@ begin
   end;
 end $$;
 
+-- Voiding an observation with NO reason is rejected (voiding = strikethrough; the note is required)
+do $$
+begin
+  begin
+    insert into public.master_spec_observations (owner_id, workspace_id, sector, master_spec_id, revision_id, value, scale, is_void)
+      values ('11111111-1111-1111-1111-111111111111','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','supplements','a0000004-0000-0000-0000-00000000000a','a0000001-0000-0000-0000-00000000000a','9.9','production', true);
+    assert false, 'CHECK MISSING: voided an observation with NO correction_reason';
+  exception
+    when check_violation then null;       -- expected: void-reason CHECK rejected
+    when others then if sqlstate = 'P0004' then raise; else null; end if;
+  end;
+end $$;
+
 -- Solo case (workspace_id NULL): owner can create + read a spine row with no workspace (uniform across the spine)
 do $$
 declare n int;
