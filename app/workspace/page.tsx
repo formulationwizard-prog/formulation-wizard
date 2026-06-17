@@ -791,6 +791,11 @@ export default function FormulationWizard() {
   // times stay accurate without calling Date.now() during render (which the
   // react-hooks/purity lint rule prohibits).
   const [dashboardNow, setDashboardNow] = useState<number>(() => Date.now());
+  // Home: sector scoping for Recent Activity + Top Ingredients (first-run spec §5).
+  // Default false = show only the current mode's formulas (fixes the cross-sector
+  // leak — e.g. a Worcestershire draft surfacing in Nutraceuticals). KPIs stay
+  // portfolio-wide; only these two sections scope.
+  const [homeShowAllSectors, setHomeShowAllSectors] = useState(false);
   useEffect(() => {
     const interval = setInterval(() => setDashboardNow(Date.now()), 60000);
     return () => clearInterval(interval);
@@ -3009,8 +3014,16 @@ export default function FormulationWizard() {
         const totalVersions = savedFormulations.reduce((s, f) => s + (f.versions?.length || 0), 0);
         const totalIngredientsInUse = new Set(savedFormulations.flatMap(f => f.ingredients.map(i => i.name))).size;
 
+        // Sector scoping (spec §5) — Recent Activity + Top Ingredients show only
+        // the current mode unless "Show all sectors" is on. KPIs above stay
+        // portfolio-wide. (f.mode absent → legacy F&B default, matching the app.)
+        const sectorFormulas = homeShowAllSectors
+          ? savedFormulations
+          : savedFormulations.filter(f => (f.mode ?? 'fb') === mode);
+        const hasOtherSectors = savedFormulations.some(f => (f.mode ?? 'fb') !== mode);
+
         // ─── Recent activity (last 5 modified) ───
-        const recentFormulas = [...savedFormulations]
+        const recentFormulas = [...sectorFormulas]
           .sort((a, b) => {
             const tA = a.lastModified ? new Date(a.lastModified).getTime() : 0;
             const tB = b.lastModified ? new Date(b.lastModified).getTime() : 0;
@@ -3075,7 +3088,7 @@ export default function FormulationWizard() {
 
         // ─── Top ingredients across portfolio (by count of formulas using) ───
         const ingCount: Record<string, number> = {};
-        savedFormulations.forEach(f => {
+        sectorFormulas.forEach(f => {
           const seen = new Set<string>();
           f.ingredients.forEach(i => {
             if (seen.has(i.name)) return;
@@ -3145,6 +3158,15 @@ export default function FormulationWizard() {
                   >
                     🔍 Search <kbd className="ml-1 px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono">⌘K</kbd>
                   </button>
+                  {hasOtherSectors && (
+                    <button
+                      onClick={() => setHomeShowAllSectors(v => !v)}
+                      className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-emerald-400 transition text-sm"
+                      title="Recent Activity and Top Ingredients are scoped to the current sector by default."
+                    >
+                      {homeShowAllSectors ? `Filter to ${mc.name}` : 'Show all sectors'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3217,7 +3239,7 @@ export default function FormulationWizard() {
               {/* Recent activity */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">🕐 Recent Activity</h3>
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">🕐 Recent Activity{!homeShowAllSectors && <span className="ml-1.5 normal-case font-normal text-gray-400 text-xs">· {mc.name}</span>}</h3>
                   <button onClick={() => setActiveTab('saved')} className="text-xs text-emerald-700 hover:underline">View all →</button>
                 </div>
                 {recentFormulas.length === 0 ? (
@@ -3300,7 +3322,7 @@ export default function FormulationWizard() {
               {/* Top ingredients */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">📊 Top Ingredients in Portfolio</h3>
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">📊 Top Ingredients in Portfolio{!homeShowAllSectors && <span className="ml-1.5 normal-case font-normal text-gray-400 text-xs">· {mc.name}</span>}</h3>
                   <span className="text-xs text-gray-500">{totalIngredientsInUse} unique SKUs tracked</span>
                 </div>
                 {topIngredients.length === 0 ? (
