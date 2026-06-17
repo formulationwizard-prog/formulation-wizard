@@ -16,6 +16,19 @@ begin;
 \set wsB   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
 \set fA    'f000000a-0000-0000-0000-00000000000a'
 \set fB    'f000000b-0000-0000-0000-00000000000b'
+-- 0003 spine rows (one per workspace)
+\set vA    'a0000001-0000-0000-0000-00000000000a'
+\set vB    'b0000001-0000-0000-0000-00000000000b'
+\set mA    'a0000003-0000-0000-0000-00000000000a'
+\set mB    'b0000003-0000-0000-0000-00000000000b'
+\set msA   'a0000004-0000-0000-0000-00000000000a'
+\set msB   'b0000004-0000-0000-0000-00000000000b'
+\set lotA  'a0000002-0000-0000-0000-00000000000a'
+\set lotB  'b0000002-0000-0000-0000-00000000000b'
+\set evA   'a0000005-0000-0000-0000-00000000000a'
+\set evB   'b0000005-0000-0000-0000-00000000000b'
+\set obsA  'a0000006-0000-0000-0000-00000000000a'
+\set obsB  'b0000006-0000-0000-0000-00000000000b'
 
 -- Seed as the privileged role (bypasses RLS).
 insert into auth.users (id, email) values (:'alice','alice@test.dev'),(:'bob','bob@test.dev') on conflict (id) do nothing;
@@ -26,10 +39,30 @@ insert into public.workspace_members (workspace_id, user_id, role_kind, status) 
 insert into public.formulations (id, owner_id, workspace_id, name, mode, data) values
   (:'fA', :'alice', :'wsA', 'SECRET A', 'supplements', '{}'::jsonb),
   (:'fB', :'bob',   :'wsB', 'SECRET B', 'supplements', '{}'::jsonb);
+-- 0003 spine rows — seeded privileged in both workspaces (FK chain: version→lot→event, spec→obs)
+insert into public.formulation_versions (id, owner_id, workspace_id, sector, formulation_id, version, snapshot) values
+  (:'vA', :'alice', :'wsA', 'supplements', :'fA', '1.0.0', '{}'::jsonb),
+  (:'vB', :'bob',   :'wsB', 'supplements', :'fB', '1.0.0', '{}'::jsonb);
+insert into public.spec_metrics (id, owner_id, workspace_id, sector, name) values
+  (:'mA', :'alice', :'wsA', 'supplements', 'pH'),
+  (:'mB', :'bob',   :'wsB', 'supplements', 'pH');
+insert into public.master_specs (id, owner_id, workspace_id, sector, formulation_id, metric_id) values
+  (:'msA', :'alice', :'wsA', 'supplements', :'fA', :'mA'),
+  (:'msB', :'bob',   :'wsB', 'supplements', :'fB', :'mB');
+insert into public.lots (id, owner_id, workspace_id, sector, lot_kind, lot_code) values
+  (:'lotA', :'alice', :'wsA', 'supplements', 'material', 'LOT-A'),
+  (:'lotB', :'bob',   :'wsB', 'supplements', 'material', 'LOT-B');
+insert into public.lot_events (id, owner_id, workspace_id, sector, lot_id, event_type, quantity_delta) values
+  (:'evA', :'alice', :'wsA', 'supplements', :'lotA', 'receipt', 10),
+  (:'evB', :'bob',   :'wsB', 'supplements', :'lotB', 'receipt', 10);
+insert into public.master_spec_observations (id, owner_id, workspace_id, sector, master_spec_id, revision_id, value, scale) values
+  (:'obsA', :'alice', :'wsA', 'supplements', :'msA', :'vA', '4.2', 'production'),
+  (:'obsB', :'bob',   :'wsB', 'supplements', :'msB', :'vB', '4.2', 'production');
 
 -- ════ Alice — member of workspace A only ════
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+set local request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';  -- dotted form too (portable across auth.uid() impls)
 do $$
 begin
   assert (select count(*) from public.formulations where id = 'f000000a-0000-0000-0000-00000000000a') = 1,
@@ -70,6 +103,7 @@ reset role;
 -- ════ Bob — mirror ════
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
+set local request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';  -- dotted form too
 do $$
 begin
   assert (select count(*) from public.formulations where id = 'f000000b-0000-0000-0000-00000000000b') = 1, 'FAIL: Bob cannot read his own';
@@ -83,6 +117,7 @@ reset role;
 -- harness bug that produced a false "anon leak" on the first run).
 set local role anon;
 set local request.jwt.claims = '';
+set local request.jwt.claim.sub = '';  -- clear dotted form too, else prior user's sub leaks
 do $$
 begin
   assert (select count(*) from public.formulations) = 0, 'LEAK: anon can read formulations';
@@ -90,5 +125,65 @@ begin
 end $$;
 reset role;
 
+-- ════ 0003 spine tables — cross-tenant isolation + append-only ════
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+set local request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';  -- dotted form too (portable across auth.uid() impls)
+do $$
+begin
+  assert (select count(*) from public.formulation_versions) = 1, 'LEAK: Alice sees versions beyond her workspace';
+  assert (select count(*) from public.lots) = 1, 'LEAK: Alice sees lots beyond her workspace';
+  assert (select count(*) from public.lot_events) = 1, 'LEAK: Alice sees lot_events beyond her workspace';
+  assert (select count(*) from public.master_specs) = 1, 'LEAK: Alice sees master_specs beyond her workspace';
+  assert (select count(*) from public.master_spec_observations) = 1, 'LEAK: Alice sees observations beyond her workspace';
+end $$;
+
+-- Append-only proof (§4.6): INSERT into own workspace OK; UPDATE/DELETE denied (no policy → 0 rows)
+do $$
+declare n int;
+begin
+  insert into public.lot_events (owner_id, workspace_id, sector, lot_id, event_type, quantity_delta)
+    values ('11111111-1111-1111-1111-111111111111','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','supplements','a0000002-0000-0000-0000-00000000000a','adjustment',1);
+  update public.lot_events set quantity_delta = 999 where id = 'a0000005-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  assert n = 0, 'APPEND-ONLY VIOLATION: Alice updated a lot_event';
+  delete from public.lot_events where id = 'a0000005-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  assert n = 0, 'APPEND-ONLY VIOLATION: Alice deleted a lot_event';
+  update public.master_spec_observations set value = 'tampered' where id = 'a0000006-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  assert n = 0, 'APPEND-ONLY VIOLATION: Alice updated an observation';
+end $$;
+
+-- Alice cannot author a lot into workspace B (with-check: owner AND member of B; she is neither)
+do $$
+begin
+  begin
+    insert into public.lots (owner_id, workspace_id, sector, lot_kind, lot_code)
+      values ('11111111-1111-1111-1111-111111111111','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','supplements','material','evil-lot');
+    assert false, 'LEAK: Alice authored a lot into workspace B';
+  exception
+    when others then
+      if sqlstate = '42501' then null;
+      elsif sqlstate = 'P0004' then raise;
+      else null; end if;
+  end;
+end $$;
+reset role;
+
+-- anon reads NOTHING from the spine tables
+set local role anon;
+set local request.jwt.claims = '';
+set local request.jwt.claim.sub = '';  -- clear dotted form too, else prior user's sub leaks
+do $$
+begin
+  assert (select count(*) from public.lots) = 0, 'LEAK: anon reads lots';
+  assert (select count(*) from public.lot_events) = 0, 'LEAK: anon reads lot_events';
+  assert (select count(*) from public.master_spec_observations) = 0, 'LEAK: anon reads observations';
+  assert (select count(*) from public.formulation_versions) = 0, 'LEAK: anon reads versions';
+end $$;
+reset role;
+
 do $$ begin raise notice '✓ WORKSPACE RLS ISOLATION HARNESS PASSED — no cross-operator leakage'; end $$;
+do $$ begin raise notice '✓ 0003 SPINE RLS + APPEND-ONLY HARNESS PASSED — no cross-tenant leak; lot_events/observations immutable'; end $$;
 rollback;
