@@ -7,16 +7,24 @@
 
 ---
 
+> ## ⚠️ 2026-06-16 reconciliation (#17 spine lock) — read first
+> This doc's original `MasterSpecEntry` **conflated two entities.** Per the locked 13-entity spine, they are split:
+> - **TargetSpec** = the **design/regulatory contract** — per Formulation Version, frozen on status-advance, signed by brand owner + RA; anchors CM agreements, label-claim defenses, retailer contracts. Modeled below as the new **`TargetSpecEntry`**.
+> - **MasterSpec** = **verified-from-production evidence** — the observation-log + tier engine. **Not a contract.**
+> - The design-seed fields (`validated_value` / `validated_tolerance` / `target_at_label_claim_pct` / `authorized_*`) **move to `TargetSpecEntry`**; `MasterSpecEntry` keeps only the production-verified role, anchored at **Formulation level** (not product/version).
+> - They **converge** at tier promotion (see the new convergence section).
+>
+> The **Entity model** (TargetSpecEntry, MasterSpecEntry, ObservationLogEntry) below is reconciled to the split. **Deeper sections (statistical math examples, phases, storage keys) still reference the pre-split field locations** — where `recomputeStats` reads `validated_value`/`validated_tolerance`, those now come from the **linked `TargetSpecEntry`**, not from `MasterSpecEntry`. Those sections are flagged but not exhaustively re-swept here (a follow pass at schema-laying time). Companions: [wave-17 packet](wave-17-session-inputs-packet-2026-06-13.md), [inventory-event-model-2026-06-16.md](inventory-event-model-2026-06-16.md).
+
 ## Purpose
 
-This document locks the data model for the new **Master Specs** tab (working name) — the workspace's central spec hub that:
+This document locks the data model for the **MasterSpec** + **TargetSpec** pair (the "Master Specs" tab is the UI surface). Together they:
 
-1. Stores authoritative validated specs per product (one record per SKU × revision × metric)
-2. Logs actual lab measurements per batch (observation log feeds the spec record)
-3. Computes living statistics (mean, σ, confidence tier — promotes as n accumulates)
-4. Spans multiple brands + products in one operator's portfolio
-5. Generates shareable quality history packages for co-packer customers
-6. Serves as the QA Manager's **single validation source of truth**
+1. **TargetSpec** holds the **signed design/regulatory contract** per Formulation Version (the spec the formula is *designed and authorized* to hit)
+2. **MasterSpec** logs actual lab measurements per batch (observation log) and computes **living statistics** (mean, σ, confidence tier — promotes as n accumulates) — the *verified-from-production* evidence
+3. Span multiple brands + products in one operator's portfolio
+4. Generate shareable quality-history packages for co-packer customers
+5. Serve as the QA Manager's **single source of truth** — TargetSpec for "what we committed to," MasterSpec for "what production proves"
 
 Master Specs is connected to nearly every other tab — wrong data model has expensive ripples. This doc locks the model before any UI code.
 
@@ -109,53 +117,79 @@ Phase 1 ComputedStats implements `normal + two-sided / upper-only / lower-only` 
 
 ---
 
-### 2. `MasterSpecEntry` — the spec record (Product × Metric junction)
+### `TargetSpecEntry` — the design/regulatory contract *(NEW — split 2026-06-16)*
+
+The signed contract a Formulation Version is *designed and authorized* to hit. **Version-level.** Frozen on status-advance; authored by brand owner + RA; the anchor for CM agreements, label-claim defenses, and retailer contracts. These fields **moved here out of the old `MasterSpecEntry`.**
+
+```typescript
+interface TargetSpecEntry {
+  id: string;                            // UUID
+  formulation_id: string;                // FK → Formulation
+  formulation_version_id: string;        // FK → FormulationVersion — Version-level (frozen per version)
+  metric_id: string;                     // FK → SpecMetric.id
+
+  // The design target (operator/RA-set — the contract)
+  target_value: number | string | boolean;        // Matches metric.data_type  (was validated_value)
+  tolerance: number | null;                        // ± tolerance; null for categorical/boolean  (was validated_tolerance)
+  method: string;                                  // Test method the target is defined against
+
+  // Overage / label-claim interface (was red-line #4 — belongs to the contract, not the evidence):
+  // target_value is the actual concentration at time-zero (e.g., Vit C at 110% of label claim);
+  // label_value = target_value / (target_at_label_claim_pct / 100). Default 100 = no overage.
+  target_at_label_claim_pct: number;
+
+  // Authorization — the signature on the contract
+  authorized_signer: string;             // user_id or free-text name (pre-RBAC)
+  authorized_role: 'qa-manager' | 'lab-manager' | 'rd-manager' | 'operator';
+  authorized_at: string;                 // ISO date  (was authorized_date)
+  effective_date: string;                // when this target takes effect
+  status: 'draft' | 'authorized' | 'superseded';
+
+  // Lifecycle
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+}
+```
+
+**Cadence:** per-version revision — a new Formulation Version gets a new TargetSpecEntry per metric, frozen on status-advance. A TargetSpec can be **promoted from** a MasterSpec's verified range (see *Tier-promotion convergence* below).
+
+---
+
+### 2. `MasterSpecEntry` — the verified-from-production record *(reconciled 2026-06-16)*
+
+The production **evidence** for one metric on one formulation. **Formulation-level** — one continuous history; observations version-tagged; per-metric carry-forward at the revision boundary. **Not a contract** (the design target lives on `TargetSpecEntry`).
 
 ```typescript
 interface MasterSpecEntry {
   id: string;                            // UUID
-  product_id: string;                    // UUID — canonical product identifier (per red-line #2,
-                                         //   decoupled from FG Part #). FG Part #, brand, product
-                                         //   line, version FKs live on Product entity (resolved
-                                         //   in Packet Q1; see open dependency below).
-  revision: string;                      // PDS revision (e.g., "Rev01") — spec accumulates per revision
+  formulation_id: string;                // FK → Formulation — Formulation-level (NOT version-level)
   metric_id: string;                     // FK → SpecMetric.id
 
-  // Operator-set initial validation (one-time per spec creation)
-  validated_value: number | string | boolean;     // Matches metric.data_type
-  validated_tolerance: number | null;             // ± tolerance; null for categorical/boolean
-  method: string;                                  // Test method actually used (may differ from metric.method_default)
-  authorized_signer: string;                       // User ID or free-text name (pre-RBAC)
-  authorized_role: 'qa-manager' | 'lab-manager' | 'rd-manager' | 'operator';
-  authorized_date: string;                         // ISO date
-
-  // Overage / label-claim interface (red-line #4 — critical for supplements)
-  // validated_value is the actual concentration at time-zero (e.g., Vit C
-  // added at 110% of label claim to compensate for 6-month stability loss).
-  // label_value = validated_value / (target_at_label_claim_pct / 100).
-  // Default 100 = no overage (validated_value === label_value).
-  target_at_label_claim_pct: number;
-
-  // Cross-revision behavior (red-line picks #5 — per-metric override)
-  // When PDS revision changes (Rev01 → Rev02), observations from prior
-  // revision carry forward into this entry by default. Operator can set
-  // this true per-metric per-revision-change to invalidate carry-forward
-  // (e.g., reformulation altered the metric materially).
+  // Cross-revision carry-forward (the locked coupling, 2026-06-16).
+  // Decision lives at the REVISION BOUNDARY, per metric — NOT on individual
+  // (immutable) observations. Stats for (formulation, Rev_N, metric):
+  //   true  → include only observations where revision_id = Rev_N
+  //   false → include Rev_N + all prior back to the most recent invalidation point
   metric_invalidated_by_revision: boolean;
 
-  // Observation log — append-only, source of truth
+  // Observation log — append-only, the source of truth. Each observation carries
+  // `scale` ('bench'|'pilot'|'production'|'coa') + `revision_id`.
   observation_log: ObservationLogEntry[];
 
-  // Computed statistics (derived from observation_log; recomputed on insert)
+  // Computed statistics (derived from observation_log; recomputed on insert).
+  // Where stats need a design baseline (n < verified threshold), they read
+  // target_value / tolerance from the LINKED TargetSpecEntry (same
+  // formulation_version + metric) — NOT from this entry.
   computed: ComputedStats;
 
   // Override history (manual range overrides with audit trail)
   override_history: OverrideEntry[];
 
   // Lifecycle
-  created_at: string;                    // ISO timestamp
-  created_by: string;                    // user_id
-  updated_at: string;                    // ISO timestamp of most recent change
+  created_at: string;
+  created_by: string;
+  updated_at: string;
   archived: boolean;                     // Soft-delete; preserves audit trail
   archived_at?: string;
   archived_by?: string;
@@ -163,13 +197,9 @@ interface MasterSpecEntry {
 }
 ```
 
-**Why one entry per (product_id × revision × metric_id):**
+**Why Formulation-level (not product × revision):** production-learning compounds across minor revisions (don't reset a verified range on a non-affecting tweak); a material reformulation severs the history per-metric via `metric_invalidated_by_revision`. Observations stay immutable; the carry decision is owned by the revision boundary.
 
-- Allows spec evolution across PDS revisions (Rev01 vs Rev02 may have different validated values)
-- Allows different metrics per product (Cola tracks color; capsule doesn't)
-- Allows independent observation accumulation per metric
-
-**Packet Q1 dependency (red-line #2):** `product_id` is a UUID; Product entity (resolved in Packet Q1) owns FG Part # + version + brand + product line FKs. Master Specs joins via UUID; when Packet Q1 routes to a different hierarchy, Master Specs doesn't change. Phase 1 build proceeds with Product entity as a forward-declared interface; full Packet Q1 wiring lands when that architectural decision lands.
+**⚠️ Anchoring shift (surface for the schema session):** this supersedes the original `product_id × revision × metric_id` keying. Both TargetSpec (formulation_version) and MasterSpec (formulation) now anchor on **Formulation**, not a standalone `product_id`. This **subordinates the Packet-Q1 Product-entity question** (Brand → Product Line → Product → Version) to Formulation anchoring — confirm at schema-laying whether Product remains a hierarchy *above* Formulation or collapses into it.
 
 ---
 
@@ -181,6 +211,10 @@ interface ObservationLogEntry {
   batch_id: string;                      // Lot code (e.g., "20260427-NJ-L01-S1") — links to Batch Sheet
   observation_date: string;              // ISO date of test
   value: number | string | boolean;      // Matches metric.data_type
+  scale: 'bench' | 'pilot' | 'production' | 'coa';  // NEW (2026-06-16) — source/scale of this reading,
+                                         //   tagged at ingest (BenchTopRun / Batch / COA). Predicted-vs-
+                                         //   measured = filter by scale; ONE tier engine serves all scales.
+  revision_id: string;                   // NEW — Formulation Version this reading belongs to (carry-forward keying)
   lab_name?: string;                     // Where tested ("In-house QC lab" · "Eurofins" · "...")
   method_used: string;                   // Method actually applied (may differ from spec.method)
   signer: string;                        // Lab tech who ran the test
@@ -197,6 +231,18 @@ interface ObservationLogEntry {
 ```
 
 **Key constraint:** observation entries are append-only. Retests don't delete original; they reference it via `superseded_by` for audit clarity.
+
+---
+
+## Tier-promotion convergence — TargetSpec ⇄ MasterSpec *(NEW — 2026-06-16)*
+
+The two entities are **not redundant.** TargetSpec is the **signed contract**; MasterSpec is the **evidence basis** that informs it. They meet at tier promotion:
+
+- A formula ships with a **TargetSpec** (the authorized design target per Version) and a low-n **MasterSpec** (`estimated` / `validated`).
+- Production accumulates observations → MasterSpec promotes (`verified` → `well-characterized`).
+- When MasterSpec's computed verified range earns **formal sign-off**, the operator can **promote it into the next-version TargetSpec** — an explicit, authorized action, **never silent**. The new Version's TargetSpec is now grounded in production reality.
+
+This is the data-moat loop: **design target → production evidence → re-authorized target.** The critical property: the TargetSpec a CM agreement references **never moves on its own** — it changes only by a signed revision; MasterSpec moves continuously, TargetSpec moves only on authorization. (This is precisely *why* they're separate entities, not a column-set on one.)
 
 ---
 
