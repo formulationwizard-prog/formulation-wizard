@@ -90,6 +90,8 @@ Four fields where an empty/null/missing value MUST be interpreted as **UNDOCUMEN
 
 **This is non-negotiable.** A single "VERIFIED-SAFE" rendering on an UNDOCUMENTED field is a silent-failure pathway to harm. The catalog's job is to never let that happen.
 
+**Honesty-first extends to the measurement layer (Amendment 4, 2026-06-17).** A benchmark or coverage metric whose enforcing field is absent from the schema reports as `null` / structurally-0 — *"not measurable in current schema"* — never as fabricated coverage or zero-dressed-as-data. A missing field is an honest gap to close, not a number to invent. The audit engine (§I.6) enforces this by construction: the bar is *specified* in this Rulebook; where the enforcing field doesn't yet exist, the gap is reported truthfully, not papered over.
+
 ## 6. World-Class Quality Benchmarks (measurable bar)
 
 | Benchmark | Measurement | Target |
@@ -101,7 +103,7 @@ Four fields where an empty/null/missing value MUST be interpreted as **UNDOCUMEN
 | **Operator bulk-paste resolution** | % of ingredients in the top-100 most-pasted competitor labels (per quarterly competitor methodology, §IV.21) that resolve via bulk-paste | ≥ 95% by August 2026 |
 | **Test coverage** | % of entries with at least one bulk-paste resolution test + one SFP rendering test in `lib/__tests__/` | 100% (gating: §VI) |
 
-These are the ground-truth quality metrics. They are checked on every catalog PR via a CI report (to be built — currently manual). "Comprehensive" is not enough; "passes the bar" is what matters.
+These are the ground-truth quality metrics. They are checked on every catalog PR via a CI report **built 2026-06-17 at [`lib/catalogAudit.ts`](../../lib/catalogAudit.ts) + [`lib/__tests__/catalog-audit.test.ts`](../../lib/__tests__/catalog-audit.test.ts)** — deterministic, gated by a severity ratchet (S1 hard-floored at 0), regenerating the §II.8 coverage matrix on every `npm test`. (Amendment 1, 2026-06-17 — flips "to be built — currently manual.") Several benchmarks above are currently **unmeasurable** because their enforcing field is absent from `types/index.ts` (the §II.8 gap — `confidenceLevel`, `tier`, structured `citation`, canonical-ID); the report renders these as `null` / structurally-0, never as fabricated coverage (§I.5). "Comprehensive" is not enough; "passes the bar" is what matters.
 
 ## 7. Conflict Resolution Hierarchy
 
@@ -195,6 +197,8 @@ PUSHBACK-ENTRY + PUSHBACK-STRUCTURAL co-occurring → status is PUSHBACK-ENTRY (
 
 **Step 0 (audit prerequisite — must complete before backfill steps):**
 For each of the 14 §III.15 categories, Grep `lib/data/supplements.ts` for each §II.8 per-category required field. Identify which fields are present in 0% of entries for that category (catalog-wide absent → Gap #7 in-scope for migration) vs. present in some entries (partial; out of Gap #7 scope; per-entry backfill via the validator's normal PUSHBACK-ENTRY path during routine catalog work). Output: `docs/catalog/round-12-per-category-audit.md` with the canonical category × field × present-count matrix. This audit feeds steps 7+'s scope.
+
+**STATUS — Step 0 is BUILT and automated (Amendment 2, 2026-06-17).** The per-category coverage matrix is now produced deterministically by [`lib/catalogAudit.ts`](../../lib/catalogAudit.ts) and regenerated on every `npm test` → [`docs/catalog/round-12-per-category-audit.md`](../catalog/round-12-per-category-audit.md). First run (367 entries): **S1 0 · S2 4 · S3 112 · S4 57**; `confidenceLevel` / `tier` / structured-`citation` / canonical-ID coverage 0%-or-unmeasurable (the enforcing fields are absent from `types/index.ts` — the open work, steps 1–8 below). Step 0 is no longer a manual prerequisite; **the gap is now execution of steps 1–8**, not the audit. The audit's severity ratchet (S1 floored at 0) guards against regression on every catalog PR.
 
 **Steps 1–7 (backfill, after audit):**
 1. Schema additions to `IndustrialIngredient` type (adds the universal-required + allergens-flag + per-audit category-required fields)
@@ -699,6 +703,22 @@ regulatoryStatus: {
 ```
 
 **Defer per-entry encoding** of CA/EU/UK/AU until a target market beyond US is named — but the type definition and codepaths accommodate it now. The workspace shows US status by default; "Target Market" selector unlocks others when populated.
+
+## 14a. Canonical Identifiers (UNII / USP-Latin / GTIN) — trajectory layer
+
+**Added 2026-06-17 (Amendment 3).** The one genuine *addition* beyond this Rulebook's existing world-class bar. The rest of the bar — §I.2 citation tiers, §I.4 confidence, §I.5 harm-critical floor, §I.6 benchmarks, §II.8 schema — was already specified; there the gap is execution, not specification. Canonical identifiers were absent entirely.
+
+**The Rule:** each entry carries, where applicable, canonical identifiers that resolve the *substance* to an external authority:
+
+- `canonicalIdUnii` — **FDA UNII** for the substance. **Per-substance, NOT per-SKU**: "Magnesium Glycinate (Albion TRAACS)" and "(Generic Commodity)" share one UNII. Assigning it is substance-resolution judgment, not a portal lookup.
+- `canonicalIdUspLatin` — **USP / Latin binomial** for botanicals (genus species). Nate-gated (domain judgment).
+- `canonicalIdGtin` — **GS1 GTIN** where a finished-good identifier applies.
+
+**Honesty-first guardrail (NON-NEGOTIABLE):** canonical IDs are **verified, never bulk-inferred.** A wrong canonical ID is a *confident lie* — worse than honest absence, because it looks authoritative. Assignment is a deliberate verified pass (FDA UNII database cross-check; USP-Latin resolution is Nate-domain for botanicals), not an LLM or portal sweep. An entry whose ID cannot be verified leaves the field **null** (UNDOCUMENTED per §I.5), never a guess. This is the same epistemic posture as §I.5 applied to identifiers.
+
+**Launch posture:** a **trajectory** layer, **NOT August-launch-gating.** Entries lacking a verified canonical ID are **flagged** (the §I.6 audit reports canonical-ID coverage), **not blocked.** The launch story is honest: gaps are visible; canonical IDs accumulate as verified curation progresses. Start on highest-value entries; complete past August.
+
+**Why launch-relevant anyway:** it is the defensible answer to a Fortune-500 vendor-diligence pass ("what's your data-quality story?"), and it is far cheaper to assign at ~370 entries than at thousands.
 
 ---
 
