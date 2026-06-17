@@ -1,6 +1,6 @@
 # #17 Architecture Session — Inputs Packet (lifecycle reframe; revised 2026-06-16)
 
-> **2026-06-16 reconciliation:** spine count **9 → 12**; **TargetSpec** (the design/regulatory contract) split out from **MasterSpec** (verified-from-production); **BenchTopRun** + **PackagingSpec** added; Material + Supplier promoted to first-class entities. Every prior "Master Spec = the contract" framing rewritten to TargetSpec. See the [workflow architecture audit](workflow-architecture-audit-2026-06-16.md) §8.
+> **2026-06-16 reconciliation:** spine count **9 → 13**. **TargetSpec** (design/regulatory contract) split out from **MasterSpec** (verified-from-production); **BenchTopRun**, **PackagingSpec**, and **LotEvent** added; Material + Supplier promoted to first-class entities. **The 13th entity (LotEvent) was added to make the workflow→IMS flow *structural* rather than a retrofit** — event-sourced inventory truth. Every prior "Master Spec = the contract" framing rewritten to TargetSpec. See the [workflow architecture audit](workflow-architecture-audit-2026-06-16.md) §8 + the [inventory event model](inventory-event-model-2026-06-16.md).
 
 **This packet supersedes the "save backend + version state" framing.** #17 is now scoped as **the lifecycle workspace schema** — the data spine that lets FW replace the operator's whole Excel portfolio (formulation → target spec → batch → COA → inventory → recall traceability), not just the save mechanics. The immediate *execution* unblock (auth reconciliation) is unchanged and sits inside this; the *schema design* is the bigger session.
 
@@ -11,9 +11,9 @@
 ---
 
 ## 0. The lifecycle spine (the reframe)
-The data spine FW must hold: **TargetSpec** (the contract) → **Formulation** (recipe to hit the spec) → **Batch** (per-run execution) → **COA** (lab measurement of the actual batch) → **spec reconciliation** (did the batch hit the TargetSpec?) → **MasterSpec** (verified-from-production evidence accumulates; tier promotes) → **Lot-in** (raw materials consumed, traceable to supplier COA) → **Lot-out / Customer Lot** (finished goods shipped) → **recall traceability** (lot fails QA → which formulations / CMs / customers).
+The data spine FW must hold: **TargetSpec** (the contract) → **Formulation** (recipe to hit the spec) → **Batch** (per-run execution, consuming material Lots) → **COA** (lab measurement of the actual batch) → **spec reconciliation** (did the batch hit the TargetSpec?) → **MasterSpec** (verified-from-production evidence accumulates; tier promotes) → **LotEvent stream** (every receipt / reservation / consumption / ship recorded append-only — inventory-on-hand is *computed* from it, never stored) → **Lot-out / Customer Lot** (finished goods shipped) → **recall traceability** (event-graph traversal over the LotEvent stream: lot fails QA → which formulations / CMs / customers).
 
-**12 entities the schema must hold:**
+**13 entities the schema must hold:**
 | # | Entity | What it is |
 |---|---|---|
 | 1 | **Formulation** | the recipe, versioned, references its TargetSpec |
@@ -28,6 +28,7 @@ The data spine FW must hold: **TargetSpec** (the contract) → **Formulation** (
 | 10 | **PackagingSpec** | *(new — PDS-extraction Phase 1)* the operator-authored **production-and-packaging workflow** — the production-floor "how-to-package this product" sequence, user inputs paramount. **NOT a static attribute bag** (container/closure/material specs are inputs, not the entity) |
 | 11 | **Inventory** | on-hand quantities by Lot, location, expiry |
 | 12 | **Customer Lot** | finished goods shipped; references Batch |
+| 13 | **LotEvent** | *(new — event-sourced inventory truth)* append-only stream of receipts, reservations, consumptions, adjustments, scraps, returns, quarantines, releases. Lot quantity-on-hand is **computed from this stream, not stored.** The IMS seam (internal or external) consumes this event log directly — see [inventory-event-model-2026-06-16.md](inventory-event-model-2026-06-16.md) |
 
 **TargetSpec ⇄ MasterSpec convergence:** when MasterSpec's verified range earns formal sign-off, it can become the next-version TargetSpec.
 
@@ -59,6 +60,7 @@ A Lot must *exist and link* in #17; it does not need its inventory columns until
 | **Batch** | surface exists (Batch Sheet); captures are session-only (component state) | **deciding-work**: persist (LB#4 second half); measurements tagged `scale='production'` |
 | **BenchTopRun** | *(new)* **greenfield as entity** — but the tier engine it feeds already exists | identity + FK; reuse MasterSpec stats tagged `scale='bench'` |
 | **PackagingSpec** | *(new)* PDS-tab scaffold exists (read-only views + phase-deferred placeholders) | **deciding-work**: model the operator-authored production-and-packaging workflow; PDS-extraction Phase 1 |
+| **LotEvent** | *(new)* **greenfield** — the inventory event log | lay the append-only table in #17; Lot itself evolves (status states + computed qty-on-hand) |
 | **Lot / COA / Inventory / Customer Lot** | **greenfield as entities** | identity + FK only in #17; internals deferred |
 
 ---
@@ -74,7 +76,12 @@ A Lot must *exist and link* in #17; it does not need its inventory columns until
 
 **August UI:** flagged-off for Nutraceuticals scope is correct (DSHEA doesn't require a TargetSpec contract the way a retailer contract does); **launch-critical for the F&B path**, so both entities land in #17 even though the UI ships 2027.
 
-**Parked open question (to formalize before schema laying — NOT resolved here):** is **MasterSpec Formulation-level** (one continuous spec history, observations tagged by version, per-metric carry-forward via `metric_invalidated_by_revision`) or **Version-level** (one per Version)? TargetSpec is clearly Version-level; MasterSpec's coupling needs an explicit call.
+**MasterSpec coupling (RESOLVED + locked 2026-06-16):** MasterSpec is **Formulation-level** — one continuous spec history, observations version-tagged, per-metric carry-forward at the **revision boundary** via the entry-level `metric_invalidated_by_revision` (NOT a per-observation flag — observations are immutable, and the carry decision belongs to the reformulation event, not to each historical reading). Stats for `(formulation, Rev_N, metric)`: `metric_invalidated_by_revision = true` → only `Rev_N` observations; `false` → `Rev_N` + all prior back to the most recent invalidation point. TargetSpec is Version-level. Formalized in `master-specs-data-model-2026-05-27.md` (Move B).
+
+## 3b. LotEvent — the inventory event log (the IMS seam)
+The 13th entity makes the workflow→IMS flow **structural, not a retrofit.** **Event types:** receipt · reservation · consumption · release · adjustment · scrap · return · quarantine · release_from_quarantine. **Fields:** `lot_id`, `event_type`, `quantity_delta`, `batch_id?`, `coa_id?`, `actor`, `timestamp`, `reason_code?`. **Why event-sourced:** concurrent-write safety, partial + multi-batch consumption, scrap accounting, recall traceability (forward + backward **graph traversal**, not table joins), and a complete audit trail. Lot quantity-on-hand is **computed** from the stream; Lot gains a status state machine (`available | reserved | consumed | quarantined | released | expired | recalled`). **Recall-trace UI is Q4; the data shape supports it day one.** Full design: [inventory-event-model-2026-06-16.md](inventory-event-model-2026-06-16.md).
+
+**Parked Q4 — Location/Warehouse (#14 candidate):** multi-location operators (e.g., a brand using two co-packers) — Lot needs a `location_id` FK when it lands; the LotEvent stream already carries enough to add it additively. Intentional deferral, not an oversight.
 
 ---
 
@@ -116,7 +123,7 @@ RLS-first verification + this session's code sweep:
 - **A. Auth reconciliation [immediate unblock].** Make `auth.uid()` reliably present for a saving user ("sign in to save"). Largely settled by the verified workspace model; this is the narrow unblock.
 - **B. Version-state semantics.** *Recorded settled 2026-06-08* (status-triggered freeze; August = snapshots + RA-packet version-stamp + freeze-hook) — **confirm or reopen** (not Wizard-locked in-session; provenance is the START-HERE doc). Open: snapshot-in-`data` vs `formulation_versions` table; who moves transitions.
 - **C. Schema version-control.** Dump the live workspace schema → versioned migration; RLS harness in CI.
-- **D. The lifecycle spine (§0-§2)** — the 12 entities as IDs + FK + tenancy + TargetSpec version-anchor; internals deferred per the migration-test gate.
+- **D. The lifecycle spine (§0-§2)** — the 13 entities as IDs + FK + tenancy + TargetSpec version-anchor + **LotEvent as the event-sourced anchor for inventory truth**; internals deferred per the migration-test gate.
 - **E. Sector as a per-entity schema constraint (§6).**
 - **F. Opt-in contribution + anonymization foundation** — granular per-formula/per-data-type/per-purpose flags; anonymization pipeline; **physical separation** (separate schema/role) as defense-in-depth; harness for opted-out isolation. Schema *supports* it; no stream populated for August.
 - **G. Heavy-metals harm-critical contract (§5).**
@@ -132,7 +139,7 @@ Mode-filter the saved-work lists (Saved tab, Qualification Tracker, command-pale
 ## 9. Implementation sequence (post-decision — CC-driveable)
 1. Version-control the live schema → migration (C); RLS harness in CI.
 2. Reconcile auth (A) — `auth.uid()` reliably present ("sign in to save").
-3. **Lay the lifecycle spine** (D) — the 12 entity tables + FK + `workspace_id` + sector field + TargetSpec version-anchor. Internals deferred. *(MasterSpec coupling — Formulation-level vs Version-level — formalized in step-B prep, before tables.)*
+3. **Lay the lifecycle spine** (D) — the 13 entity tables + FK + `workspace_id` + sector field + TargetSpec version-anchor + the LotEvent append-only log. Internals deferred. *(MasterSpec coupling resolved 2026-06-16: Formulation-level, revision-boundary carry-forward.)*
 4. Wire hydrate-on-mount + mirror-on-save on `workspace_id`; localStorage stays optimistic cache.
 5. Version-state (B); opt-in/anonymization scaffolding (F, foundation only).
 6. Heavy-metals risk-flag layer (G); sector-scope the saved-work lists (E/§8).
@@ -140,4 +147,4 @@ Mode-filter the saved-work lists (Saved tab, Qualification Tracker, command-pale
 
 **Posture (locked 2026-06-13):** WORKFLOW FIRST; August scope = #17 + #18 + #16 + §8 sweep; August AI = explanation-only (*explanation ≠ suggestion*); data-flywheel architecture goes in as **foundation**, not feature.
 
-**Bottom line:** #17 is not "save backend." It is **lifecycle-workspace-schema-through-inventory** — commit the 12-entity spine + sector constraint now so 2028 Inventory is a feature, not a migration. Auth reconciliation is step 1; the spine is the bet.
+**Bottom line:** #17 is not "save backend." It is **lifecycle-workspace-schema-through-inventory** — commit the 13-entity spine (LotEvent included) + sector constraint now so 2028 Inventory is a feature, not a migration. Auth reconciliation is step 1; the spine is the bet.
