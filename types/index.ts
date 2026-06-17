@@ -825,6 +825,41 @@ export interface DrugInteraction {
  * usageRange, regulatoryStatus, pharmacopeialReference, coaTemplateType) are optional
  * but are REQUIRED for any ingredient surfaced in the Nutraceuticals workspace.
  */
+// ─── World-class catalog schema (2026-06-17 schema-fields directive) ─────────
+// Additive + optional — zero breakage. Population is the gated curation phase
+// (verified per Rulebook §I.2 / §I.4, never bulk). Ratified 2026-06-17.
+// See docs/architecture/catalog-schema-fields-directive-2026-06-17.md.
+
+/** §I.4 — confidence taxonomy (5 levels, increasing certainty). */
+export type ConfidenceLevel =
+  | 'Verified-Lab'
+  | 'Verified-Supplier-COA'
+  | 'Estimated'
+  | 'Inferred'
+  | 'Undocumented';
+
+/** §III.16 — value/premium/specialty tier. The structured home for the data
+ *  legacy "Tier-A/B" markers leaked into display names (§II.9). */
+export type CatalogTier = 'value' | 'premium' | 'specialty';
+
+/** §I.2 — structured citation. `authority` is free-form ('IOM (NAM)', 'USP',
+ *  'FDA'); `tier` is the §I.2 authority tier (1 = US federal reg … 7 = industry
+ *  consensus); `source` carries the version inline per §I.2 ('DRI 2001, Table
+ *  3-1'); `retrievedAt` anchors per-citation freshness for the §28 review-decay
+ *  cadence. */
+export interface CatalogCitation {
+  authority: string;
+  source: string;
+  tier: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  retrievedAt?: string; // ISO date
+}
+
+/** §I.5a — heavy-metal contaminants flagged at the class level. The catalog
+ *  flags the vector; it does NOT certify content (a finished-product COA to
+ *  USP <232> is the only certification path). Classifier:
+ *  lib/heavyMetalVectors.ts. */
+export type HeavyMetal = 'Pb' | 'As' | 'Cd' | 'Hg';
+
 export interface IndustrialIngredient {
   name: string;
   category: string;
@@ -964,6 +999,34 @@ export interface IndustrialIngredient {
    * "verified safe."
    */
   drugInteractions?: DrugInteraction[];
+
+  // ─── World-class schema fields (2026-06-17 directive; §II.8 migration Step 1) ──
+  // All optional + additive. Absent = UNDOCUMENTED per §I.5 honesty-first, never
+  // a fabricated/safe-looking value. Populated only by verified curation, never bulk.
+  /** §I.4 confidence level for this entry's load-bearing values. */
+  confidenceLevel?: ConfidenceLevel;
+  /** §III.16 value/premium/specialty tier (structured home for legacy "Tier-A/B"). */
+  tier?: CatalogTier;
+  /** §I.2 structured citations (≥ 1 Tier-1–4 is the §I.6 90% bar). */
+  citation?: CatalogCitation[];
+  /** §14a canonical identifiers — verified, NEVER bulk-inferred (a wrong ID is a
+   *  confident lie). Per-substance for UNII (not per-SKU); USP-Latin Nate-gated
+   *  for botanicals. Absent = UNDOCUMENTED, never a guess. */
+  canonicalIdUnii?: string;
+  canonicalIdUspLatin?: string;
+  canonicalIdGtin?: string;
+  /** §28 + §II.8 Gap #4 — review cadence (covers all harm-critical fields). */
+  lastReviewedDate?: string; // ISO date
+  reviewedBy?: string;
+  /** §I.5 + §II.8 Gap #6 — allergen-investigation flag pair. `allergensInvestigated:
+   *  true` + `allergensFound: []` is the ONLY way to render "no major allergens";
+   *  empty/absent stays UNDOCUMENTED, never VERIFIED-SAFE. */
+  allergensInvestigated?: boolean;
+  allergensFound?: string[];
+  /** §I.5a — per-entry heavy-metals override. `'verified-clean'` is a positive
+   *  COA-verified datum (distinct from absence-of-flag); an array overrides the
+   *  classifier's class-level default. Absent = classifier default applies. */
+  heavyMetalsVectorOverride?: HeavyMetal[] | 'verified-clean';
 
   /**
    * FALCPA §203(b)(2) highly-refined-oil exemption status per
