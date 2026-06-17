@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Ban,
   OctagonX,
@@ -864,6 +865,13 @@ export default function FormulationWizard() {
   // yet specified.
   const [pdsProcess, setPdsProcess] = useState<'' | 'hot-fill' | 'cold-fill' | 'other'>('');
   const [saveMessage, setSaveMessage] = useState('');
+  const router = useRouter();
+  // First-run spec §5 State-1: an EMPTY portfolio redirects to /start — but only
+  // once we KNOW it's empty. For a signed-in user that means a SUCCESSFUL cloud
+  // pull (set true only in the hydrate success path below). A pull error / drop /
+  // 500 leaves this false → NO redirect → the empty-state CTA shows instead. If we
+  // can't confirm the portfolio is empty, we don't bounce a returning user.
+  const [cloudPullSucceeded, setCloudPullSucceeded] = useState(false);
   // WS-A Stage 4 — Supabase auth identity for the header. undefined = still
   // loading, null = signed out, string = the signed-in user's email. Drives the
   // "Signed in as / Sign out" vs "Sign in to save" chip and (Stage 5) whether
@@ -961,13 +969,14 @@ export default function FormulationWizard() {
   // the merged set straight to the localStorage cache (not via
   // persistSavedFormulations) so the pull doesn't echo back as a push.
   useEffect(() => {
+    setCloudPullSucceeded(false); // reset on user change; a fresh successful pull re-confirms
     if (!authUserId) return;
     const supabase = getSupabaseClient();
     if (!supabase) return;
     let active = true;
     (async () => {
       const { data: cloud, error } = await pullFormulations(supabase, authUserId);
-      if (!active || error) return;
+      if (!active || error) return; // error → flag stays false → no empty-redirect (operator nuance)
       const cloudIds = new Set(cloud.map(f => f.id));
       // Read the (already id-migrated) local set from the cache.
       let local: SavedFormulation[] = [];
@@ -987,6 +996,7 @@ export default function FormulationWizard() {
       const merged = [...cloud, ...localOnly];
       if (!active) return;
       setSavedFormulations(merged);
+      setCloudPullSucceeded(true); // cloud pull CONFIRMED successful — safe to treat length 0 as truly empty
       try {
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('fw_savedFormulations', JSON.stringify(merged));
@@ -996,6 +1006,20 @@ export default function FormulationWizard() {
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref-stable helpers; re-run only on identity change
   }, [authUserId]);
+
+  // First-run spec §5 State-1 — empty portfolio → /start, ONLY when confirmed empty.
+  // Signed-out: localStorage is the source of truth (settled immediately). Signed-in:
+  // wait for a SUCCESSFUL cloud pull (cloudPullSucceeded). auth still resolving, or a
+  // pull error, → no redirect → the empty-state CTA renders instead. replace() (not
+  // push) so Back doesn't return to the empty workspace.
+  useEffect(() => {
+    if (activeTab !== 'home' || savedFormulations.length > 0) return;
+    const portfolioConfirmedEmpty =
+      authEmail === undefined ? false
+        : !authUserId ? true
+          : cloudPullSucceeded;
+    if (portfolioConfirmedEmpty) router.replace('/start');
+  }, [activeTab, savedFormulations.length, authEmail, authUserId, cloudPullSucceeded, router]);
   const [dbCategory, setDbCategory] = useState('All');
   const [dbSearch, setDbSearch] = useState('');
   // selectedFood can hold either an industrial SKU, a USDA result, or be null
@@ -3009,6 +3033,25 @@ export default function FormulationWizard() {
       {activeTab === 'home' && (() => {
         // ─── Portfolio stats ───
         const totalFormulas = savedFormulations.length;
+        // First-run spec §5 State-1: never render the empty dashboard. An empty
+        // portfolio either redirects to /start (confirmed-empty, via the effect
+        // above) or — pull still loading / errored — shows ONE CTA, not a dashboard
+        // of empty placeholders.
+        if (totalFormulas === 0) {
+          return (
+            <div className="max-w-xl mx-auto px-6 py-24 text-center">
+              <NautilusMark size={72} />
+              <h2 className="mt-6 text-3xl font-semibold text-gray-800 tracking-tight">Build your first label</h2>
+              <p className="mt-3 text-gray-600">A Supplement Facts panel — correct, cited, and ready to hand a manufacturer.</p>
+              <a
+                href="/start"
+                className="mt-6 inline-block rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
+              >
+                Start building →
+              </a>
+            </div>
+          );
+        }
         const byStatus: Record<string, number> = { draft: 0, 'in-pilot': 0, launched: 0, 'on-hold': 0 };
         savedFormulations.forEach(f => { byStatus[f.status || 'draft']++; });
         const totalVersions = savedFormulations.reduce((s, f) => s + (f.versions?.length || 0), 0);
