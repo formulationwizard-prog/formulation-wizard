@@ -1,0 +1,1832 @@
+{
+  "generatedFor": "2026-06-17",
+  "totalEntries": 367,
+  "totalsBySeverity": {
+    "S1": 0,
+    "S2": 4,
+    "S3": 112,
+    "S4": 57
+  },
+  "categories": [
+    {
+      "category": "Vitamins",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 60,
+      "allergensDocumented": 5,
+      "regulatoryStatusDocumented": 5,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 25,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 1,
+        "S3": 24,
+        "S4": 11
+      }
+    },
+    {
+      "category": "Minerals",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 57,
+      "allergensDocumented": 0,
+      "regulatoryStatusDocumented": 9,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 16,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 2,
+        "S3": 30,
+        "S4": 12
+      }
+    },
+    {
+      "category": "Excipients",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 42,
+      "allergensDocumented": 2,
+      "regulatoryStatusDocumented": 1,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 1,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 15,
+        "S4": 5
+      }
+    },
+    {
+      "category": "Botanicals",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 41,
+      "allergensDocumented": 1,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 5,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 10,
+        "S4": 6
+      }
+    },
+    {
+      "category": "Herbal Extracts",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 32,
+      "allergensDocumented": 2,
+      "regulatoryStatusDocumented": 24,
+      "drugInteractionsDocumented": 1,
+      "provenanceDocumented": 7,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 1,
+        "S4": 6
+      }
+    },
+    {
+      "category": "Amino Acids",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 27,
+      "allergensDocumented": 1,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 11,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 21,
+        "S4": 5
+      }
+    },
+    {
+      "category": "Specialty Compounds",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 27,
+      "allergensDocumented": 6,
+      "regulatoryStatusDocumented": 11,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 10,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 2,
+        "S4": 2
+      }
+    },
+    {
+      "category": "Probiotics",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 19,
+      "allergensDocumented": 10,
+      "regulatoryStatusDocumented": 9,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 7,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 1,
+        "S3": 0,
+        "S4": 2
+      }
+    },
+    {
+      "category": "Fatty Acids",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 17,
+      "allergensDocumented": 7,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 0,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 4,
+        "S4": 3
+      }
+    },
+    {
+      "category": "Antioxidants",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 15,
+      "allergensDocumented": 1,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 7,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 1,
+        "S4": 0
+      }
+    },
+    {
+      "category": "Mushroom Extracts",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 9,
+      "allergensDocumented": 0,
+      "regulatoryStatusDocumented": 5,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 3,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 0,
+        "S4": 2
+      }
+    },
+    {
+      "category": "Prebiotics",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 7,
+      "allergensDocumented": 1,
+      "regulatoryStatusDocumented": 7,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 3,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 2,
+        "S4": 1
+      }
+    },
+    {
+      "category": "Specialty",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 7,
+      "allergensDocumented": 0,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 0,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 1,
+        "S4": 0
+      }
+    },
+    {
+      "category": "Omega-3s",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 5,
+      "allergensDocumented": 3,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 4,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 1,
+        "S4": 1
+      }
+    },
+    {
+      "category": "Enzymes",
+      "onCanonicalTaxonomy": true,
+      "entryCount": 2,
+      "allergensDocumented": 0,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 0,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 0,
+        "S3": 0,
+        "S4": 1
+      }
+    }
+  ],
+  "taxonomyNotes": [
+    "Overlapping categories both present: \"Specialty Compounds\" and \"Specialty\" — §III.15 (legacy — \"treat as synonyms until a deliberate cleanup pass\"). Each renders as a distinct UI category (lib/modes.ts categoriesFromIngredients is additive).",
+    "Overlapping categories both present: \"Herbal Extracts\" and \"Botanicals\" — §III.15 + §III.17 (overlapping botanical taxonomy). Each renders as a distinct UI category (lib/modes.ts categoriesFromIngredients is additive).",
+    "Overlapping categories both present: \"Omega-3s\" and \"Fatty Acids\" — §III.15 + §III.17 (overlapping lipid taxonomy). Each renders as a distinct UI category (lib/modes.ts categoriesFromIngredients is additive)."
+  ],
+  "benchmarks": [
+    {
+      "metric": "Tier-1–4 citation rate",
+      "target": "≥ 90% (§I.6)",
+      "value": null,
+      "unmeasurableReason": "No structured `citation: { authority, source, tier }` field on IndustrialIngredient (§II.8 Gap #1). Cannot be measured until the field lands + is populated."
+    },
+    {
+      "metric": "Confidence-level coverage",
+      "target": "every entry carries §I.4 confidenceLevel",
+      "value": 0,
+      "unmeasurableReason": "No `confidenceLevel` field on IndustrialIngredient (§II.8 Gap #2). Structurally 0%."
+    },
+    {
+      "metric": "Tier (value/premium/specialty) coverage",
+      "target": "every entry carries §III.16 tier",
+      "value": 0,
+      "unmeasurableReason": "No `tier` field on IndustrialIngredient (§II.8). Wave markers currently leak into display names instead."
+    },
+    {
+      "metric": "Provenance coverage",
+      "target": "every load-bearing value traceable (§I.2)",
+      "value": 0.26975476839237056
+    },
+    {
+      "metric": "Canonical-ID coverage (UNII / USP-Latin / GTIN)",
+      "target": "world-class trajectory (verified, never bulk-inferred)",
+      "value": 0,
+      "unmeasurableReason": "No canonical-ID fields on IndustrialIngredient. This is the one genuine ADDITION beyond the Rulebook (trajectory layer); 0% by design until verified assignment begins."
+    }
+  ],
+  "findings": [
+    {
+      "entryName": "Iron Bisglycinate (Ferrochel — 18% Fe, PENDING SPEC VERIFICATION)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S2",
+      "issue": "\"PENDING\" verification marker present — entry is amber-blocked for commercial use until drained.",
+      "ruleCitation": "§25",
+      "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
+    },
+    {
+      "entryName": "Lactobacillus acidophilus NCFM (Danisco — 10B CFU, PENDING POTENCY VERIFICATION)",
+      "category": "Probiotics",
+      "dimension": "naming-discipline",
+      "severity": "S2",
+      "issue": "\"PENDING\" verification marker present — entry is amber-blocked for commercial use until drained.",
+      "ruleCitation": "§25",
+      "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
+    },
+    {
+      "entryName": "Choline L-Threonate (PENDING NDI VERIFICATION)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S2",
+      "issue": "\"PENDING\" verification marker present — entry is amber-blocked for commercial use until drained.",
+      "ruleCitation": "§25",
+      "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
+    },
+    {
+      "entryName": "Strontium Citrate (PENDING NDI VERIFICATION)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S2",
+      "issue": "\"PENDING\" verification marker present — entry is amber-blocked for commercial use until drained.",
+      "ruleCitation": "§25",
+      "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
+    },
+    {
+      "entryName": "Thiamine HCl (USP, Tier-A)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Niacinamide (USP, Tier-A)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "d-Calcium Pantothenate (USP, Tier-A)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Pyridoxine HCl (USP, Tier-A)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Pyridoxal 5-Phosphate (P5P, Tier-A)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Vitamin D3 Cholecalciferol (Vegan, Lichen)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Calcium Carbonate (USP, Limestone)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Calcium Citrate (USP, Tier-A)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Magnesium Oxide (USP, Tier-A)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Magnesium Citrate (USP, Tier-A)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Iron Bisglycinate (Ferrochel, Albion — 20% Fe)",
+      "category": "Minerals",
+      "dimension": "potency-factor",
+      "severity": "S3",
+      "issue": "Name carries a \"%\" loading signal but potencyFactor is absent — review whether this is a carrier-loaded form.",
+      "ruleCitation": "§II.10",
+      "recommendation": "Confirm against the COA whether a potencyFactor applies; document the decision."
+    },
+    {
+      "entryName": "L-Selenomethionine (USP, Pharmaceutical-Grade)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Copper Gluconate (USP, Tier-A)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Copper Gluconate (USP, Tier-A)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Potassium Iodide (USP, Tier-A)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "L-Lysine HCl (USP, Tier-A)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "L-Lysine HCl (USP, Tier-A)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Arginine HCl (USP, Tier-A)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "L-Arginine HCl (USP, Tier-A)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Citrulline Malate 2:1 (Tier-A)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Taurine (USP, Tier-A)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Creatine Monohydrate (Creapure, Tier-A)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Algae Oil DHA/EPA (Vegan, Schizochytrium)",
+      "category": "Omega-3s",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Magnesium Stearate (Vegetable, USP, Tier-A)",
+      "category": "Excipients",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Magnesium Stearate (Vegetable, USP, Tier-A)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Stearic Acid (Vegetable, USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Vitamin A Acetate (Retinyl Acetate, USP)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Retinyl Palmitate (Liquid, 1M IU/g, USP)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Vitamin D3 1M IU/g (Cholecalciferol, USP)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Vitamin D3 Vegan (Lichen-Sourced)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Vitamin D2 (Ergocalciferol, USP)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Thiamine HCl (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Thiamine HCl (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Niacinamide (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Niacinamide (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Nicotinamide Mononucleotide (NMN, USP)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "d-Calcium Pantothenate (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "d-Calcium Pantothenate (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Pyridoxine HCl (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Pyridoxine HCl (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Pyridoxal 5-Phosphate (P5P, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Folic Acid (Synthetic, 97%)",
+      "category": "Vitamins",
+      "dimension": "potency-factor",
+      "severity": "S3",
+      "issue": "Name carries a \"%\" loading signal but potencyFactor is absent — review whether this is a carrier-loaded form.",
+      "ruleCitation": "§II.10",
+      "recommendation": "Confirm against the COA whether a potencyFactor applies; document the decision."
+    },
+    {
+      "entryName": "Cyanocobalamin (B12, USP — Pure Powder, No Carrier)",
+      "category": "Vitamins",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Calcium Citrate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Calcium Citrate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Calcium Lactate (USP)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Calcium Gluconate (USP)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Magnesium Oxide (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Magnesium Oxide (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Magnesium Citrate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Magnesium Citrate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Potassium Chloride (USP, Non-Iodized)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Zinc Gluconate (USP, Commodity Sourcing)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Zinc Picolinate (Premium)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Borderline-marketing qualifier in the display name (carries no verifiable structured-field meaning).",
+      "ruleCitation": "§9a Refinement 2 / AP-09",
+      "recommendation": "Replace with explicit tier framing (Pharmaceutical-Grade / Commodity Sourcing) or a named branded form."
+    },
+    {
+      "entryName": "Zinc Citrate (USP)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Iron Bisglycinate (Ferrochel — 18% Fe, PENDING SPEC VERIFICATION)",
+      "category": "Minerals",
+      "dimension": "potency-factor",
+      "severity": "S3",
+      "issue": "Name carries a \"%\" loading signal but potencyFactor is absent — review whether this is a carrier-loaded form.",
+      "ruleCitation": "§II.10",
+      "recommendation": "Confirm against the COA whether a potencyFactor applies; document the decision."
+    },
+    {
+      "entryName": "Ferrous Sulfate (USP)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Ferrous Fumarate (USP)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Ferrous Gluconate (USP)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Copper Gluconate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Copper Gluconate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Silica (Horsetail Extract, Organic)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Potassium Iodide (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Potassium Iodide (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Leucine (USP)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Isoleucine (USP)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Valine (USP)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Arginine HCl (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "L-Arginine HCl (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Citrulline Malate 2:1 (Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "L-Lysine HCl (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "L-Lysine HCl (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "L-Tyrosine (USP)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Creatine Monohydrate (Creapure, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Taurine (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Taurine (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Glucosamine HCl (USP, Shellfish-Derived)",
+      "category": "Specialty Compounds",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "MSM (Methylsulfonylmethane, USP)",
+      "category": "Specialty",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Papain (Papaya, 2000 USP Units/mg)",
+      "category": "Antioxidants",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Magnesium Stearate (Vegetable, USP, Tier-B)",
+      "category": "Excipients",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
+      "ruleCitation": "§II.9",
+      "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Magnesium Stearate (Vegetable, USP, Tier-B)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Xylitol (USP, Birch-Derived)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Sorbitol (Crystalline, USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Talc (USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Shellac (Confectioner's Glaze, USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Beeswax (USP, White)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Carnauba Wax (T1, USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Glycerin (USP, 99.5%)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Propylene Glycol (USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Polyethylene Glycol 400 (PEG 400, USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Polysorbate 80 (Tween 80, USP)",
+      "category": "Excipients",
+      "dimension": "grade-claim",
+      "severity": "S3",
+      "issue": "Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.",
+      "ruleCitation": "§9a Refinement 1a",
+      "recommendation": "Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling)."
+    },
+    {
+      "entryName": "Turmeric Extract (Organic, 95% Curcumin)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Ashwagandha Root Powder (Organic, KSM-66)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Ginger Root Extract (Organic, Standardized)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Echinacea Extract (Organic, Purpurea)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Elderberry Extract (Organic, Sambucus)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Maca Root Powder (Organic, Gelatinized)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Spirulina Powder (Organic, Hawaiian)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Chlorella Powder (Organic, Cracked Cell Wall)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Lion's Mane Extract (Organic, Dual-Extract)",
+      "category": "Herbal Extracts",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Reishi Extract (Organic, Dual-Extract)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Cordyceps Militaris (Organic, Fruiting Body)",
+      "category": "Botanicals",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "MCT Oil (Organic, C8/C10, Coconut-Sourced)",
+      "category": "Fatty Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Flaxseed Oil (Organic, Cold-Pressed)",
+      "category": "Fatty Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Hemp Seed Oil (Organic, Unrefined)",
+      "category": "Fatty Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Evening Primrose Oil (Organic, GLA)",
+      "category": "Fatty Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Pea Protein Isolate (Organic)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Hemp Protein Powder (Organic, 50% Protein)",
+      "category": "Amino Acids",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Psyllium Husk (Organic)",
+      "category": "Prebiotics",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Inulin (Organic, Chicory Root)",
+      "category": "Prebiotics",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Phosphatidylcholine 30% (Sunflower Lecithin-Derived, Allergen-Free)",
+      "category": "Vitamins",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Spermidine Wheat Germ Extract (spermidineLIFE, Longevity Labs OY, Gluten-Free Certified, ~1% Spermidine)",
+      "category": "Specialty Compounds",
+      "dimension": "naming-discipline",
+      "severity": "S3",
+      "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
+      "ruleCitation": "§II.9 / AP-05",
+      "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "Thiamine HCl (USP, Tier-A)  |  Thiamine HCl (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"thiamine hcl\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Niacinamide (USP, Tier-A)  |  Niacinamide (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"niacinamide\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "d-Calcium Pantothenate (USP, Tier-A)  |  d-Calcium Pantothenate (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"d calcium pantothenate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Pyridoxine HCl (USP, Tier-A)  |  Pyridoxine HCl (USP, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"pyridoxine hcl\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Pyridoxal 5-Phosphate (P5P, Tier-A)  |  Pyridoxal 5-Phosphate (P5P, Tier-B)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"pyridoxal 5 phosphate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Methylcobalamin (Vitamin B12 Active)  |  Methylcobalamin (B12 Active, Commodity Sourcing)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"methylcobalamin\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Vitamin D3 Cholecalciferol (100,000 IU/g on MCC)  |  Vitamin D3 Cholecalciferol (Vegan, Lichen)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"vitamin d3 cholecalciferol\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Vitamin E (d-alpha Tocopheryl Acetate)  |  Vitamin E (d-Alpha Tocopherol, Natural)  |  Vitamin E (d-Mixed Tocopherols, 70%)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "3 entries share normalized base \"vitamin e\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Vitamin K2 MK-7 (Natto, 0.2% on MCC)  |  Vitamin K2 MK-7 (NattoPharma, 2%)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"vitamin k2 mk 7\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Calcium Carbonate (USP, Limestone)  |  Calcium Carbonate (Limestone, Commodity Sourcing)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"calcium carbonate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Calcium Citrate (USP, Tier-A)  |  Calcium Citrate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"calcium citrate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Magnesium Glycinate (Chelated, Albion TRAACS)  |  Magnesium Glycinate (Generic Chelate, Commodity Sourcing)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"magnesium glycinate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Magnesium Oxide (USP, Tier-A)  |  Magnesium Oxide (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"magnesium oxide\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Magnesium Citrate (USP, Tier-A)  |  Magnesium Citrate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"magnesium citrate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Iron Bisglycinate (Ferrochel, Albion — 20% Fe)  |  Iron Bisglycinate (Ferrochel — 18% Fe, PENDING SPEC VERIFICATION)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"iron bisglycinate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Ferrous Sulfate (Dried, USP)  |  Ferrous Sulfate (USP)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"ferrous sulfate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Zinc Picolinate (Standard)  |  Zinc Picolinate (Premium)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"zinc picolinate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Zinc Gluconate (USP, Pharmaceutical-Grade Sourcing)  |  Zinc Gluconate (USP, Commodity Sourcing)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"zinc gluconate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Copper Gluconate (USP, Tier-A)  |  Copper Gluconate (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"copper gluconate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Chromium Picolinate (Standard)  |  Chromium Picolinate (ChromeMate)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"chromium picolinate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Potassium Iodide (USP, Tier-A)  |  Potassium Iodide (USP, Tier-B)",
+      "category": "Minerals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"potassium iodide\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "L-Lysine HCl (USP, Tier-A)  |  L-Lysine HCl (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"l lysine hcl\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "L-Arginine HCl (USP, Tier-A)  |  L-Arginine HCl (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"l arginine hcl\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "L-Citrulline Malate 2:1 (Tier-A)  |  L-Citrulline Malate 2:1 (Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"l citrulline malate 2 1\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Taurine (USP, Tier-A)  |  Taurine (USP, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"taurine\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Creatine Monohydrate (Creapure, Tier-A)  |  Creatine Monohydrate (Creapure, Tier-B)",
+      "category": "Amino Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"creatine monohydrate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Green Tea Extract (98% Polyphenols, 50% EGCG)  |  Green Tea Extract (EGCG 45%, Decaffeinated)",
+      "category": "Herbal Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"green tea extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Ginkgo Biloba Extract (24% Flavone Glycosides, 6% Terpene Lactones)  |  Ginkgo Biloba Extract (24% Flavones, 6% Terpenes)",
+      "category": "Herbal Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"ginkgo biloba extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Milk Thistle Extract (80% Silymarin)  |  Milk Thistle Extract (Silymarin 80%)",
+      "category": "Herbal Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"milk thistle extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Elderberry Extract (4:1, Sambucol Type)  |  Elderberry Extract (Sambucus nigra, 10% Anthocyanins)  |  Elderberry Extract (Organic, Sambucus)",
+      "category": "Herbal Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "3 entries share normalized base \"elderberry extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Lion's Mane Extract (30% Polysaccharides, Fruiting Body)  |  Lion's Mane Extract (Hericium erinaceus, 30% Polysaccharides)  |  Lion's Mane Extract (Organic, Dual-Extract)",
+      "category": "Mushroom Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "3 entries share normalized base \"lion s mane extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Chaga Extract (30% Polysaccharides, 2% Triterpenes)  |  Chaga Extract (Inonotus obliquus, 30% Polysaccharides)",
+      "category": "Mushroom Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"chaga extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Lactobacillus acidophilus NCFM (50 Billion CFU/g)  |  Lactobacillus acidophilus NCFM (Danisco — 10B CFU, PENDING POTENCY VERIFICATION)",
+      "category": "Probiotics",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"lactobacillus acidophilus ncfm\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Multi-Strain Probiotic Blend (10 Strains, 100B CFU/g)  |  Multi-Strain Probiotic Blend (50B CFU, 10-strain)",
+      "category": "Probiotics",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"multi strain probiotic blend\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Digestive Enzyme Blend (Amylase, Protease, Lipase, Cellulase)  |  Digestive Enzyme Blend (Pan-5X)",
+      "category": "Enzymes",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"digestive enzyme blend\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "MSM (Methylsulfonylmethane, OptiMSM)  |  MSM (Methylsulfonylmethane, USP)",
+      "category": "Specialty Compounds",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"msm\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Melatonin (USP, Crystalline)  |  Melatonin (Time-Release Coated Granule, 30% USP)",
+      "category": "Specialty Compounds",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"melatonin\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Krill Oil (Superba, Phospholipid-Bound)  |  Krill Oil (Superba 2, Aker BioMarine)",
+      "category": "Omega-3s",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"krill oil\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Microcrystalline Cellulose (MCC, PH-102)  |  Microcrystalline Cellulose (MCC PH-101, DC)  |  Microcrystalline Cellulose (MCC PH-200, Dry Gran)",
+      "category": "Excipients",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "3 entries share normalized base \"microcrystalline cellulose\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Magnesium Stearate (Vegetable, USP, Tier-A)  |  Magnesium Stearate (Vegetable, USP, Tier-B)",
+      "category": "Excipients",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"magnesium stearate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Silicon Dioxide (Colloidal, Cab-O-Sil)  |  Silicon Dioxide (Cab-O-Sil M5, Fumed)",
+      "category": "Excipients",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"silicon dioxide\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Methylfolate (Metafolin / Calcium L-5-MTHF)  |  Methylfolate (Quatrefolic / Glucosamine L-5-MTHF)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"methylfolate\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Evening Primrose Oil (GLA 10%)  |  Evening Primrose Oil (Organic, GLA)",
+      "category": "Fatty Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"evening primrose oil\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Flaxseed Oil (Cold-Pressed)  |  Flaxseed Oil (Organic, Cold-Pressed)",
+      "category": "Fatty Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"flaxseed oil\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "MCT Oil (C8/C10, Coconut-Sourced)  |  MCT Oil (Organic, C8/C10, Coconut-Sourced)",
+      "category": "Fatty Acids",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"mct oil\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "American Ginseng (Panax quinquefolius, 10% Ginsenosides)  |  American Ginseng (Panax quinquefolius, 5% Ginsenosides)",
+      "category": "Botanicals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"american ginseng\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Echinacea Extract (Echinacea purpurea, 4% Phenolics)  |  Echinacea Extract (Organic, Purpurea)",
+      "category": "Botanicals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"echinacea extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Maca Root Powder (Gelatinized, Peruvian)  |  Maca Root Powder (Organic, Gelatinized)",
+      "category": "Botanicals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"maca root powder\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Bacopa Monnieri (BaCognize, 45% Bacosides)  |  Bacopa monnieri (BaCognize, Verdure, 50% Bacosides)",
+      "category": "Botanicals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"bacopa monnieri\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Reishi Extract (Ganoderma lucidum, 30% Polysaccharides)  |  Reishi Extract (Organic, Dual-Extract)",
+      "category": "Botanicals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"reishi extract\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Inulin (FOS, Chicory Root)  |  Inulin (Organic, Chicory Root)",
+      "category": "Prebiotics",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"inulin\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Hypromellose (HPMC K4M, Dow)  |  Hypromellose (HPMC E5, Coating)",
+      "category": "Excipients",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"hypromellose\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Softgel Shell Base (Gelatin / Glycerin)  |  Softgel Shell Base (Plant-Based, Carrageenan)",
+      "category": "Excipients",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"softgel shell base\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Cordyceps Militaris (Organic, Fruiting Body)  |  Cordyceps militaris (Fruiting Body, 0.3% Adenosine + Cordycepin)",
+      "category": "Botanicals",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"cordyceps militaris\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Phosphatidylcholine 30% (Soy Lecithin-Derived)  |  Phosphatidylcholine 30% (Sunflower Lecithin-Derived, Allergen-Free)",
+      "category": "Vitamins",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"phosphatidylcholine 30\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Ashwagandha (KSM-66, Ixoreal, 5% Withanolides)  |  Ashwagandha (Sensoril, Natreon, 10% Withanolide Glycosides)",
+      "category": "Herbal Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"ashwagandha\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    },
+    {
+      "entryName": "Curcumin 95% (Commodity Tier, Generic)  |  Curcumin 95% (Sabinsa C3 Complex, Branded)",
+      "category": "Herbal Extracts",
+      "dimension": "duplicate-sku",
+      "severity": "S4",
+      "issue": "2 entries share normalized base \"curcumin 95\" — confirm intentional value/premium pairing (§16) vs. consolidation candidate.",
+      "ruleCitation": "§16 / §23 saturation test",
+      "recommendation": "If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue."
+    }
+  ]
+}
