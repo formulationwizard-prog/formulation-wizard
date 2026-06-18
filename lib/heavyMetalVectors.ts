@@ -42,6 +42,12 @@ const BROAD_METALS: HeavyMetal[] = ['Pb', 'As', 'Cd'];
 //   • New vector class for organ/glandular powders (desiccated/bovine liver → Cd
 //     from environmental exposure) — Nate's call on adding an 'organ-derived' class
 //     (likely not in BROAD_VECTOR_CATEGORIES today).
+//   • Kelp/algae/seaweed currently flag Hg via the marine signal; they are
+//     primarily As (+ iodine) accumulators, not Hg — Nate to confirm splitting
+//     them off the Hg signal.
+//   • Shark cartilage / other connective-tissue forms: Hg profile is
+//     species-dependent; the collagen/gelatin LOW_HG_CONNECTIVE exception may
+//     need widening or species qualification.
 /** Source-level signals (name + subIngredients), independent of category.
  *  Lowercased substring match against the entry's name + subIngredients. */
 const SOURCE_SIGNALS: { metal: HeavyMetal; patterns: RegExp }[] = [
@@ -49,6 +55,12 @@ const SOURCE_SIGNALS: { metal: HeavyMetal; patterns: RegExp }[] = [
   { metal: 'As', patterns: /\b(rice|kelp|seaweed|hijiki)\b/i },
   { metal: 'Cd', patterns: /\b(cocoa|cacao|chocolate|spinach|leafy|sunflower|flax|kelp)\b/i },
 ];
+
+/** Connective-tissue-derived forms (collagen/gelatin) are LOW-Hg even from fish
+ *  — Hg bioaccumulates in muscle, not the skin/scale the collagen is sourced
+ *  from. Suppresses the marine/fish → Hg flag. (Bench-test 2026-06-17: marine
+ *  collagen was a Hg false-positive.) */
+const LOW_HG_CONNECTIVE = /\b(collagen|gelatin|gelatine)\b/i;
 
 function add(set: Set<HeavyMetal>, metals: HeavyMetal[]): void {
   for (const m of metals) set.add(m);
@@ -66,6 +78,8 @@ export function classifyHeavyMetalVectors(ing: Pick<IndustrialIngredient, 'name'
   for (const { metal, patterns } of SOURCE_SIGNALS) {
     if (patterns.test(haystack)) metals.add(metal);
   }
+  // connective-tissue forms (collagen/gelatin) are low-Hg even from fish
+  if (LOW_HG_CONNECTIVE.test(haystack)) metals.delete('Hg');
   // canonical order Pb, As, Cd, Hg
   const order: HeavyMetal[] = ['Pb', 'As', 'Cd', 'Hg'];
   return order.filter((m) => metals.has(m));

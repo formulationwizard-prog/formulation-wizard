@@ -16,11 +16,13 @@ import { auditCatalog, renderAuditMarkdown } from '../catalogAudit';
 const AUDIT_DATE = '2026-06-17';
 
 // Severity ratchet — the audit may only get BETTER. Bumping a ceiling DOWN is
-// the goal of the curation phase; a regression UP must fail CI. Baselined from
-// the first real run on 2026-06-17 (367 entries): S1 0 · S2 4 · S3 112 · S4 57.
-// S1 is hard-floored at 0 (carrier-loaded silent-zero is harm-critical). S4
-// (intentional two-wave dup clusters per §16) is informational — not ratcheted.
-const RATCHET = { S1: 0, S2: 4, S3: 112 };
+// the goal of the curation phase; a regression UP must fail CI. Re-baselined
+// 2026-06-17 after the grade-claim precision split (§9a R1a: monograph-exists-
+// but-not-recorded → S4, genuine no-monograph → S3): 367 entries, S1 0 · S2 4 ·
+// S3 62 · S4 107. S1 hard-floored at 0 (carrier-loaded silent-zero is harm-
+// critical). S4 (dup clusters + grade-claim recording-gaps) is informational —
+// not ratcheted.
+const RATCHET = { S1: 0, S2: 4, S3: 62 };
 
 describe('catalog audit (Phase 1 — coverage & conformance)', () => {
   const report = auditCatalog(SUPPLEMENT_INGREDIENTS, PROVENANCE_BY_NAME, AUDIT_DATE);

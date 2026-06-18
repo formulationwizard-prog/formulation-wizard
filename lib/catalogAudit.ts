@@ -23,6 +23,7 @@
 // `npm test` path, so it rides catalog PRs as the Rulebook intends.
 // ============================================================
 import type { IndustrialIngredient, Provenance } from '../types';
+import { assessHeavyMetalVectors } from './heavyMetalVectors';
 
 // ─── §III.15 canonical taxonomy (15 categories incl. Excipients) ───────────
 export const CANONICAL_CATEGORIES = [
@@ -69,6 +70,7 @@ export interface CategoryCoverage {
   drugInteractionsDocumented: number;
   // Provenance (the supplementProvenance.ts layer).
   provenanceDocumented: number;
+  heavyMetalVectorEntries: number; // §I.5a classifier-flagged (metals.length > 0)
   findingsBySeverity: Record<Severity, number>;
 }
 
@@ -79,8 +81,9 @@ export interface Benchmark {
   target: string;
   /** Measured value (0–1 rate, or absolute), or null when unmeasurable. */
   value: number | null;
-  /** When null, why it can't be measured against the current schema. */
-  unmeasurableReason?: string;
+  /** Free-text note — why it's unmeasurable, or the population status now that
+   *  the enforcing field exists. */
+  note?: string;
 }
 
 export interface AuditReport {
@@ -104,6 +107,12 @@ const CLASS3_CLAIM = /\b(Vegan|Non-?GMO|Organic|Gluten-?Free|Allergen-?Free|Kosh
 const MARKETING_TOKEN = /\b(Premium|Best|Super(?!oxide)|Advanced|Ultra|Pharma Grade)\b/;
 /** §9a Refinement 1a — pharmacopeial grade claim; must trace to a monograph. */
 const PHARMA_SUFFIX = /\(([^)]*\b)?(USP|NF|FCC|EP)\b([^)]*)?\)/;
+/** §9a Refinement 1a — compounds with NO compendial monograph for the exact form
+ *  (the genuine truth-in-labeling defect). A suffix-but-no-recorded-reference on
+ *  anything else is a data-recording gap (a monograph very likely exists), NOT a
+ *  defect — bench-test 2026-06-17 found ~90% of grade-claim flags were the latter
+ *  (common salts/vitamins: Calcium Carbonate, Magnesium Oxide, Ferrous Sulfate…). */
+const KNOWN_NO_MONOGRAPH = /\b(picolinate|alpha-?lipoic|quercetin|citrulline\s+malate|nicotinamide\s+mononucleotide|NMN|carnitine[^)]*tartrate|glucosamine\s+sulfate[^)]*2kcl)\b/i;
 /** Unambiguous carrier-loaded forms (§II.10) — IU/g beadlets, "on <carrier>". */
 const CARRIER_SIGNAL = /\bIU\/g\b|\bon (MCC|Mannitol|Starch|Maltodextrin|Cellulose|Silica|Carrier)\b/i;
 /** Weaker percent signal — only meaningful for Vitamins/Minerals (in Herbal/
@@ -145,6 +154,7 @@ export function auditCatalog(
   const findings: Finding[] = [];
   const byCategory = new Map<string, CategoryCoverage>();
   const baseGroups = new Map<string, string[]>();
+  let hmVectors = 0, hmOverride = 0, hmClean = 0;
 
   const getCat = (category: string): CategoryCoverage => {
     let c = byCategory.get(category);
@@ -157,6 +167,7 @@ export function auditCatalog(
         regulatoryStatusDocumented: 0,
         drugInteractionsDocumented: 0,
         provenanceDocumented: 0,
+        heavyMetalVectorEntries: 0,
         findingsBySeverity: emptySeverityRecord(),
       };
       byCategory.set(category, c);
@@ -179,6 +190,10 @@ export function auditCatalog(
     if (ing.regulatoryStatus) cat.regulatoryStatusDocumented++;
     if (ing.drugInteractions && ing.drugInteractions.length > 0) cat.drugInteractionsDocumented++;
     if (prov) cat.provenanceDocumented++;
+    const hm = assessHeavyMetalVectors(ing);
+    if (hm.metals.length > 0) { cat.heavyMetalVectorEntries++; hmVectors++; }
+    if (hm.basis === 'override') hmOverride++;
+    else if (hm.basis === 'override-verified-clean') hmClean++;
 
     // duplicate clustering (§16 two-wave dup is intentional, but surface it)
     const base = normalizeBase(ing.name);
@@ -231,11 +246,17 @@ export function auditCatalog(
     }
     // grade-claim substantiation (§9a Refinement 1a): suffix present, no monograph trace
     if (PHARMA_SUFFIX.test(ing.name) && !ing.pharmacopeialReference && !hasRegulatoryGradeProvenance(prov)) {
+      const noMonograph = KNOWN_NO_MONOGRAPH.test(ing.name);
       add({
-        entryName: ing.name, category: ing.category, dimension: 'grade-claim', severity: 'S3',
-        issue: `Pharmacopeial grade suffix (USP/NF/FCC/EP) with no pharmacopeialReference and no regulatory-authority provenance — unsubstantiated grade claim.`,
+        entryName: ing.name, category: ing.category, dimension: 'grade-claim',
+        severity: noMonograph ? 'S3' : 'S4',
+        issue: noMonograph
+          ? `Pharmacopeial grade suffix on a compound with NO compendial monograph for the exact form — unsubstantiated grade claim (genuine 21 CFR truth-in-labeling defect).`
+          : `Pharmacopeial grade suffix not backed by a recorded monograph. A compendial monograph very likely EXISTS for this compound (common salt/vitamin) — this is a data-recording gap (populate pharmacopeialReference), not a truth-in-labeling defect. (Bench-test 2026-06-17: ~90% of grade-claim flags are this case.)`,
         ruleCitation: '§9a Refinement 1a',
-        recommendation: `Cite a real monograph for the exact compound, or drop/re-grade the suffix (21 CFR truth-in-labeling).`,
+        recommendation: noMonograph
+          ? `Drop or re-grade the suffix — no monograph covers this exact compound (21 CFR truth-in-labeling).`
+          : `Record the compendial monograph in pharmacopeialReference to substantiate the grade claim.`,
       });
     }
 
@@ -281,36 +302,47 @@ export function auditCatalog(
 
   // ── §I.6 benchmarks (honest measurability) ──
   const total = ingredients.length;
+  const rate = (n: number) => (total === 0 ? null : n / total);
   const withProvenance = ingredients.filter((i) => provenanceByName[i.name]).length;
+  const withConfidence = ingredients.filter((i) => i.confidenceLevel != null).length;
+  const withTier = ingredients.filter((i) => i.tier != null).length;
+  const withCitation14 = ingredients.filter((i) => i.citation?.some((c) => c.tier >= 1 && c.tier <= 4)).length;
+  const withCanonicalId = ingredients.filter((i) => i.canonicalIdUnii || i.canonicalIdUspLatin || i.canonicalIdGtin).length;
   const benchmarks: Benchmark[] = [
     {
       metric: 'Tier-1–4 citation rate',
       target: '≥ 90% (§I.6)',
-      value: null,
-      unmeasurableReason: 'No structured `citation: { authority, source, tier }` field on IndustrialIngredient (§II.8 Gap #1). Cannot be measured until the field lands + is populated.',
+      value: rate(withCitation14),
+      note: 'Field landed 2026-06-17 (efa54e1); population is the gated curation phase, never bulk.',
     },
     {
       metric: 'Confidence-level coverage',
       target: 'every entry carries §I.4 confidenceLevel',
-      value: 0,
-      unmeasurableReason: 'No `confidenceLevel` field on IndustrialIngredient (§II.8 Gap #2). Structurally 0%.',
+      value: rate(withConfidence),
+      note: 'Field present; population is the gated curation phase.',
     },
     {
       metric: 'Tier (value/premium/specialty) coverage',
       target: 'every entry carries §III.16 tier',
-      value: 0,
-      unmeasurableReason: 'No `tier` field on IndustrialIngredient (§II.8). Wave markers currently leak into display names instead.',
+      value: rate(withTier),
+      note: 'Field present; the tier-migration curation wave absorbs the legacy "Tier-A/B" name leaks.',
     },
     {
       metric: 'Provenance coverage',
       target: 'every load-bearing value traceable (§I.2)',
-      value: total === 0 ? null : withProvenance / total,
+      value: rate(withProvenance),
     },
     {
       metric: 'Canonical-ID coverage (UNII / USP-Latin / GTIN)',
       target: 'world-class trajectory (verified, never bulk-inferred)',
-      value: 0,
-      unmeasurableReason: 'No canonical-ID fields on IndustrialIngredient. This is the one genuine ADDITION beyond the Rulebook (trajectory layer); 0% by design until verified assignment begins.',
+      value: rate(withCanonicalId),
+      note: 'Fields present; verified assignment is deliberate (Nate-gated for botanical USP-Latin), never bulk.',
+    },
+    {
+      metric: 'Heavy-metals vectors flagged (§I.5a)',
+      target: 'class-level flag (flag-not-certify); finished product COA-tested to USP <232>',
+      value: rate(hmVectors),
+      note: `${hmVectors} entries classifier-flagged (lib/heavyMetalVectors.ts); ${hmClean} COA-verified-clean, ${hmOverride} explicit override. Flag, not certify.`,
     },
   ];
 
@@ -358,7 +390,7 @@ export function renderAuditMarkdown(report: AuditReport): string {
   L.push('');
   L.push(`- **${report.totalEntries}** entries audited across **${report.categories.length}** category strings.`);
   L.push(`- Findings by severity: **S1 ${sev.S1}** · S2 ${sev.S2} · S3 ${sev.S3} · S4 ${sev.S4}.`);
-  L.push(`- **The headline gap is execution, not specification.** The world-class bar is already written into the Rulebook (§I.4 confidence, §I.5 harm-critical floor, §I.6 benchmarks, §II.8 schema). The enforcing *fields* are absent from \`types/index.ts\`, so several benchmarks are **not yet measurable** — see below. Honesty-first: a missing field reports as \`null\` / structurally-0, never as fabricated coverage.`);
+  L.push(`- **The headline gap is execution, not specification.** The world-class bar is already in the Rulebook (§I.4 confidence, §I.5 floor, §I.6 benchmarks, §II.8 schema), and as of 2026-06-17 (\`efa54e1\`) the enforcing *fields* now exist on \`IndustrialIngredient\`. The benchmarks below have flipped from *unmeasurable* to **measurable, ~0% populated** — population is the gated curation phase (verified, never bulk). Honesty-first: an unpopulated field reports its true 0%, never fabricated coverage.`);
   L.push('');
   for (const n of report.taxonomyNotes) L.push(`- ⚠️ ${n}`);
   L.push('');
@@ -368,20 +400,21 @@ export function renderAuditMarkdown(report: AuditReport): string {
   L.push(`|---|---|---|---|`);
   for (const b of report.benchmarks) {
     const v = b.value == null ? '— (unmeasurable)' : b.value <= 1 ? `${(b.value * 100).toFixed(0)}%` : `${b.value}`;
-    L.push(`| ${b.metric} | ${b.target} | ${v} | ${b.unmeasurableReason ?? ''} |`);
+    L.push(`| ${b.metric} | ${b.target} | ${v} | ${b.note ?? ''} |`);
   }
   L.push('');
   L.push(`## Coverage matrix (category × dimension)`);
   L.push('');
   L.push(`Coverage = count of entries with the field **documented**. Empty/absent harm-critical fields are UNDOCUMENTED per §I.5 — not "safe."`);
   L.push('');
-  L.push(`| Category | On taxonomy | Entries | Allergens | Reg-status | Drug-interactions | Provenance | S1 | S2 | S3 | S4 |`);
-  L.push(`|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|`);
+  L.push(`| Category | On taxonomy | Entries | Allergens | Reg-status | Drug-interactions | Provenance | HM-vec | S1 | S2 | S3 | S4 |`);
+  L.push(`|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|`);
   for (const c of report.categories) {
     const pct = (n: number) => `${n}/${c.entryCount}`;
     L.push(
       `| ${c.category} | ${c.onCanonicalTaxonomy ? '✓' : '⚠️ off'} | ${c.entryCount} | ` +
       `${pct(c.allergensDocumented)} | ${pct(c.regulatoryStatusDocumented)} | ${pct(c.drugInteractionsDocumented)} | ${pct(c.provenanceDocumented)} | ` +
+      `${c.heavyMetalVectorEntries} | ` +
       `${c.findingsBySeverity.S1} | ${c.findingsBySeverity.S2} | ${c.findingsBySeverity.S3} | ${c.findingsBySeverity.S4} |`,
     );
   }
