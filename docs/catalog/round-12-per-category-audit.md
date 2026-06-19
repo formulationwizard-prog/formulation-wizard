@@ -9,7 +9,7 @@
 
 - **367** entries audited across **16** category strings.
 - Conformance findings (entry defects): **S1 0** · S2 4 · S3 63 · S4 107.
-- Matchability gaps (standard-stack ingredients that don't resolve to the catalog): **30** — a coverage backlog, not entry defects; see the §I.6/§IV.21 resolution benchmark below.
+- Matchability gaps (standard-stack ingredients that don't resolve to the catalog): **29** — a coverage backlog, not entry defects; see the §I.6/§IV.21 resolution benchmark below.
 - **The headline gap is execution, not specification.** The world-class bar is already in the Rulebook (§I.4 confidence, §I.5 floor, §I.6 benchmarks, §II.8 schema), and as of 2026-06-17 (`efa54e1`) the enforcing *fields* now exist on `IndustrialIngredient`. The benchmarks below have flipped from *unmeasurable* to **measurable, ~0% populated** — population is the gated curation phase (verified, never bulk). Honesty-first: an unpopulated field reports its true 0%, never fabricated coverage.
 
 - ⚠️ Overlapping categories both present: "Specialty Compounds" and "Specialty" — §III.15 (legacy — "treat as synonyms until a deliberate cleanup pass"). Each renders as a distinct UI category (lib/modes.ts categoriesFromIngredients is additive).
@@ -27,7 +27,7 @@
 | Canonical-ID coverage (UNII / USP-Latin / GTIN) | world-class trajectory (verified, never bulk-inferred) | 0% | Fields present; verified assignment is deliberate (Nate-gated for botanical USP-Latin), never bulk. |
 | Heavy-metals vectors flagged (§I.5a) | class-level flag (flag-not-certify); finished product COA-tested to USP <232> | 41% | 152 entries classifier-flagged (lib/heavyMetalVectors.ts); 0 COA-verified-clean, 0 explicit override. Flag, not certify. |
 | Test-reference coverage (proxy for §VI) | 100% (§VI: bulk-paste + SFP + safety test per entry) | 12% | PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller. |
-| Stack bulk-paste resolution (§I.6/§IV.21 proxy) | ≥ 95% of standard-stack ingredients resolve (tier ≤ 2) | 66% | 77 resolved (tier ≤2) / 9 need-confirm (tier 3) / 30 unmatched (tier 4) of 116 unique standard-stack ingredients. Non-circular proxy (natural names, not SKU strings); NOT the full §IV.21 competitor-label list (needs external SKUs). |
+| Stack bulk-paste resolution (§I.6/§IV.21 proxy) | ≥ 95% of standard-stack ingredients resolve (tier ≤ 2) | 67% | 78 resolved (tier ≤2) / 9 need-confirm (tier 3) / 29 unmatched (tier 4) of 116 unique standard-stack ingredients. Non-circular proxy (natural names, not SKU strings); NOT the full §IV.21 competitor-label list (needs external SKUs). |
 
 ## Coverage matrix (category × dimension)
 
@@ -50,11 +50,11 @@ Coverage = count of entries with the field **documented**. Empty/absent harm-cri
 | Specialty | ✓ | 7 | 0/7 | 0/7 | 0/7 | 0/7 | 0 | 0 | 0 | 0 | 1 |
 | Omega-3s | ✓ | 5 | 3/5 | 0/5 | 0/5 | 4/5 | 5 | 0 | 0 | 1 | 1 |
 | Enzymes | ✓ | 2 | 0/2 | 0/2 | 0/2 | 0/2 | 0 | 0 | 0 | 0 | 1 |
-| __stack__ | ⚠️ off | 0 | 0/0 | 0/0 | 0/0 | 0/0 | 0 | 0 | 12 | 18 | 0 |
+| __stack__ | ⚠️ off | 0 | 0/0 | 0/0 | 0/0 | 0/0 | 0 | 0 | 11 | 18 | 0 |
 
 ## Findings (severity-ranked)
 
-### S2 (16)
+### S2 (15)
 
 - **[naming-discipline] Iron Bisglycinate (Ferrochel — 18% Fe, PENDING SPEC VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
 - **[naming-discipline] Lactobacillus acidophilus NCFM (Danisco — 10B CFU, PENDING POTENCY VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
@@ -66,7 +66,6 @@ Coverage = count of entries with the field **documented**. Empty/absent harm-cri
 - **[matchability] BCAAs** — Standard-stack must-have "BCAAs" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "BCAAs" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
 - **[matchability] Electrolytes** — Standard-stack must-have "Electrolytes" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "Electrolytes" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
 - **[matchability] EPA/DHA** — Standard-stack must-have "EPA/DHA" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "EPA/DHA" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
-- **[matchability] NAC** — Standard-stack must-have "NAC" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "NAC" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
 - **[matchability] Probiotic Multi-Strain** — Standard-stack must-have "Probiotic Multi-Strain" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "Probiotic Multi-Strain" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
 - **[matchability] Berberine** — Standard-stack must-have "Berberine" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "Berberine" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
 - **[matchability] Cinnamon** — Standard-stack must-have "Cinnamon" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "Cinnamon" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.

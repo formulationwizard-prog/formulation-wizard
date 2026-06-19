@@ -3,7 +3,7 @@
   "totalEntries": 367,
   "totalsBySeverity": {
     "S1": 0,
-    "S2": 16,
+    "S2": 15,
     "S3": 81,
     "S4": 107
   },
@@ -259,7 +259,7 @@
       "heavyMetalVectorEntries": 0,
       "findingsBySeverity": {
         "S1": 0,
-        "S2": 12,
+        "S2": 11,
         "S3": 18,
         "S4": 0
       }
@@ -315,8 +315,8 @@
     {
       "metric": "Stack bulk-paste resolution (§I.6/§IV.21 proxy)",
       "target": "≥ 95% of standard-stack ingredients resolve (tier ≤ 2)",
-      "value": 0.6637931034482759,
-      "note": "77 resolved (tier ≤2) / 9 need-confirm (tier 3) / 30 unmatched (tier 4) of 116 unique standard-stack ingredients. Non-circular proxy (natural names, not SKU strings); NOT the full §IV.21 competitor-label list (needs external SKUs)."
+      "value": 0.6724137931034483,
+      "note": "78 resolved (tier ≤2) / 9 need-confirm (tier 3) / 29 unmatched (tier 4) of 116 unique standard-stack ingredients. Non-circular proxy (natural names, not SKU strings); NOT the full §IV.21 competitor-label list (needs external SKUs)."
     }
   ],
   "findings": [
@@ -409,15 +409,6 @@
       "issue": "Standard-stack must-have \"EPA/DHA\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
       "ruleCitation": "§I.6 / §IV.21",
       "recommendation": "Add \"EPA/DHA\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
-    },
-    {
-      "entryName": "NAC",
-      "category": "__stack__",
-      "dimension": "matchability",
-      "severity": "S2",
-      "issue": "Standard-stack must-have \"NAC\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
-      "ruleCitation": "§I.6 / §IV.21",
-      "recommendation": "Add \"NAC\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
     },
     {
       "entryName": "Probiotic Multi-Strain",
