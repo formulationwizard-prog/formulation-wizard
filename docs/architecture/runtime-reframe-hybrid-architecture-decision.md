@@ -208,6 +208,40 @@ External readers of this document do not need access to the CC harness memory to
 
 ---
 
+## 11. Step-1-landed update + the promotion-path gate (2026-06-18)
+
+This section updates §2 and §4 for a state change since 2026-05-21. **Round 12 Step 1 (the universal-required schema fields) LANDED 2026-06-18** (`efa54e1`), and the **§II.8 new-entry gate is now ACTIVE** (marker `docs/catalog/round-12-schema-migration-step-1-complete.md` + the catalog-entry-validator "Step-1-HAS-landed enforcement" clause). The §4 "partial runtime authoring against pre-Step-1 schema" framing is **superseded for new entries**: a new catalog entry — build-time OR runtime — must now carry the universal-required fields (`confidenceLevel`, `tier`, structured `citation`, `regulatoryStatus`, `allergensInvestigated`/`allergensFound`) with REAL values, or it is PUSHBACK-ENTRY (blocking).
+
+### Three doors, one doctrine (the intake/promotion model)
+
+Material data enters through three distinct doors, each governed differently (established via the 48-ingredient-operator analysis, operator + Opus + CC, 2026-06-18):
+
+1. **Catalog authoring (shared library)** — entries added to `lib/data/supplements.ts`, whether by humans OR by **agentic catalog work**. Gated at authoring time by the validator + §II.8 (now active). *Verified, or it doesn't get in.* **Agentic adds get NO shortcut** — the gate is origin-blind.
+2. **User runtime input (private formulation)** — an operator enters a custom ingredient in their OWN formulation. NOT catalog-gated (it never touches the shared catalog). Governed at RENDER time by the honest-engine: empty harm-critical fields → UNDOCUMENTED (never VERIFIED-SAFE); confidence rendered honestly; SFP / safety / PA-packet surface every gap. Different layer, same doctrine.
+3. **The promotion bridge (private → shared)** — the future runtime-long-tail path (§2): an operator's runtime-entered material gets PROMOTED into the shared catalog.
+
+### LOCKED requirement for the promotion bridge (design constraint)
+
+**A user-promoted catalog entry must pass the §II.8 gate fully, the same as an agentic add — no shortcut bypass just because the entry originated at runtime.** The promotion act ITSELF must produce verified provenance (source / citation-tier / confidence) BEFORE the gate accepts it. The promotion path is the moment data crosses from "operator's private formulation" to "shared library"; that crossing must satisfy the world-class bar **fully, not partially.** A runtime origin is not an exemption. (This makes §2 step 4's "validator gates the runtime entry" the FULL §II.8 gate now, not just the §II.9a naming subset that was enforceable pre-Step-1.)
+
+### Verified build-status of the intake paths (2026-06-18 code-grounded check)
+
+To prevent overclaiming what exists, a code-grounded status of the four-path intake model:
+
+- **Catalog match (bulk-paste + search):** ✅ BUILT (`lib/parseFormula.ts`; unmatched rows surfaced/counted; catalog provenance popover renders for matches).
+- **Free-text manual entry:** ✅ BUILT (`addIngredient`; name/qty/unit; persists as free-text with the formulation). A 48-ingredient operator CAN enter all 48 today, with honest-engine UNDOCUMENTED rendering on the unknowns.
+- **COA upload + agentic extraction (F3 Tier 1):** ❌ NOT BUILT — design brief only (`docs/agents/f3-tier-1-supplier-spec-scraping-engineering-brief-2026-05-23.md`); in-app "upload" references are future-tense placeholders.
+- **Spec-sheet attachment UI:** ❌ NOT BUILT.
+- **Structured self-attestation (supplier / claimed-allergens / tier capture):** ❌ NOT BUILT — only raw free-text exists; no per-custom-material provenance capture.
+- **Material entity (workspace-private mini-catalog w/ provenance):** ❌ NOT WIRED — laid in `0003_lifecycle_spine.sql` (local-only, NOT prod-applied), not connected to the workspace UI. Provenance render today is catalog-only (`PROVENANCE_BY_NAME`), not per-operator-material.
+
+**Net:** today the operator gets catalog matches + honest free-text rows; the VERIFIED-intake machinery (COA/spec/structured-attest + per-material provenance + Material wiring) is the gap — F3 Tier 1 + provenance-capture UI + Material wiring, queued/design. The honest-engine covers the gap at render time; it does not yet CAPTURE verified provenance per custom material.
+
+### Future product signal (not a commitment)
+Materials operators repeatedly self-attest across many workspaces are catalog-add candidates anchored to ACTUAL demand (vs. speculative brainstorm). The catalog audit could surface "high-frequency workspace materials absent from catalog" as a Phase-2/3 add signal — but each such add still crosses the promotion bridge above (full §II.8 gate).
+
+---
+
 ## Closing note
 
 The runtime-reframe-as-hybrid architectural decision is the structural answer to a specific class of catalog-completeness vs. catalog-quality trade-offs surfaced during Round 12 planning. The hybrid preserves what build-time architecture does well (catalog discipline, search-browse coverage, rulebook-maturation surfaces) while capturing the runtime architecture's contribution (Phase 4 collapse, point-of-use authoring, catalog-as-growing-organism framing).
