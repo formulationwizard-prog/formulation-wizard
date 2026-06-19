@@ -18,12 +18,11 @@ const AUDIT_DATE = '2026-06-17';
 
 // Severity ratchet — the audit may only get BETTER. Bumping a ceiling DOWN is
 // the goal of the curation phase; a regression UP must fail CI. Re-baselined
-// 2026-06-17 after the grade-claim precision split (§9a R1a: monograph-exists-
-// but-not-recorded → S4, genuine no-monograph → S3): 367 entries, S1 0 · S2 4 ·
-// S3 62 · S4 107. S1 hard-floored at 0 (carrier-loaded silent-zero is harm-
-// critical). S4 (dup clusters + grade-claim recording-gaps) is informational —
-// not ratcheted.
-const RATCHET = { S1: 0, S2: 4, S3: 62 };
+// 2026-06-18: grade-claim precision split (§9a R1a) put S3 at 62, + 1 genuine
+// §II.13 consistency finding (calcium pantothenate Tier-A 85000 vs Tier-B 90000,
+// pure same-chemical pair) → S3 63. S1 hard-floored at 0 (carrier-loaded silent-
+// zero is harm-critical). S4 (dup clusters + grade-claim recording-gaps) — not ratcheted.
+const RATCHET = { S1: 0, S2: 4, S3: 63 };
 
 describe('catalog audit (Phase 1 — coverage & conformance)', () => {
   const report = auditCatalog(SUPPLEMENT_INGREDIENTS, PROVENANCE_BY_NAME, AUDIT_DATE);
@@ -106,6 +105,36 @@ describe('synonym-collision check (§II.8a)', () => {
     const f = synFindings([
       mkIng({ name: 'A', synonyms: ['alpha'] }),
       mkIng({ name: 'B', synonyms: ['beta'] }),
+    ]);
+    expect(f).toHaveLength(0);
+  });
+});
+
+describe('§II.13 same-compound consistency check', () => {
+  const consFindings = (ings: IndustrialIngredient[]) =>
+    auditCatalog(ings, {}, '2026-06-18').findings.filter((f) => f.dimension === 'consistency');
+
+  it('flags two PURE same-chemical entries with conflicting nutrition → S3 (the real pantothenate bug)', () => {
+    const f = consFindings([
+      mkIng({ name: 'X (Tier-A)', subIngredients: ['Calcium Pantothenate'], nutrition: { calcium: 85000 } }),
+      mkIng({ name: 'X (Tier-B)', subIngredients: ['Calcium Pantothenate'], nutrition: { calcium: 90000 } }),
+    ]);
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe('S3');
+  });
+
+  it('does NOT flag a multi-component complex sharing a first sub-ingredient (CCM false-positive guard)', () => {
+    const f = consFindings([
+      mkIng({ name: 'Calcium Citrate', subIngredients: ['Calcium Citrate'], nutrition: { calcium: 210000 } }),
+      mkIng({ name: 'Calcium Citrate Malate', subIngredients: ['Calcium Citrate', 'Calcium Malate'], nutrition: { calcium: 240000 } }),
+    ]);
+    expect(f).toHaveLength(0);
+  });
+
+  it('does NOT flag the same chemical with matching nutrition', () => {
+    const f = consFindings([
+      mkIng({ name: 'Y (A)', subIngredients: ['Calcium Citrate'], nutrition: { calcium: 210000 } }),
+      mkIng({ name: 'Y (B)', subIngredients: ['Calcium Citrate'], nutrition: { calcium: 210000 } }),
     ]);
     expect(f).toHaveLength(0);
   });

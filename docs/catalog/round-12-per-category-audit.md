@@ -8,7 +8,7 @@
 ## Executive summary
 
 - **367** entries audited across **15** category strings.
-- Findings by severity: **S1 0** · S2 4 · S3 62 · S4 107.
+- Findings by severity: **S1 0** · S2 4 · S3 63 · S4 107.
 - **The headline gap is execution, not specification.** The world-class bar is already in the Rulebook (§I.4 confidence, §I.5 floor, §I.6 benchmarks, §II.8 schema), and as of 2026-06-17 (`efa54e1`) the enforcing *fields* now exist on `IndustrialIngredient`. The benchmarks below have flipped from *unmeasurable* to **measurable, ~0% populated** — population is the gated curation phase (verified, never bulk). Honesty-first: an unpopulated field reports its true 0%, never fabricated coverage.
 
 - ⚠️ Overlapping categories both present: "Specialty Compounds" and "Specialty" — §III.15 (legacy — "treat as synonyms until a deliberate cleanup pass"). Each renders as a distinct UI category (lib/modes.ts categoriesFromIngredients is additive).
@@ -32,7 +32,7 @@ Coverage = count of entries with the field **documented**. Empty/absent harm-cri
 
 | Category | On taxonomy | Entries | Allergens | Reg-status | Drug-interactions | Provenance | HM-vec | S1 | S2 | S3 | S4 |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| Vitamins | ✓ | 60 | 5/60 | 5/60 | 0/60 | 25/60 | 1 | 0 | 1 | 15 | 20 |
+| Vitamins | ✓ | 60 | 5/60 | 5/60 | 0/60 | 25/60 | 1 | 0 | 1 | 16 | 20 |
 | Minerals | ✓ | 57 | 0/57 | 9/57 | 0/57 | 16/57 | 57 | 0 | 2 | 14 | 28 |
 | Excipients | ✓ | 42 | 2/42 | 1/42 | 0/42 | 1/42 | 2 | 0 | 0 | 2 | 18 |
 | Botanicals | ✓ | 41 | 1/41 | 0/41 | 0/41 | 5/41 | 41 | 0 | 0 | 10 | 6 |
@@ -57,7 +57,7 @@ Coverage = count of entries with the field **documented**. Empty/absent harm-cri
 - **[naming-discipline] Choline L-Threonate (PENDING NDI VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
 - **[naming-discipline] Strontium Citrate (PENDING NDI VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
 
-### S3 (62)
+### S3 (63)
 
 - **[naming-discipline] Thiamine HCl (USP, Tier-A)** — Internal wave marker "Tier-A/B" leaked into the display name (it is neither a real qualifier nor a buyer claim). _(§II.9)_ → Move the value/premium tier to a structured field; drop "Tier-A/B" from the display name.
 - **[naming-discipline] Niacinamide (USP, Tier-A)** — Internal wave marker "Tier-A/B" leaked into the display name (it is neither a real qualifier nor a buyer claim). _(§II.9)_ → Move the value/premium tier to a structured field; drop "Tier-A/B" from the display name.
@@ -121,6 +121,7 @@ Coverage = count of entries with the field **documented**. Empty/absent harm-cri
 - **[naming-discipline] Inulin (Organic, Chicory Root)** — Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.). _(§II.9 / AP-05)_ → Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect.
 - **[naming-discipline] Phosphatidylcholine 30% (Sunflower Lecithin-Derived, Allergen-Free)** — Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.). _(§II.9 / AP-05)_ → Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect.
 - **[naming-discipline] Spermidine Wheat Germ Extract (spermidineLIFE, Longevity Labs OY, Gluten-Free Certified, ~1% Spermidine)** — Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.). _(§II.9 / AP-05)_ → Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect.
+- **[consistency] d-Calcium Pantothenate (USP, Tier-A) (calcium=85000)  |  d-Calcium Pantothenate (USP, Tier-B) (calcium=90000)** — Same compound declares conflicting "calcium" values — a same-chemical value must be identical across entries (§II.13). _(§II.13)_ → Reconcile to the chemistry-correct value; correct the wrong existing value rather than preserving a historical mistake.
 
 ### S4 (107)
 

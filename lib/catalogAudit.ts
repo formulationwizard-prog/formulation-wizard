@@ -50,7 +50,8 @@ export type Dimension =
   | 'potency-factor'
   | 'harm-critical'
   | 'duplicate-sku'
-  | 'synonym-collision';
+  | 'synonym-collision'
+  | 'consistency';
 
 export interface Finding {
   entryName: string;
@@ -158,6 +159,7 @@ export function auditCatalog(
   const baseGroups = new Map<string, string[]>();
   let hmVectors = 0, hmOverride = 0, hmClean = 0;
   const synonymOwners = new Map<string, IndustrialIngredient[]>();
+  const chemicalGroups = new Map<string, IndustrialIngredient[]>();
 
   const getCat = (category: string): CategoryCoverage => {
     let c = byCategory.get(category);
@@ -223,6 +225,20 @@ export function auditCatalog(
     const group = baseGroups.get(base) ?? [];
     group.push(ing.name);
     baseGroups.set(base, group);
+
+    // §II.13 — group by primary chemical for cross-entry consistency. Keyed on
+    // the first subIngredient, NOT the paren-stripped name, so different FORMS of
+    // one vitamin (tocopherol vs tocopheryl acetate) don't false-collide.
+    // SINGLE-subIngredient (pure) entries ONLY: a multi-component complex (e.g.
+    // Calcium Citrate Malate = [Calcium Citrate, Calcium Malate]) legitimately
+    // differs from a pure entry sharing its first sub-ingredient (bench-test
+    // 2026-06-18 false-positive fix).
+    const chem = ing.subIngredients?.length === 1 ? normalizeIngredientName(ing.subIngredients[0]) : '';
+    if (chem) {
+      const g = chemicalGroups.get(chem) ?? [];
+      g.push(ing);
+      chemicalGroups.set(chem, g);
+    }
 
     // ── taxonomy (§III.15) ──
     if (!cat.onCanonicalTaxonomy) {
@@ -340,6 +356,33 @@ export function auditCatalog(
         ? `HARM-CRITICAL: drop the bare shared synonym; qualify each variant (concentration/source/brand) and let the technical name route through findHarmCriticalSiblings (Tier-3 disambiguation).`
         : `Make the synonym unique to one entry; qualify the others (concentration/source/brand) per §II.8a.`,
     });
+  }
+
+  // ── §II.13 same-compound nutrition consistency (cross-entry, by chemical) ──
+  for (const members of chemicalGroups.values()) {
+    if (members.length < 2) continue;
+    const keys = new Set<string>();
+    for (const m of members) for (const k of Object.keys(m.nutrition ?? {})) keys.add(k);
+    for (const k of keys) {
+      const present = members.filter(
+        (m) => (m.nutrition as Record<string, number | undefined>)?.[k] !== undefined,
+      );
+      if (present.length < 2) continue; // a contradiction needs ≥2 entries declaring the key
+      const distinct = new Set(present.map((m) => (m.nutrition as Record<string, number>)[k]));
+      if (distinct.size > 1) {
+        add({
+          entryName: present
+            .map((m) => `${m.name} (${k}=${(m.nutrition as Record<string, number>)[k]})`)
+            .join('  |  '),
+          category: present[0].category,
+          dimension: 'consistency',
+          severity: 'S3',
+          issue: `Same compound declares conflicting "${k}" values — a same-chemical value must be identical across entries (§II.13).`,
+          ruleCitation: '§II.13',
+          recommendation: `Reconcile to the chemistry-correct value; correct the wrong existing value rather than preserving a historical mistake.`,
+        });
+      }
+    }
   }
 
   // ── §I.6 benchmarks (honest measurability) ──

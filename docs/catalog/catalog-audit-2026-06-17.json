@@ -4,7 +4,7 @@
   "totalsBySeverity": {
     "S1": 0,
     "S2": 4,
-    "S3": 62,
+    "S3": 63,
     "S4": 107
   },
   "categories": [
@@ -20,7 +20,7 @@
       "findingsBySeverity": {
         "S1": 0,
         "S2": 1,
-        "S3": 15,
+        "S3": 16,
         "S4": 20
       }
     },
@@ -885,6 +885,15 @@
       "issue": "Class-3 buyer-requirement claim in the display name (vegan/non-GMO/organic/etc.).",
       "ruleCitation": "§II.9 / AP-05",
       "recommendation": "Verify the claim is backed by a structured field; if so, drop it from the name. If unbacked, it is a silent-claim defect."
+    },
+    {
+      "entryName": "d-Calcium Pantothenate (USP, Tier-A) (calcium=85000)  |  d-Calcium Pantothenate (USP, Tier-B) (calcium=90000)",
+      "category": "Vitamins",
+      "dimension": "consistency",
+      "severity": "S3",
+      "issue": "Same compound declares conflicting \"calcium\" values — a same-chemical value must be identical across entries (§II.13).",
+      "ruleCitation": "§II.13",
+      "recommendation": "Reconcile to the chemistry-correct value; correct the wrong existing value rather than preserving a historical mistake."
     },
     {
       "entryName": "Calcium Carbonate (USP, Limestone)",
