@@ -5301,7 +5301,27 @@ export default function FormulationWizard() {
                               comes from. Chrome only; the SFP stays byte-faithful. */}
                           {(() => {
                             const prov = PROVENANCE_BY_NAME[ing.name];
-                            if (!prov) return null;
+                            if (!prov) {
+                              // Visible-honesty badge (2026-06-18, sweep #2): a row with no
+                              // provenance entry previously rendered NOTHING — so an operator
+                              // scanning a formulation of free-text/custom ingredients couldn't
+                              // SEE which rows were unverified (honesty-by-absence). Surface the
+                              // verification status explicitly. Chrome only; SFP stays byte-faithful.
+                              const catalogBacked = !!ing.foodData;
+                              return (
+                                <div className="mb-1.5">
+                                  <span
+                                    className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-800"
+                                    title={catalogBacked
+                                      ? 'Catalog ingredient — per-field provenance not yet recorded. Verify against supplier COA before label/compliance use.'
+                                      : 'Operator-entered ingredient — not catalog-verified. Values are as-entered; verify against supplier COA before label/compliance use.'}
+                                  >
+                                    <span aria-hidden="true">⚠</span>
+                                    {catalogBacked ? 'Catalog — provenance not yet recorded' : 'Operator-entered — unverified'}
+                                  </span>
+                                </div>
+                              );
+                            }
                             const keys = Object.keys(prov);
                             const open = provenanceOpenIdx === index;
                             return (
