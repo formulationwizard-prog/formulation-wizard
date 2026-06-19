@@ -7,7 +7,7 @@
 //   docs/catalog/round-12-per-category-audit.md (+ a JSON snapshot).
 //   Skipped under CI to keep the tree clean; the assertions are the gate.
 import { describe, it, expect } from 'vitest';
-import { writeFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { SUPPLEMENT_INGREDIENTS } from '../data/supplements';
 import { PROVENANCE_BY_NAME } from '../data/supplementProvenance';
@@ -149,5 +149,25 @@ describe('§II.13 same-compound consistency check', () => {
       mkIng({ name: 'Y (B)', subIngredients: ['Calcium Citrate'], nutrition: { calcium: 210000 } }),
     ]);
     expect(f).toHaveLength(0);
+  });
+});
+
+// Track B — wires the §II.8 "Step-1 landed" detection into CI. The validator
+// determines "landed" from BOTH the marker file AND the type-system, and a
+// DISAGREEMENT is the routing-question state. This test fails if they drift
+// apart (e.g. a field removed but the marker left in place), so the world-class
+// new-entry gate can't be silently disarmed.
+describe('§II.8 Step-1 landed detection (marker ↔ type-system agreement)', () => {
+  it('marker file exists AND types/index.ts carries the schema fields — they agree', () => {
+    const markerExists = existsSync(
+      join(process.cwd(), 'docs', 'catalog', 'round-12-schema-migration-step-1-complete.md'),
+    );
+    const types = readFileSync(join(process.cwd(), 'types', 'index.ts'), 'utf8');
+    const fieldsPresent = ['confidenceLevel?', 'tier?', 'citation?', 'allergensInvestigated?'].every(
+      (f) => types.includes(f),
+    );
+    expect(markerExists).toBe(true);
+    expect(fieldsPresent).toBe(true);
+    expect(markerExists).toBe(fieldsPresent); // disagreement = §II.8 routing-question → fail CI
   });
 });
