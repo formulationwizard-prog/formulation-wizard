@@ -11,6 +11,7 @@ import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 
 import { join } from 'node:path';
 import { SUPPLEMENT_INGREDIENTS } from '../data/supplements';
 import { PROVENANCE_BY_NAME } from '../data/supplementProvenance';
+import { SUPPLEMENT_STACKS } from '../data/stacks';
 import { auditCatalog, renderAuditMarkdown } from '../catalogAudit';
 import type { IndustrialIngredient } from '../../types';
 
@@ -22,7 +23,11 @@ const AUDIT_DATE = '2026-06-17';
 // §II.13 consistency finding (calcium pantothenate Tier-A 85000 vs Tier-B 90000,
 // pure same-chemical pair) → S3 63. S1 hard-floored at 0 (carrier-loaded silent-
 // zero is harm-critical). S4 (dup clusters + grade-claim recording-gaps) — not ratcheted.
-const RATCHET = { S1: 0, S2: 4, S3: 63 };
+const RATCHET = { S1: 0, S2: 4, S3: 63 }; // CONFORMANCE (entry-defect) findings only
+// Matchability is a coverage backlog, not entry defects — guarded by its own
+// floor (resolution may only improve toward the §I.6 ≥0.95 target). Baselined
+// 2026-06-18 at 66% (77 resolved / 30 unmatched of 116 standard-stack members).
+const RESOLUTION_FLOOR = 0.66;
 
 describe('catalog audit (Phase 1 — coverage & conformance)', () => {
   // §VI test-coverage proxy: an entry counts as "referenced" if its exact name
@@ -37,7 +42,7 @@ describe('catalog audit (Phase 1 — coverage & conformance)', () => {
   const testedNames = new Set(
     SUPPLEMENT_INGREDIENTS.filter((i) => testBlob.includes(i.name)).map((i) => i.name),
   );
-  const report = auditCatalog(SUPPLEMENT_INGREDIENTS, PROVENANCE_BY_NAME, AUDIT_DATE, testedNames);
+  const report = auditCatalog(SUPPLEMENT_INGREDIENTS, PROVENANCE_BY_NAME, AUDIT_DATE, testedNames, SUPPLEMENT_STACKS);
 
   it('audits a non-empty catalog and the matrix is internally consistent', () => {
     expect(report.totalEntries).toBeGreaterThan(0);
@@ -49,10 +54,17 @@ describe('catalog audit (Phase 1 — coverage & conformance)', () => {
     expect(findingTotal).toBe(report.findings.length);
   });
 
-  it('does not regress past the severity ratchet (counts may only improve)', () => {
-    expect(report.totalsBySeverity.S1).toBeLessThanOrEqual(RATCHET.S1);
-    expect(report.totalsBySeverity.S2).toBeLessThanOrEqual(RATCHET.S2);
-    expect(report.totalsBySeverity.S3).toBeLessThanOrEqual(RATCHET.S3);
+  it('conformance findings do not regress past the ratchet (matchability tracked separately)', () => {
+    const cs: Record<string, number> = { S1: 0, S2: 0, S3: 0, S4: 0 };
+    for (const f of report.findings) if (f.dimension !== 'matchability') cs[f.severity]++;
+    expect(cs.S1).toBeLessThanOrEqual(RATCHET.S1);
+    expect(cs.S2).toBeLessThanOrEqual(RATCHET.S2);
+    expect(cs.S3).toBeLessThanOrEqual(RATCHET.S3);
+  });
+
+  it('stack bulk-paste resolution may only improve (matchability coverage floor)', () => {
+    const b = report.benchmarks.find((x) => x.metric.startsWith('Stack bulk-paste resolution'));
+    expect(b?.value ?? 0).toBeGreaterThanOrEqual(RESOLUTION_FLOOR);
   });
 
   it('regenerates the audit artifact (local only)', () => {

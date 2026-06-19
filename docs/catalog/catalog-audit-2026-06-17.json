@@ -3,8 +3,8 @@
   "totalEntries": 367,
   "totalsBySeverity": {
     "S1": 0,
-    "S2": 4,
-    "S3": 63,
+    "S2": 16,
+    "S3": 81,
     "S4": 107
   },
   "categories": [
@@ -247,6 +247,22 @@
         "S3": 0,
         "S4": 1
       }
+    },
+    {
+      "category": "__stack__",
+      "onCanonicalTaxonomy": false,
+      "entryCount": 0,
+      "allergensDocumented": 0,
+      "regulatoryStatusDocumented": 0,
+      "drugInteractionsDocumented": 0,
+      "provenanceDocumented": 0,
+      "heavyMetalVectorEntries": 0,
+      "findingsBySeverity": {
+        "S1": 0,
+        "S2": 12,
+        "S3": 18,
+        "S4": 0
+      }
     }
   ],
   "taxonomyNotes": [
@@ -295,6 +311,12 @@
       "target": "100% (§VI: bulk-paste + SFP + safety test per entry)",
       "value": 0.11989100817438691,
       "note": "PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller."
+    },
+    {
+      "metric": "Stack bulk-paste resolution (§I.6/§IV.21 proxy)",
+      "target": "≥ 95% of standard-stack ingredients resolve (tier ≤ 2)",
+      "value": 0.6637931034482759,
+      "note": "77 resolved (tier ≤2) / 9 need-confirm (tier 3) / 30 unmatched (tier 4) of 116 unique standard-stack ingredients. Non-circular proxy (natural names, not SKU strings); NOT the full §IV.21 competitor-label list (needs external SKUs)."
     }
   ],
   "findings": [
@@ -333,6 +355,114 @@
       "issue": "\"PENDING\" verification marker present — entry is amber-blocked for commercial use until drained.",
       "ruleCitation": "§25",
       "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
+    },
+    {
+      "entryName": "Selenium",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"Selenium\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Selenium\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Iodine",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"Iodine\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Iodine\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "DHA",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"DHA\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"DHA\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "BCAAs",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"BCAAs\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"BCAAs\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Electrolytes",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"Electrolytes\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Electrolytes\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "EPA/DHA",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"EPA/DHA\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"EPA/DHA\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "NAC",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"NAC\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"NAC\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Probiotic Multi-Strain",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"Probiotic Multi-Strain\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Probiotic Multi-Strain\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Berberine",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"Berberine\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Berberine\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Cinnamon",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"Cinnamon\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Cinnamon\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "B-Complex",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"B-Complex\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"B-Complex\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Bilberry Extract",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S2",
+      "issue": "Standard-stack must-have \"Bilberry Extract\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Bilberry Extract\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
     },
     {
       "entryName": "Thiamine HCl (USP, Tier-A)",
@@ -900,6 +1030,168 @@
       "issue": "Same compound declares conflicting \"calcium\" values — a same-chemical value must be identical across entries (§II.13).",
       "ruleCitation": "§II.13",
       "recommendation": "Reconcile to the chemistry-correct value; correct the wrong existing value rather than preserving a historical mistake."
+    },
+    {
+      "entryName": "Apigenin",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Apigenin\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Apigenin\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Tart Cherry",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Tart Cherry\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Tart Cherry\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Betaine Anhydrous",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Betaine Anhydrous\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Betaine Anhydrous\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "HMB",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"HMB\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"HMB\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "DIM",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"DIM\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"DIM\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Type II Collagen",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Type II Collagen\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Type II Collagen\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Beta-Glucan",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Beta-Glucan\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Beta-Glucan\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "DGL Licorice",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"DGL Licorice\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"DGL Licorice\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Slippery Elm",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Slippery Elm\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Slippery Elm\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Marshmallow Root",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Marshmallow Root\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Marshmallow Root\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Fisetin",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Fisetin\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Fisetin\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "PQQ",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"PQQ\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"PQQ\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Gymnema Sylvestre",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Gymnema Sylvestre\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Gymnema Sylvestre\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Bitter Melon",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Bitter Melon\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Bitter Melon\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Artichoke Extract",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Artichoke Extract\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Artichoke Extract\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Dandelion Root",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Dandelion Root\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Dandelion Root\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Hawthorn",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Hawthorn\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Hawthorn\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
+    },
+    {
+      "entryName": "Saffron Extract",
+      "category": "__stack__",
+      "dimension": "matchability",
+      "severity": "S3",
+      "issue": "Standard-stack companion \"Saffron Extract\" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).",
+      "ruleCitation": "§I.6 / §IV.21",
+      "recommendation": "Add \"Saffron Extract\" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves."
     },
     {
       "entryName": "Calcium Carbonate (USP, Limestone)",

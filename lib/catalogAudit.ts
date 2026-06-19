@@ -24,7 +24,8 @@
 // ============================================================
 import type { IndustrialIngredient, Provenance } from '../types';
 import { assessHeavyMetalVectors } from './heavyMetalVectors';
-import { normalizeIngredientName } from './parseFormula';
+import { normalizeIngredientName, findBestMatchWithTier } from './parseFormula';
+import type { Stack } from './data/stacks';
 
 // ─── §III.15 canonical taxonomy (15 categories incl. Excipients) ───────────
 export const CANONICAL_CATEGORIES = [
@@ -51,7 +52,8 @@ export type Dimension =
   | 'harm-critical'
   | 'duplicate-sku'
   | 'synonym-collision'
-  | 'consistency';
+  | 'consistency'
+  | 'matchability';
 
 export interface Finding {
   entryName: string;
@@ -157,6 +159,10 @@ export function auditCatalog(
    *  keeps this compute pure). When provided, adds the §VI test-coverage proxy
    *  benchmark. */
   testedNames?: Set<string>,
+  /** Named §VII stacks. When provided, adds the §I.6/§IV.21 bulk-paste
+   *  resolution-rate benchmark (a non-circular proxy: stack member names are
+   *  natural names, not catalog SKU strings) + flags unresolved members. */
+  stacks?: Stack[],
 ): AuditReport {
   const findings: Finding[] = [];
   const byCategory = new Map<string, CategoryCoverage>();
@@ -443,6 +449,36 @@ export function auditCatalog(
       note: 'PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller.',
     });
   }
+  if (stacks) {
+    // §I.6/§IV.21 bulk-paste resolution — run each unique standard-stack member
+    // name through the REAL matcher. Non-circular: member names are natural
+    // names ("Vitamin D3", "Calcium"), not catalog SKU display strings.
+    const members = new Map<string, boolean>(); // name → isMustHave (in ≥1 stack's mustHave)
+    for (const s of stacks) {
+      for (const m of s.mustHave) members.set(m.ingredientName, true);
+      for (const m of s.commonCompanion) if (!members.has(m.ingredientName)) members.set(m.ingredientName, false);
+    }
+    let resolved = 0, partial = 0, unmatched = 0;
+    for (const [nm, isMustHave] of members) {
+      const tier = findBestMatchWithTier(nm, ingredients).tier;
+      if (tier <= 2) { resolved++; continue; }
+      if (tier === 3) { partial++; continue; }
+      unmatched++;
+      add({
+        entryName: nm, category: '__stack__', dimension: 'matchability',
+        severity: isMustHave ? 'S2' : 'S3',
+        issue: `Standard-stack ${isMustHave ? 'must-have' : 'companion'} "${nm}" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap).`,
+        ruleCitation: '§I.6 / §IV.21',
+        recommendation: `Add "${nm}" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.`,
+      });
+    }
+    benchmarks.push({
+      metric: 'Stack bulk-paste resolution (§I.6/§IV.21 proxy)',
+      target: '≥ 95% of standard-stack ingredients resolve (tier ≤ 2)',
+      value: members.size ? resolved / members.size : null,
+      note: `${resolved} resolved (tier ≤2) / ${partial} need-confirm (tier 3) / ${unmatched} unmatched (tier 4) of ${members.size} unique standard-stack ingredients. Non-circular proxy (natural names, not SKU strings); NOT the full §IV.21 competitor-label list (needs external SKUs).`,
+    });
+  }
 
   const categories = [...byCategory.values()].sort((a, b) => b.entryCount - a.entryCount);
   const totalsBySeverity = emptySeverityRecord();
@@ -476,7 +512,9 @@ export function auditCatalog(
 /** Render the AuditReport as the §II.8-named Markdown deliverable. */
 export function renderAuditMarkdown(report: AuditReport): string {
   const L: string[] = [];
-  const sev = report.totalsBySeverity;
+  const matchFindings = report.findings.filter((f) => f.dimension === 'matchability');
+  const confBySev: Record<Severity, number> = { S1: 0, S2: 0, S3: 0, S4: 0 };
+  for (const f of report.findings) if (f.dimension !== 'matchability') confBySev[f.severity]++;
   L.push(`# Catalog Audit — Coverage & Conformance Matrix`);
   L.push('');
   L.push(`> **Phase 1 of the catalog world-class effort (audit → brainstorm → adds). READ-ONLY findings.**`);
@@ -487,7 +525,8 @@ export function renderAuditMarkdown(report: AuditReport): string {
   L.push(`## Executive summary`);
   L.push('');
   L.push(`- **${report.totalEntries}** entries audited across **${report.categories.length}** category strings.`);
-  L.push(`- Findings by severity: **S1 ${sev.S1}** · S2 ${sev.S2} · S3 ${sev.S3} · S4 ${sev.S4}.`);
+  L.push(`- Conformance findings (entry defects): **S1 ${confBySev.S1}** · S2 ${confBySev.S2} · S3 ${confBySev.S3} · S4 ${confBySev.S4}.`);
+  L.push(`- Matchability gaps (standard-stack ingredients that don't resolve to the catalog): **${matchFindings.length}** — a coverage backlog, not entry defects; see the §I.6/§IV.21 resolution benchmark below.`);
   L.push(`- **The headline gap is execution, not specification.** The world-class bar is already in the Rulebook (§I.4 confidence, §I.5 floor, §I.6 benchmarks, §II.8 schema), and as of 2026-06-17 (\`efa54e1\`) the enforcing *fields* now exist on \`IndustrialIngredient\`. The benchmarks below have flipped from *unmeasurable* to **measurable, ~0% populated** — population is the gated curation phase (verified, never bulk). Honesty-first: an unpopulated field reports its true 0%, never fabricated coverage.`);
   L.push('');
   for (const n of report.taxonomyNotes) L.push(`- ⚠️ ${n}`);
