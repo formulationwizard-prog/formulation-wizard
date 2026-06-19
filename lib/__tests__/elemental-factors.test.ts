@@ -44,4 +44,16 @@ describe('resolveElementalFactor — form-specific mineral fractions', () => {
     expect(resolveElementalFactor('L-Theanine (Suntheanine, Pharma)')).toBeUndefined();
     expect(resolveElementalFactor('Ashwagandha (KSM-66)')).toBeUndefined();
   });
+
+  // 2026-06-18 elemental-factor audit fixes (form-verified, bench-tested):
+  it('molybdenum glycinate → 0.10 (§II.10 chemistry-constant table)', () => {
+    expect(resolveElementalFactor('Molybdenum Glycinate (Albion)')).toBeCloseTo(0.10, 4);
+  });
+  it('vanadyl sulfate anhydrous → 0.31 (VOSO4: V 50.94 / MW 163.0)', () => {
+    expect(resolveElementalFactor('Vanadyl Sulfate (USP, Anhydrous)')).toBeCloseTo(0.31, 2);
+  });
+  it('boron (routed to Nate) stays undefined — NOT silently factored', () => {
+    expect(resolveElementalFactor('Boron Glycinate (Albion)')).toBeUndefined();
+    expect(resolveElementalFactor('Strontium Citrate')).toBeUndefined();
+  });
 });

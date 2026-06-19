@@ -56,7 +56,8 @@ describe('catalog audit (Phase 1 — coverage & conformance)', () => {
 
   it('conformance findings do not regress past the ratchet (matchability tracked separately)', () => {
     const cs: Record<string, number> = { S1: 0, S2: 0, S3: 0, S4: 0 };
-    for (const f of report.findings) if (f.dimension !== 'matchability') cs[f.severity]++;
+    for (const f of report.findings)
+      if (f.dimension !== 'matchability' && f.dimension !== 'elemental-factor') cs[f.severity]++;
     expect(cs.S1).toBeLessThanOrEqual(RATCHET.S1);
     expect(cs.S2).toBeLessThanOrEqual(RATCHET.S2);
     expect(cs.S3).toBeLessThanOrEqual(RATCHET.S3);
@@ -65,6 +66,17 @@ describe('catalog audit (Phase 1 — coverage & conformance)', () => {
   it('stack bulk-paste resolution may only improve (matchability coverage floor)', () => {
     const b = report.benchmarks.find((x) => x.metric.startsWith('Stack bulk-paste resolution'));
     expect(b?.value ?? 0).toBeGreaterThanOrEqual(RESOLUTION_FLOOR);
+  });
+
+  it('no un-routed unmapped-mineral silent over-count (elemental-factor S1 floor)', () => {
+    // Every Minerals entry the elemental resolver doesn't recognize must be
+    // FIXED (factor added) or explicitly ROUTED to Nate (S2). An un-routed one
+    // is S1 — a silent 1.0 over-count — and fails CI. A NEW unmapped mineral
+    // trips this immediately, so the guard stays sharp even with the known set routed.
+    const unrouted = report.findings.filter(
+      (f) => f.dimension === 'elemental-factor' && f.severity === 'S1',
+    );
+    expect(unrouted.length).toBe(0);
   });
 
   it('regenerates the audit artifact (local only)', () => {

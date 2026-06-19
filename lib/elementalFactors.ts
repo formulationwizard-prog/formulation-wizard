@@ -64,6 +64,14 @@ const FORM_FACTORS: ReadonlyArray<readonly [string, number]> = [
   ['potassium chloride', 0.38],
   ['potassium citrate', 0.38],
   ['potassium', 0.38],
+  // Molybdenum — §II.10 chemistry-constant table (molybdenum glycinate = 0.10).
+  // Specific form only; other Mo forms (e.g. sodium molybdate ~0.40) differ and
+  // would correctly resolve undefined → audit elemental-factor flag until added.
+  ['molybdenum glycinate', 0.10],
+  // Vanadium — vanadyl sulfate ANHYDROUS: VOSO4, V 50.94 / MW 163.0 = 0.31.
+  // Keyed 'vanadyl sulfate' (the catalog entry is anhydrous); a hydrate form
+  // would be lower and needs its own longer-key override above this line.
+  ['vanadyl sulfate', 0.31],
 ];
 
 // Longest keyword first so specific forms win over generic fallbacks.

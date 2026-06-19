@@ -25,6 +25,7 @@
 import type { IndustrialIngredient, Provenance } from '../types';
 import { assessHeavyMetalVectors } from './heavyMetalVectors';
 import { normalizeIngredientName, findBestMatchWithTier } from './parseFormula';
+import { resolveElementalFactor } from './elementalFactors';
 import type { Stack } from './data/stacks';
 
 // ─── §III.15 canonical taxonomy (15 categories incl. Excipients) ───────────
@@ -53,7 +54,8 @@ export type Dimension =
   | 'duplicate-sku'
   | 'synonym-collision'
   | 'consistency'
-  | 'matchability';
+  | 'matchability'
+  | 'elemental-factor';
 
 export interface Finding {
   entryName: string;
@@ -330,6 +332,31 @@ export function auditCatalog(
         recommendation: `Confirm against the COA whether a potencyFactor applies; document the decision.`,
       });
     }
+
+    // ── elemental-factor over-count trap (§II.10) — the mirror of silent-zero ──
+    // A Minerals entry the elemental resolver doesn't recognize falls back to
+    // 1.0 (full salt/chelate mass treated as elemental) → silent OVER-count of
+    // the element on the Supplement Facts panel. The resolver covers only 11
+    // elements; a mineral of an unmapped element (Boron, Molybdenum, Strontium…)
+    // resolves undefined → 1.0. Harm-critical at compliance time (21 CFR 101.36).
+    if (ing.category === 'Minerals' && resolveElementalFactor(ing.name) === undefined) {
+      // Elements explicitly routed to Nate/PA (chemistry not cleanly derivable:
+      // supplier-standardized chelate %, hydrate-dependent, or silica DV-basis)
+      // are tracked-pending (S2), not silent (S1). A NEW unmapped mineral off
+      // this list is S1 — keeps the guard sharp + CI green for the known set.
+      const routedToNate = /\b(boron|strontium|silica|silicon)\b/i.test(ing.name);
+      add({
+        entryName: ing.name, category: ing.category, dimension: 'elemental-factor',
+        severity: routedToNate ? 'S2' : 'S1',
+        issue: routedToNate
+          ? `Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands.`
+          : `Mineral not recognized by the elemental resolver (lib/elementalFactors.ts) — caller falls back to 1.0, treating the FULL salt/chelate mass as elemental → silent OVER-count on the Supplement Facts panel.`,
+        ruleCitation: '§II.10 / §I.5 / 21 CFR 101.36',
+        recommendation: routedToNate
+          ? `Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts.`
+          : `Add this mineral's element/form to lib/elementalFactors.ts with its chemistry-derived fraction, or route to Nate if supplier-standardized / hydrate / DV-ambiguous.`,
+      });
+    }
   }
 
   // ── duplicate clusters (informational; §16 two-wave dup is intentional) ──
@@ -513,8 +540,10 @@ export function auditCatalog(
 export function renderAuditMarkdown(report: AuditReport): string {
   const L: string[] = [];
   const matchFindings = report.findings.filter((f) => f.dimension === 'matchability');
+  const elementalFindings = report.findings.filter((f) => f.dimension === 'elemental-factor');
   const confBySev: Record<Severity, number> = { S1: 0, S2: 0, S3: 0, S4: 0 };
-  for (const f of report.findings) if (f.dimension !== 'matchability') confBySev[f.severity]++;
+  for (const f of report.findings)
+    if (f.dimension !== 'matchability' && f.dimension !== 'elemental-factor') confBySev[f.severity]++;
   L.push(`# Catalog Audit — Coverage & Conformance Matrix`);
   L.push('');
   L.push(`> **Phase 1 of the catalog world-class effort (audit → brainstorm → adds). READ-ONLY findings.**`);
@@ -527,6 +556,7 @@ export function renderAuditMarkdown(report: AuditReport): string {
   L.push(`- **${report.totalEntries}** entries audited across **${report.categories.length}** category strings.`);
   L.push(`- Conformance findings (entry defects): **S1 ${confBySev.S1}** · S2 ${confBySev.S2} · S3 ${confBySev.S3} · S4 ${confBySev.S4}.`);
   L.push(`- Matchability gaps (standard-stack ingredients that don't resolve to the catalog): **${matchFindings.length}** — a coverage backlog, not entry defects; see the §I.6/§IV.21 resolution benchmark below.`);
+  L.push(`- Elemental-factor gaps (§II.10, unmapped minerals → 1.0 over-count): **${elementalFindings.length}** — ${elementalFindings.filter((f) => f.severity === 'S1').length} un-routed (S1, must fix/route), ${elementalFindings.filter((f) => f.severity === 'S2').length} routed to Nate (pending chemistry).`);
   L.push(`- **The headline gap is execution, not specification.** The world-class bar is already in the Rulebook (§I.4 confidence, §I.5 floor, §I.6 benchmarks, §II.8 schema), and as of 2026-06-17 (\`efa54e1\`) the enforcing *fields* now exist on \`IndustrialIngredient\`. The benchmarks below have flipped from *unmeasurable* to **measurable, ~0% populated** — population is the gated curation phase (verified, never bulk). Honesty-first: an unpopulated field reports its true 0%, never fabricated coverage.`);
   L.push('');
   for (const n of report.taxonomyNotes) L.push(`- ⚠️ ${n}`);

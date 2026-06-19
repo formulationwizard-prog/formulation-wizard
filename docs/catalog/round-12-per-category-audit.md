@@ -10,6 +10,7 @@
 - **367** entries audited across **16** category strings.
 - Conformance findings (entry defects): **S1 0** · S2 4 · S3 63 · S4 107.
 - Matchability gaps (standard-stack ingredients that don't resolve to the catalog): **29** — a coverage backlog, not entry defects; see the §I.6/§IV.21 resolution benchmark below.
+- Elemental-factor gaps (§II.10, unmapped minerals → 1.0 over-count): **5** — 0 un-routed (S1, must fix/route), 5 routed to Nate (pending chemistry).
 - **The headline gap is execution, not specification.** The world-class bar is already in the Rulebook (§I.4 confidence, §I.5 floor, §I.6 benchmarks, §II.8 schema), and as of 2026-06-17 (`efa54e1`) the enforcing *fields* now exist on `IndustrialIngredient`. The benchmarks below have flipped from *unmeasurable* to **measurable, ~0% populated** — population is the gated curation phase (verified, never bulk). Honesty-first: an unpopulated field reports its true 0%, never fabricated coverage.
 
 - ⚠️ Overlapping categories both present: "Specialty Compounds" and "Specialty" — §III.15 (legacy — "treat as synonyms until a deliberate cleanup pass"). Each renders as a distinct UI category (lib/modes.ts categoriesFromIngredients is additive).
@@ -26,7 +27,7 @@
 | Provenance coverage | every load-bearing value traceable (§I.2) | 27% |  |
 | Canonical-ID coverage (UNII / USP-Latin / GTIN) | world-class trajectory (verified, never bulk-inferred) | 0% | Fields present; verified assignment is deliberate (Nate-gated for botanical USP-Latin), never bulk. |
 | Heavy-metals vectors flagged (§I.5a) | class-level flag (flag-not-certify); finished product COA-tested to USP <232> | 41% | 152 entries classifier-flagged (lib/heavyMetalVectors.ts); 0 COA-verified-clean, 0 explicit override. Flag, not certify. |
-| Test-reference coverage (proxy for §VI) | 100% (§VI: bulk-paste + SFP + safety test per entry) | 12% | PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller. |
+| Test-reference coverage (proxy for §VI) | 100% (§VI: bulk-paste + SFP + safety test per entry) | 13% | PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller. |
 | Stack bulk-paste resolution (§I.6/§IV.21 proxy) | ≥ 95% of standard-stack ingredients resolve (tier ≤ 2) | 67% | 78 resolved (tier ≤2) / 9 need-confirm (tier 3) / 29 unmatched (tier 4) of 116 unique standard-stack ingredients. Non-circular proxy (natural names, not SKU strings); NOT the full §IV.21 competitor-label list (needs external SKUs). |
 
 ## Coverage matrix (category × dimension)
@@ -36,7 +37,7 @@ Coverage = count of entries with the field **documented**. Empty/absent harm-cri
 | Category | On taxonomy | Entries | Allergens | Reg-status | Drug-interactions | Provenance | HM-vec | S1 | S2 | S3 | S4 |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
 | Vitamins | ✓ | 60 | 5/60 | 5/60 | 0/60 | 25/60 | 1 | 0 | 1 | 16 | 20 |
-| Minerals | ✓ | 57 | 0/57 | 9/57 | 0/57 | 16/57 | 57 | 0 | 2 | 14 | 28 |
+| Minerals | ✓ | 57 | 0/57 | 9/57 | 0/57 | 16/57 | 57 | 0 | 7 | 14 | 28 |
 | Excipients | ✓ | 42 | 2/42 | 1/42 | 0/42 | 1/42 | 2 | 0 | 0 | 2 | 18 |
 | Botanicals | ✓ | 41 | 1/41 | 0/41 | 0/41 | 5/41 | 41 | 0 | 0 | 10 | 6 |
 | Herbal Extracts | ✓ | 32 | 2/32 | 24/32 | 1/32 | 7/32 | 32 | 0 | 0 | 1 | 6 |
@@ -54,12 +55,17 @@ Coverage = count of entries with the field **documented**. Empty/absent harm-cri
 
 ## Findings (severity-ranked)
 
-### S2 (15)
+### S2 (20)
 
 - **[naming-discipline] Iron Bisglycinate (Ferrochel — 18% Fe, PENDING SPEC VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
+- **[elemental-factor] Boron Glycinate (Albion)** — Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands. _(§II.10 / §I.5 / 21 CFR 101.36)_ → Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts.
+- **[elemental-factor] Silica (Horsetail Extract, Organic)** — Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands. _(§II.10 / §I.5 / 21 CFR 101.36)_ → Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts.
 - **[naming-discipline] Lactobacillus acidophilus NCFM (Danisco — 10B CFU, PENDING POTENCY VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
 - **[naming-discipline] Choline L-Threonate (PENDING NDI VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
+- **[elemental-factor] Boron Citrate (Albion)** — Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands. _(§II.10 / §I.5 / 21 CFR 101.36)_ → Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts.
+- **[elemental-factor] Bamboo Silica Extract (Sabinsa BambooSil, 70% Silica)** — Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands. _(§II.10 / §I.5 / 21 CFR 101.36)_ → Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts.
 - **[naming-discipline] Strontium Citrate (PENDING NDI VERIFICATION)** — "PENDING" verification marker present — entry is amber-blocked for commercial use until drained. _(§25)_ → Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue.
+- **[elemental-factor] Strontium Citrate (PENDING NDI VERIFICATION)** — Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands. _(§II.10 / §I.5 / 21 CFR 101.36)_ → Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts.
 - **[matchability] Selenium** — Standard-stack must-have "Selenium" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "Selenium" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
 - **[matchability] Iodine** — Standard-stack must-have "Iodine" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "Iodine" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.
 - **[matchability] DHA** — Standard-stack must-have "DHA" does not resolve via bulk-paste (tier 4 / no match) — an operator pasting this gets an unmatched row (§IV.21 matchability gap). _(§I.6 / §IV.21)_ → Add "DHA" as a synonym on the intended catalog entry (or author the entry) so the natural name resolves.

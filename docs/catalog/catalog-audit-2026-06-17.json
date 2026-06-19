@@ -3,7 +3,7 @@
   "totalEntries": 367,
   "totalsBySeverity": {
     "S1": 0,
-    "S2": 15,
+    "S2": 20,
     "S3": 81,
     "S4": 107
   },
@@ -35,7 +35,7 @@
       "heavyMetalVectorEntries": 57,
       "findingsBySeverity": {
         "S1": 0,
-        "S2": 2,
+        "S2": 7,
         "S3": 14,
         "S4": 28
       }
@@ -309,7 +309,7 @@
     {
       "metric": "Test-reference coverage (proxy for §VI)",
       "target": "100% (§VI: bulk-paste + SFP + safety test per entry)",
-      "value": 0.11989100817438691,
+      "value": 0.12806539509536785,
       "note": "PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller."
     },
     {
@@ -330,6 +330,24 @@
       "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
     },
     {
+      "entryName": "Boron Glycinate (Albion)",
+      "category": "Minerals",
+      "dimension": "elemental-factor",
+      "severity": "S2",
+      "issue": "Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands.",
+      "ruleCitation": "§II.10 / §I.5 / 21 CFR 101.36",
+      "recommendation": "Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts."
+    },
+    {
+      "entryName": "Silica (Horsetail Extract, Organic)",
+      "category": "Minerals",
+      "dimension": "elemental-factor",
+      "severity": "S2",
+      "issue": "Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands.",
+      "ruleCitation": "§II.10 / §I.5 / 21 CFR 101.36",
+      "recommendation": "Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts."
+    },
+    {
       "entryName": "Lactobacillus acidophilus NCFM (Danisco — 10B CFU, PENDING POTENCY VERIFICATION)",
       "category": "Probiotics",
       "dimension": "naming-discipline",
@@ -348,6 +366,24 @@
       "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
     },
     {
+      "entryName": "Boron Citrate (Albion)",
+      "category": "Minerals",
+      "dimension": "elemental-factor",
+      "severity": "S2",
+      "issue": "Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands.",
+      "ruleCitation": "§II.10 / §I.5 / 21 CFR 101.36",
+      "recommendation": "Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts."
+    },
+    {
+      "entryName": "Bamboo Silica Extract (Sabinsa BambooSil, 70% Silica)",
+      "category": "Minerals",
+      "dimension": "elemental-factor",
+      "severity": "S2",
+      "issue": "Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands.",
+      "ruleCitation": "§II.10 / §I.5 / 21 CFR 101.36",
+      "recommendation": "Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts."
+    },
+    {
       "entryName": "Strontium Citrate (PENDING NDI VERIFICATION)",
       "category": "Minerals",
       "dimension": "naming-discipline",
@@ -355,6 +391,15 @@
       "issue": "\"PENDING\" verification marker present — entry is amber-blocked for commercial use until drained.",
       "ruleCitation": "§25",
       "recommendation": "Resolve the supplier-spec verification and drop the PENDING suffix, or route to the verification queue."
+    },
+    {
+      "entryName": "Strontium Citrate (PENDING NDI VERIFICATION)",
+      "category": "Minerals",
+      "dimension": "elemental-factor",
+      "severity": "S2",
+      "issue": "Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands.",
+      "ruleCitation": "§II.10 / §I.5 / 21 CFR 101.36",
+      "recommendation": "Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts."
     },
     {
       "entryName": "Selenium",
