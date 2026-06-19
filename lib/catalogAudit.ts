@@ -153,6 +153,10 @@ export function auditCatalog(
   ingredients: IndustrialIngredient[],
   provenanceByName: Record<string, Record<string, Provenance>>,
   generatedFor: string,
+  /** Entry names referenced in test files (computed by the fs-capable caller —
+   *  keeps this compute pure). When provided, adds the §VI test-coverage proxy
+   *  benchmark. */
+  testedNames?: Set<string>,
 ): AuditReport {
   const findings: Finding[] = [];
   const byCategory = new Map<string, CategoryCoverage>();
@@ -430,6 +434,15 @@ export function auditCatalog(
       note: `${hmVectors} entries classifier-flagged (lib/heavyMetalVectors.ts); ${hmClean} COA-verified-clean, ${hmOverride} explicit override. Flag, not certify.`,
     },
   ];
+  if (testedNames) {
+    const tested = ingredients.filter((i) => testedNames.has(i.name)).length;
+    benchmarks.push({
+      metric: 'Test-reference coverage (proxy for §VI)',
+      target: '100% (§VI: bulk-paste + SFP + safety test per entry)',
+      value: rate(tested),
+      note: 'PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller.',
+    });
+  }
 
   const categories = [...byCategory.values()].sort((a, b) => b.entryCount - a.entryCount);
   const totalsBySeverity = emptySeverityRecord();

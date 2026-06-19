@@ -289,6 +289,12 @@
       "target": "class-level flag (flag-not-certify); finished product COA-tested to USP <232>",
       "value": 0.4141689373297003,
       "note": "152 entries classifier-flagged (lib/heavyMetalVectors.ts); 0 COA-verified-clean, 0 explicit override. Flag, not certify."
+    },
+    {
+      "metric": "Test-reference coverage (proxy for §VI)",
+      "target": "100% (§VI: bulk-paste + SFP + safety test per entry)",
+      "value": 0.11989100817438691,
+      "note": "PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller."
     }
   ],
   "findings": [

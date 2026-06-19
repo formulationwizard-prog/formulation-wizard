@@ -7,7 +7,7 @@
 //   docs/catalog/round-12-per-category-audit.md (+ a JSON snapshot).
 //   Skipped under CI to keep the tree clean; the assertions are the gate.
 import { describe, it, expect } from 'vitest';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SUPPLEMENT_INGREDIENTS } from '../data/supplements';
 import { PROVENANCE_BY_NAME } from '../data/supplementProvenance';
@@ -25,7 +25,19 @@ const AUDIT_DATE = '2026-06-17';
 const RATCHET = { S1: 0, S2: 4, S3: 63 };
 
 describe('catalog audit (Phase 1 — coverage & conformance)', () => {
-  const report = auditCatalog(SUPPLEMENT_INGREDIENTS, PROVENANCE_BY_NAME, AUDIT_DATE);
+  // §VI test-coverage proxy: an entry counts as "referenced" if its exact name
+  // appears in any catalog test file. Honest proxy — not proof of all three §VI
+  // test types. Exclude the meta-test files (audit/classifier), which reference
+  // entry names to test the AUDIT, not the entry's bulk-paste/SFP/safety.
+  const testDir = join(process.cwd(), 'lib', '__tests__');
+  const testBlob = readdirSync(testDir)
+    .filter((f) => f.endsWith('.ts') && !/catalog-audit|heavy-metal-vectors/.test(f))
+    .map((f) => readFileSync(join(testDir, f), 'utf8'))
+    .join('\n');
+  const testedNames = new Set(
+    SUPPLEMENT_INGREDIENTS.filter((i) => testBlob.includes(i.name)).map((i) => i.name),
+  );
+  const report = auditCatalog(SUPPLEMENT_INGREDIENTS, PROVENANCE_BY_NAME, AUDIT_DATE, testedNames);
 
   it('audits a non-empty catalog and the matrix is internally consistent', () => {
     expect(report.totalEntries).toBeGreaterThan(0);

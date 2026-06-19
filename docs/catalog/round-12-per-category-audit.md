@@ -25,6 +25,7 @@
 | Provenance coverage | every load-bearing value traceable (§I.2) | 27% |  |
 | Canonical-ID coverage (UNII / USP-Latin / GTIN) | world-class trajectory (verified, never bulk-inferred) | 0% | Fields present; verified assignment is deliberate (Nate-gated for botanical USP-Latin), never bulk. |
 | Heavy-metals vectors flagged (§I.5a) | class-level flag (flag-not-certify); finished product COA-tested to USP <232> | 41% | 152 entries classifier-flagged (lib/heavyMetalVectors.ts); 0 COA-verified-clean, 0 explicit override. Flag, not certify. |
+| Test-reference coverage (proxy for §VI) | 100% (§VI: bulk-paste + SFP + safety test per entry) | 12% | PROXY — entry name appears in ≥1 catalog test file; NOT a guarantee of all three §VI test types. A true per-test-type §VI check needs test-structure parsing (scoped, not built). Meta-test files (the audit/classifier tests) are excluded by the caller. |
 
 ## Coverage matrix (category × dimension)
 
