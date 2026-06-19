@@ -24,6 +24,7 @@
 // ============================================================
 import type { IndustrialIngredient, Provenance } from '../types';
 import { assessHeavyMetalVectors } from './heavyMetalVectors';
+import { normalizeIngredientName } from './parseFormula';
 
 // ─── §III.15 canonical taxonomy (15 categories incl. Excipients) ───────────
 export const CANONICAL_CATEGORIES = [
@@ -48,7 +49,8 @@ export type Dimension =
   | 'grade-claim'
   | 'potency-factor'
   | 'harm-critical'
-  | 'duplicate-sku';
+  | 'duplicate-sku'
+  | 'synonym-collision';
 
 export interface Finding {
   entryName: string;
@@ -155,6 +157,7 @@ export function auditCatalog(
   const byCategory = new Map<string, CategoryCoverage>();
   const baseGroups = new Map<string, string[]>();
   let hmVectors = 0, hmOverride = 0, hmClean = 0;
+  const synonymOwners = new Map<string, IndustrialIngredient[]>();
 
   const getCat = (category: string): CategoryCoverage => {
     let c = byCategory.get(category);
@@ -194,6 +197,26 @@ export function auditCatalog(
     if (hm.metals.length > 0) { cat.heavyMetalVectorEntries++; hmVectors++; }
     if (hm.basis === 'override') hmOverride++;
     else if (hm.basis === 'override-verified-clean') hmClean++;
+
+    // §II.8a — collect normalized synonyms per entry; flag intra-entry dups
+    const seenSyn = new Set<string>();
+    for (const syn of ing.synonyms ?? []) {
+      const norm = normalizeIngredientName(syn);
+      if (!norm) continue;
+      if (seenSyn.has(norm)) {
+        add({
+          entryName: ing.name, category: ing.category, dimension: 'synonym-collision', severity: 'S3',
+          issue: `Duplicate normalized synonym "${norm}" within this entry — breaks deterministic matching (§II.8a DON'T).`,
+          ruleCitation: '§II.8a',
+          recommendation: `Remove the duplicate; normalization already collapses capitalization/punctuation variants.`,
+        });
+        continue;
+      }
+      seenSyn.add(norm);
+      const arr = synonymOwners.get(norm) ?? [];
+      arr.push(ing);
+      synonymOwners.set(norm, arr);
+    }
 
     // duplicate clustering (§16 two-wave dup is intentional, but surface it)
     const base = normalizeBase(ing.name);
@@ -298,6 +321,25 @@ export function auditCatalog(
         recommendation: `If a true value+premium pair, leave; if a redundant rebrand, route to the consolidation queue.`,
       });
     }
+  }
+
+  // ── §II.8a synonym collisions (cross-entry) — arbitrary/ambiguous resolution ──
+  for (const [norm, owners] of synonymOwners) {
+    if (owners.length < 2) continue;
+    const allergenSig = (i: IndustrialIngredient) =>
+      [...(i.allergens ?? [])].map((a) => a.toLowerCase()).sort().join(',');
+    const differingAllergens = new Set(owners.map(allergenSig)).size > 1;
+    add({
+      entryName: owners.map((o) => o.name).join('  |  '),
+      category: owners[0].category,
+      dimension: 'synonym-collision',
+      severity: differingAllergens ? 'S1' : 'S2',
+      issue: `Normalized synonym "${norm}" is claimed by ${owners.length} entries — operator paste resolves arbitrarily (first by iteration order) per findBySynonym${differingAllergens ? '. The colliding entries carry DIFFERING allergen profiles → silent undeclared-allergen risk (§II.8a Wave 1.5e harm-critical-sibling pattern)' : ''}.`,
+      ruleCitation: '§II.8a',
+      recommendation: differingAllergens
+        ? `HARM-CRITICAL: drop the bare shared synonym; qualify each variant (concentration/source/brand) and let the technical name route through findHarmCriticalSiblings (Tier-3 disambiguation).`
+        : `Make the synonym unique to one entry; qualify the others (concentration/source/brand) per §II.8a.`,
+    });
   }
 
   // ── §I.6 benchmarks (honest measurability) ──

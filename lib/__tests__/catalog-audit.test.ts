@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { SUPPLEMENT_INGREDIENTS } from '../data/supplements';
 import { PROVENANCE_BY_NAME } from '../data/supplementProvenance';
 import { auditCatalog, renderAuditMarkdown } from '../catalogAudit';
+import type { IndustrialIngredient } from '../../types';
 
 const AUDIT_DATE = '2026-06-17';
 
@@ -54,5 +55,58 @@ describe('catalog audit (Phase 1 — coverage & conformance)', () => {
       'utf8',
     );
     expect(true).toBe(true);
+  });
+});
+
+const mkIng = (over: Partial<IndustrialIngredient>): IndustrialIngredient => ({
+  name: '', category: 'Vitamins', suppliers: [], subIngredients: [], allergens: [],
+  costPerKg: 0, nutrition: {}, notes: '', ...over,
+});
+
+// Proves the §II.8a synonym-collision check actually fires in every mode — so
+// the "0 collisions" result on the real catalog is a trustworthy clean signal,
+// not a silently-broken check (recursive-honesty: don't trust a 0 on faith).
+describe('synonym-collision check (§II.8a)', () => {
+  const synFindings = (ings: IndustrialIngredient[]) =>
+    auditCatalog(ings, {}, '2026-06-18').findings.filter((f) => f.dimension === 'synonym-collision');
+
+  it('cross-entry collision with DIFFERING allergens → S1 (harm-critical)', () => {
+    const f = synFindings([
+      mkIng({ name: 'A (Soy)', allergens: ['Soybeans'], synonyms: ['shared name'] }),
+      mkIng({ name: 'B (Sunflower)', allergens: [], synonyms: ['Shared Name'] }),
+    ]);
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe('S1');
+  });
+
+  it('cross-entry collision with SAME allergens → S2', () => {
+    const f = synFindings([
+      mkIng({ name: 'A', synonyms: ['shared'] }),
+      mkIng({ name: 'B', synonyms: ['shared'] }),
+    ]);
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe('S2');
+  });
+
+  it('intra-entry duplicate synonym (case variant) → S3', () => {
+    const f = synFindings([mkIng({ name: 'A', synonyms: ['folate', 'Folate'] })]);
+    expect(f).toHaveLength(1);
+    expect(f[0].severity).toBe('S3');
+  });
+
+  it('normalization reuse: "Vitamin B9" vs "vitamin-b9" collide (dash→space)', () => {
+    const f = synFindings([
+      mkIng({ name: 'A', synonyms: ['Vitamin B9'] }),
+      mkIng({ name: 'B', synonyms: ['vitamin-b9'] }),
+    ]);
+    expect(f).toHaveLength(1);
+  });
+
+  it('unique synonyms → no collision finding', () => {
+    const f = synFindings([
+      mkIng({ name: 'A', synonyms: ['alpha'] }),
+      mkIng({ name: 'B', synonyms: ['beta'] }),
+    ]);
+    expect(f).toHaveLength(0);
   });
 });
