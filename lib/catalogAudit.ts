@@ -26,6 +26,7 @@ import type { IndustrialIngredient, Provenance } from '../types';
 import { assessHeavyMetalVectors } from './heavyMetalVectors';
 import { normalizeIngredientName, findBestMatchWithTier } from './parseFormula';
 import { resolveElementalFactor } from './elementalFactors';
+import { findDVEntry } from './supplementLabeling';
 import type { Stack } from './data/stacks';
 
 // ─── §III.15 canonical taxonomy (15 categories incl. Excipients) ───────────
@@ -55,7 +56,8 @@ export type Dimension =
   | 'synonym-collision'
   | 'consistency'
   | 'matchability'
-  | 'elemental-factor';
+  | 'elemental-factor'
+  | 'dv-mapping';
 
 export interface Finding {
   entryName: string;
@@ -347,7 +349,7 @@ export function auditCatalog(
       const routedToNate = /\b(boron|strontium|silica|silicon)\b/i.test(ing.name);
       add({
         entryName: ing.name, category: ing.category, dimension: 'elemental-factor',
-        severity: routedToNate ? 'S2' : 'S1',
+        severity: (routedToNate ? 'S2' : 'S1'),
         issue: routedToNate
           ? `Unmapped mineral — element ROUTED TO NATE/PA for chemistry verification (supplier-standardized chelate %, hydrate-dependent, or silica→silicon DV-basis). Caller falls back to 1.0 → over-count until the verified factor lands.`
           : `Mineral not recognized by the elemental resolver (lib/elementalFactors.ts) — caller falls back to 1.0, treating the FULL salt/chelate mass as elemental → silent OVER-count on the Supplement Facts panel.`,
@@ -355,6 +357,26 @@ export function auditCatalog(
         recommendation: routedToNate
           ? `Awaiting Nate/PA chemistry pass (boron chelate %, strontium hydrate state, silica→silicon DV-basis); add the verified fraction to lib/elementalFactors.ts.`
           : `Add this mineral's element/form to lib/elementalFactors.ts with its chemistry-derived fraction, or route to Nate if supplier-standardized / hydrate / DV-ambiguous.`,
+      });
+    }
+
+    // ── DV-mapping review (§II.9 / §IX.41) — the THIRD engine-contract leg, but
+    // a REVIEW flag, not a silent-wrong guard. A Vitamins/Minerals entry that
+    // resolves to no DV nutrient renders "†" (DV not established) — the engine
+    // handles that HONESTLY (FDA-correct), unlike the potency/elemental silent-
+    // wrongs. So this is S3: confirm a genuinely-no-DV compound vs a dvKeyword
+    // gap hiding an ESTABLISHED DV (e.g. a B-vitamin form the keywords miss).
+    // Restricted to VITAMINS: every vitamin has an established DV, so a Vitamins
+    // entry that doesn't map is reliably a real gap (bench-test 2026-06-18: 6/6
+    // were real). Minerals are EXCLUDED — their non-mapping is dominated by
+    // genuinely-no-DV elements (Boron, Si, V, Sr) where "†" is FDA-correct, and
+    // DV-bearing minerals all map today.
+    if (ing.category === 'Vitamins' && findDVEntry(ing.name) === null) {
+      add({
+        entryName: ing.name, category: ing.category, dimension: 'dv-mapping', severity: 'S3',
+        issue: `Vitamin form resolves to no DV nutrient (findDVEntry → null) → renders "†" instead of its established %DV (under-disclosure). Real keyword/form-equivalence gaps (e.g. benfotiamine→B1, pantethine→B5, cobalamins→B12, ascorbyl→C, carotenoids→A).`,
+        ruleCitation: '§II.9 / §IX.41',
+        recommendation: `Route to Nate/PA for the form-equivalence factor (benfotiamine→thiamine is NOT 1:1), then add the dvKeyword + conversion — not a bare keyword-add (that would over-state %DV).`,
       });
     }
   }

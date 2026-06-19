@@ -4,7 +4,7 @@
   "totalsBySeverity": {
     "S1": 0,
     "S2": 20,
-    "S3": 81,
+    "S3": 87,
     "S4": 107
   },
   "categories": [
@@ -20,7 +20,7 @@
       "findingsBySeverity": {
         "S1": 0,
         "S2": 1,
-        "S3": 16,
+        "S3": 22,
         "S4": 20
       }
     },
@@ -672,6 +672,15 @@
       "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
     },
     {
+      "entryName": "Mixed Carotenoids (Palm, 30%)",
+      "category": "Vitamins",
+      "dimension": "dv-mapping",
+      "severity": "S3",
+      "issue": "Vitamin form resolves to no DV nutrient (findDVEntry → null) → renders \"†\" instead of its established %DV (under-disclosure). Real keyword/form-equivalence gaps (e.g. benfotiamine→B1, pantethine→B5, cobalamins→B12, ascorbyl→C, carotenoids→A).",
+      "ruleCitation": "§II.9 / §IX.41",
+      "recommendation": "Route to Nate/PA for the form-equivalence factor (benfotiamine→thiamine is NOT 1:1), then add the dvKeyword + conversion — not a bare keyword-add (that would over-state %DV)."
+    },
+    {
       "entryName": "Vitamin D3 Vegan (Lichen-Sourced)",
       "category": "Vitamins",
       "dimension": "naming-discipline",
@@ -688,6 +697,15 @@
       "issue": "Internal wave marker \"Tier-A/B\" leaked into the display name (it is neither a real qualifier nor a buyer claim).",
       "ruleCitation": "§II.9",
       "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
+    },
+    {
+      "entryName": "Benfotiamine (Lipid-Soluble B1)",
+      "category": "Vitamins",
+      "dimension": "dv-mapping",
+      "severity": "S3",
+      "issue": "Vitamin form resolves to no DV nutrient (findDVEntry → null) → renders \"†\" instead of its established %DV (under-disclosure). Real keyword/form-equivalence gaps (e.g. benfotiamine→B1, pantethine→B5, cobalamins→B12, ascorbyl→C, carotenoids→A).",
+      "ruleCitation": "§II.9 / §IX.41",
+      "recommendation": "Route to Nate/PA for the form-equivalence factor (benfotiamine→thiamine is NOT 1:1), then add the dvKeyword + conversion — not a bare keyword-add (that would over-state %DV)."
     },
     {
       "entryName": "Niacinamide (USP, Tier-B)",
@@ -717,6 +735,15 @@
       "recommendation": "Move the value/premium tier to a structured field; drop \"Tier-A/B\" from the display name."
     },
     {
+      "entryName": "Pantethine (Active B5)",
+      "category": "Vitamins",
+      "dimension": "dv-mapping",
+      "severity": "S3",
+      "issue": "Vitamin form resolves to no DV nutrient (findDVEntry → null) → renders \"†\" instead of its established %DV (under-disclosure). Real keyword/form-equivalence gaps (e.g. benfotiamine→B1, pantethine→B5, cobalamins→B12, ascorbyl→C, carotenoids→A).",
+      "ruleCitation": "§II.9 / §IX.41",
+      "recommendation": "Route to Nate/PA for the form-equivalence factor (benfotiamine→thiamine is NOT 1:1), then add the dvKeyword + conversion — not a bare keyword-add (that would over-state %DV)."
+    },
+    {
       "entryName": "Pyridoxine HCl (USP, Tier-B)",
       "category": "Vitamins",
       "dimension": "naming-discipline",
@@ -742,6 +769,33 @@
       "issue": "Name carries a \"%\" loading signal but potencyFactor is absent — review whether this is a carrier-loaded form.",
       "ruleCitation": "§II.10",
       "recommendation": "Confirm against the COA whether a potencyFactor applies; document the decision."
+    },
+    {
+      "entryName": "Adenosylcobalamin (Dibencozide)",
+      "category": "Vitamins",
+      "dimension": "dv-mapping",
+      "severity": "S3",
+      "issue": "Vitamin form resolves to no DV nutrient (findDVEntry → null) → renders \"†\" instead of its established %DV (under-disclosure). Real keyword/form-equivalence gaps (e.g. benfotiamine→B1, pantethine→B5, cobalamins→B12, ascorbyl→C, carotenoids→A).",
+      "ruleCitation": "§II.9 / §IX.41",
+      "recommendation": "Route to Nate/PA for the form-equivalence factor (benfotiamine→thiamine is NOT 1:1), then add the dvKeyword + conversion — not a bare keyword-add (that would over-state %DV)."
+    },
+    {
+      "entryName": "Hydroxocobalamin (B12, Injectable Grade)",
+      "category": "Vitamins",
+      "dimension": "dv-mapping",
+      "severity": "S3",
+      "issue": "Vitamin form resolves to no DV nutrient (findDVEntry → null) → renders \"†\" instead of its established %DV (under-disclosure). Real keyword/form-equivalence gaps (e.g. benfotiamine→B1, pantethine→B5, cobalamins→B12, ascorbyl→C, carotenoids→A).",
+      "ruleCitation": "§II.9 / §IX.41",
+      "recommendation": "Route to Nate/PA for the form-equivalence factor (benfotiamine→thiamine is NOT 1:1), then add the dvKeyword + conversion — not a bare keyword-add (that would over-state %DV)."
+    },
+    {
+      "entryName": "Ascorbyl Palmitate (Fat-Soluble C)",
+      "category": "Vitamins",
+      "dimension": "dv-mapping",
+      "severity": "S3",
+      "issue": "Vitamin form resolves to no DV nutrient (findDVEntry → null) → renders \"†\" instead of its established %DV (under-disclosure). Real keyword/form-equivalence gaps (e.g. benfotiamine→B1, pantethine→B5, cobalamins→B12, ascorbyl→C, carotenoids→A).",
+      "ruleCitation": "§II.9 / §IX.41",
+      "recommendation": "Route to Nate/PA for the form-equivalence factor (benfotiamine→thiamine is NOT 1:1), then add the dvKeyword + conversion — not a bare keyword-add (that would over-state %DV)."
     },
     {
       "entryName": "Calcium Citrate (USP, Tier-B)",

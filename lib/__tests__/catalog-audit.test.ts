@@ -23,7 +23,10 @@ const AUDIT_DATE = '2026-06-17';
 // §II.13 consistency finding (calcium pantothenate Tier-A 85000 vs Tier-B 90000,
 // pure same-chemical pair) → S3 63. S1 hard-floored at 0 (carrier-loaded silent-
 // zero is harm-critical). S4 (dup clusters + grade-claim recording-gaps) — not ratcheted.
-const RATCHET = { S1: 0, S2: 4, S3: 63 }; // CONFORMANCE (entry-defect) findings only
+const RATCHET = { S1: 0, S2: 4, S3: 69 }; // CONFORMANCE (entry-defect) findings only
+// S3 63→69 on 2026-06-18: +6 real DV-mapping findings (Vitamins rendering "†"
+// instead of established %DV — benfotiamine/pantethine/cobalamins/ascorbyl/
+// carotenoids; fix = PA form-equivalence factor, routed to Nate).
 // Matchability is a coverage backlog, not entry defects — guarded by its own
 // floor (resolution may only improve toward the §I.6 ≥0.95 target). Baselined
 // 2026-06-18 at 66% (77 resolved / 30 unmatched of 116 standard-stack members).
