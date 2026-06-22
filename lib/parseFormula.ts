@@ -15,6 +15,7 @@
 import type { IndustrialIngredient } from '../types';
 import { UNITS } from './utils';
 import { harmCriticalDifferenceExists } from './supplementHarmCritical';
+import { lookupFormSet, forcePickReason, type FormSet } from './formSets';
 
 /**
  * Confidence tier for a bulk-paste match. Round 5 directive 2026-05-07:
@@ -37,6 +38,10 @@ export interface MatchResult {
   /** Human-readable reason for Tier 2/3 matches — surfaces in the UI for
    *  Tier 3 confirmations ("matched on suffix similarity, head token differs"). */
   reason?: string;
+  /** Present (with tier 3) when the input is a declared ambiguous bare term
+   *  ("Selenium", "DHA", …) → force-pick form chooser. Additive; legacy
+   *  consumers that read only item/tier/reason are unaffected. */
+  formSet?: FormSet;
 }
 
 export interface ParsedRow {
@@ -54,6 +59,8 @@ export interface ParsedRow {
   matchTier: MatchTier;
   /** Human-readable reason for the match (Tier 2/3 only). */
   matchReason?: string;
+  /** Force-pick form chooser for a declared ambiguous bare term (Tier 3). */
+  formSet?: FormSet;
   /** Whether the user wants to include this row. Tier 1/2 default true; Tier 3/4 default false. */
   accepted: boolean;
   /** If a volume unit was converted to mass using ingredient density, a human-readable note. */
@@ -477,6 +484,18 @@ function tokenizeForMatching(s: string): string[] {
  */
 export function findBestMatchWithTier(name: string, db: IndustrialIngredient[]): MatchResult {
   if (!name || name.length < 2) return { item: null, tier: 4 };
+
+  // ─── Tier 3: declared ambiguous BARE term → FORCE-PICK form chooser ───
+  // Fires BEFORE form-specific resolution, so "Selenium" force-picks while
+  // "L-Selenomethionine" resolves directly below. Exact normalized-key match
+  // only (no substring) → "Selenium-enriched yeast" does NOT force-pick.
+  // Safe-by-construction (doctrine #12): the force-pick itself is the safety;
+  // markers ship generic, precision strings ratchet in. C1 §C1 (2026-06-22).
+  const forcePick = lookupFormSet(normalizeIngredientName(name));
+  if (forcePick) {
+    return { item: null, tier: 3, reason: forcePickReason(forcePick), formSet: forcePick };
+  }
+
   const lower = name.toLowerCase().trim();
 
   // ─── Tier 1: exact match on catalog name ──────────────────────────
@@ -830,6 +849,7 @@ export function parsePastedFormula(text: string, db: IndustrialIngredient[]): Pa
       matchedItem: match.item,
       matchTier: match.tier,
       matchReason: match.reason,
+      formSet: match.formSet,
       // Tier 1/2 default-accepted; Tier 3 requires user confirmation; Tier 4 = no match.
       accepted: match.tier <= 2 && match.item !== null,
       volumeNote,
