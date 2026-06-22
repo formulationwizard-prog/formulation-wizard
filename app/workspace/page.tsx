@@ -41,7 +41,8 @@ import {
 } from '@/lib/utils';
 import { computeUnitEconomics, costPerKgToPerLb, costPerLbToPerKg } from '@/lib/unitEconomics';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
-import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, type ParsedRow } from '@/lib/parseFormula';
+import { parsePastedFormula, lookupDensity, VOLUME_UNITS, VOLUME_TO_ML, rankIngredientMatch, findBestMatchWithTier, type ParsedRow } from '@/lib/parseFormula';
+import { markerText, type FormOption } from '@/lib/formSets';
 import { estimateSpecs, getSpec, mapSpecToConfidence, rangedSpec, costRangedSpec, mapCostToConfidence, formatRangedValue, rollupCostConfidence, worstConfidence, type SpecMetric } from '@/lib/foodScience';
 import { getTrackedSpecDefaults, TRACKED_SPEC_LABELS, TRACKED_SPEC_ORDER, type TrackedSpec } from '@/lib/trackedSpecs';
 import { ConfidencePill } from '@/components/ConfidencePill';
@@ -1051,6 +1052,8 @@ export default function FormulationWizard() {
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  // §6 force-pick: which row is mid fish-species sub-pick (FALCPA cascade), if any.
+  const [formSubPick, setFormSubPick] = useState<{ idx: number; formId: string } | null>(null);
   /** If true, applying a bulk paste REPLACES the current formulation instead of appending. */
   const [replaceOnPaste, setReplaceOnPaste] = useState(true);
   const [showFullHaccp, setShowFullHaccp] = useState(false);
@@ -4949,6 +4952,27 @@ export default function FormulationWizard() {
                     );
                     const importableCount = parsedRows.filter(r => r.accepted && r.matchedItem).length;
                     const skipRow = (idx: number) => setParsedRows(parsedRows.filter((_, i) => i !== idx));
+                    // §6 force-pick: resolve a row to a chosen specific form. Re-resolves the
+                    // specific label through the SAME findBestMatchWithTier path (a specific form
+                    // never force-picks), then persists the chosen label + its honesty markers.
+                    const resolveForm = (idx: number, form: FormOption, label: string) => {
+                      const resolved = findBestMatchWithTier(label, INDUSTRIAL_DB);
+                      const next = [...parsedRows];
+                      next[idx] = {
+                        ...next[idx],
+                        parsedName: label,
+                        matchedItem: resolved.item,
+                        formSet: undefined,
+                        chosenForm: { label, markers: form.markers, licensingGated: form.licensingGated, matchedName: resolved.item?.name },
+                        accepted: true,
+                      };
+                      setParsedRows(next);
+                      setFormSubPick(null);
+                    };
+                    const pickForm = (idx: number, form: FormOption) => {
+                      if (form.subPick) { setFormSubPick({ idx, formId: form.id }); return; }  // FALCPA species cascade
+                      resolveForm(idx, form, form.label);
+                    };
                     return (
                     <div className="mt-4">
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -5031,7 +5055,7 @@ export default function FormulationWizard() {
                                   )}
                                 </>
                               )}
-                              {tier === 3 && r.matchedItem && (
+                              {tier === 3 && r.matchedItem && !r.chosenForm && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Confirm match</span>
@@ -5064,6 +5088,94 @@ export default function FormulationWizard() {
                                   </div>
                                   {r.volumeNote && (
                                     <p className="text-amber-700 mt-0.5">⚖️ {r.volumeNote}</p>
+                                  )}
+                                </>
+                              )}
+                              {/* §6 force-pick chooser — declared ambiguous bare term, no default */}
+                              {tier === 3 && r.formSet && !r.formSet.structuredCapture && !r.chosenForm && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Pick a form</span>
+                                    <span className="font-semibold text-gray-800">{r.parsedName}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} {r.parsedUnit}</span>
+                                  </div>
+                                  <p className="text-gray-700 mt-0.5">
+                                    &ldquo;{r.parsedName}&rdquo; is ambiguous — the form determines allergen / %DV. Select one (no default):
+                                  </p>
+                                  {formSubPick && formSubPick.idx === idx ? (() => {
+                                    const fishForm = r.formSet!.forms.find(f => f.id === formSubPick.formId)!;
+                                    return (
+                                      <div className="mt-1.5">
+                                        <p className="text-[11px] text-amber-800 mb-1">{fishForm.subPick!.label}:</p>
+                                        <div className="flex flex-wrap gap-1">
+                                          {fishForm.subPick!.options.map(sp => (
+                                            <button key={sp} onClick={() => resolveForm(idx, fishForm, `${fishForm.label} (${sp})`)}
+                                              className="px-2 py-0.5 text-[11px] bg-white border border-amber-300 text-amber-900 rounded hover:bg-amber-100 transition">{sp}</button>
+                                          ))}
+                                          {fishForm.subPick!.otherAllowed && (
+                                            <button onClick={() => resolveForm(idx, fishForm, `${fishForm.label} (species per COA)`)}
+                                              className="px-2 py-0.5 text-[11px] bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-100 transition">Other (COA)</button>
+                                          )}
+                                          <button onClick={() => setFormSubPick(null)}
+                                            className="px-2 py-0.5 text-[11px] text-gray-500 hover:text-gray-700 transition">← back</button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })() : (
+                                    <div className="flex flex-col gap-1 mt-1.5">
+                                      {r.formSet.forms.map(f => (
+                                        <div key={f.id} className="flex flex-wrap items-baseline gap-2">
+                                          <button onClick={() => pickForm(idx, f)}
+                                            className="px-2 py-0.5 text-[11px] bg-amber-600 text-white rounded hover:bg-amber-700 transition shrink-0">
+                                            {f.label}{f.subPick ? ' →' : ''}
+                                          </button>
+                                          <span className="text-[11px] text-gray-500">
+                                            {f.markers.map(mk => markerText(mk)).join(' · ') || '—'}
+                                            {f.licensingGated && ' · licensing-gated'}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <div className="mt-1.5">
+                                    <button onClick={() => skipRow(idx)}
+                                      className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition">Skip this line</button>
+                                  </div>
+                                </>
+                              )}
+                              {/* §6 structured-capture target — Probiotic Multi-Strain (Phase-2 builder) */}
+                              {tier === 3 && r.formSet?.structuredCapture && !r.chosenForm && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Per-strain capture</span>
+                                    <span className="font-semibold text-gray-800">{r.parsedName}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} {r.parsedUnit}</span>
+                                  </div>
+                                  <p className="text-gray-700 mt-0.5">{r.formSet.structuredCaptureReason}</p>
+                                  <div className="flex gap-2 mt-1.5">
+                                    <button onClick={() => resolveForm(idx, { id: 'multi-strain-attested', label: r.parsedName, markers: [] }, `${r.parsedName} (operator-attested — per-strain detail pending)`)}
+                                      className="px-2 py-0.5 text-[11px] bg-amber-600 text-white rounded hover:bg-amber-700 transition">Enter as attested (Phase-2 detail)</button>
+                                    <button onClick={() => skipRow(idx)}
+                                      className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition">Skip this line</button>
+                                  </div>
+                                </>
+                              )}
+                              {/* §6 chosen form — resolved via force-pick, markers shown honestly */}
+                              {tier === 3 && r.chosenForm && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-emerald-200 text-emerald-900 rounded font-medium">✓ Form selected</span>
+                                    <span className="font-semibold text-gray-800">{r.chosenForm.label}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} {r.parsedUnit}</span>
+                                    {r.chosenForm.matchedName
+                                      ? <span className="text-emerald-600">• catalog-verified</span>
+                                      : <span className="text-amber-700">• operator-attested (not in catalog)</span>}
+                                  </div>
+                                  {r.chosenForm.markers.length > 0 && (
+                                    <p className="text-gray-500 mt-0.5">{r.chosenForm.markers.map(mk => markerText(mk)).join(' · ')}</p>
+                                  )}
+                                  {r.chosenForm.licensingGated && (
+                                    <p className="text-amber-700 mt-0.5">proprietary form — routed to licensing queue</p>
                                   )}
                                 </>
                               )}

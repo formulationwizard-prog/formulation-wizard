@@ -15,7 +15,7 @@
 import type { IndustrialIngredient } from '../types';
 import { UNITS } from './utils';
 import { harmCriticalDifferenceExists } from './supplementHarmCritical';
-import { lookupFormSet, forcePickReason, type FormSet } from './formSets';
+import { lookupFormSet, forcePickReason, type FormSet, type FormMarker } from './formSets';
 
 /**
  * Confidence tier for a bulk-paste match. Round 5 directive 2026-05-07:
@@ -61,6 +61,9 @@ export interface ParsedRow {
   matchReason?: string;
   /** Force-pick form chooser for a declared ambiguous bare term (Tier 3). */
   formSet?: FormSet;
+  /** Set once the operator picks a specific form from a force-pick chooser —
+   *  carries the chosen label + its honesty markers for honest rendering. */
+  chosenForm?: { label: string; markers: FormMarker[]; licensingGated?: boolean; matchedName?: string };
   /** Whether the user wants to include this row. Tier 1/2 default true; Tier 3/4 default false. */
   accepted: boolean;
   /** If a volume unit was converted to mass using ingredient density, a human-readable note. */
