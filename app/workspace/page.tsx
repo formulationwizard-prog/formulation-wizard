@@ -4972,11 +4972,15 @@ export default function FormulationWizard() {
                     const counts = parsedRows.reduce(
                       (a, r) => {
                         if (r.matchTier === 1 || r.matchTier === 2) a.confident++;
-                        else if (r.matchTier === 3) a.partial++;
+                        else if (r.matchTier === 3) {
+                          if (r.formSet?.structuredCapture) a.structuredCapture++;
+                          else if (r.formSet) a.forcePick++;
+                          else a.partial++;
+                        }
                         else a.unmatched++;
                         return a;
                       },
-                      { confident: 0, partial: 0, unmatched: 0 },
+                      { confident: 0, forcePick: 0, structuredCapture: 0, partial: 0, unmatched: 0 },
                     );
                     const importableCount = parsedRows.filter(r => r.accepted && r.matchedItem).length;
                     const skipRow = (idx: number) => setParsedRows(parsedRows.filter((_, i) => i !== idx));
@@ -5007,7 +5011,9 @@ export default function FormulationWizard() {
                         <p className="text-sm font-medium text-gray-700">
                           Parsed {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''}
                           {' '}<span className="text-emerald-600">({counts.confident} matched)</span>
-                          {counts.partial > 0 && <span className="text-amber-700"> • {counts.partial} need confirmation</span>}
+                          {counts.forcePick > 0 && <span className="text-amber-700"> • {counts.forcePick} need a form</span>}
+                          {counts.structuredCapture > 0 && <span className="text-amber-700"> • {counts.structuredCapture} need strains</span>}
+                          {counts.partial > 0 && <span className="text-amber-700"> • {counts.partial} to confirm</span>}
                           {counts.unmatched > 0 && <span className="text-red-500"> • {counts.unmatched} unmatched</span>}
                         </p>
                         <button
@@ -5018,10 +5024,22 @@ export default function FormulationWizard() {
                           {replaceOnPaste && ingredients.length > 0 ? '⟳ Replace with' : '+ Add'} {importableCount} ingredient{importableCount !== 1 ? 's' : ''}
                         </button>
                       </div>
+                      {counts.forcePick > 0 && (
+                        <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-900 leading-relaxed">
+                          <span className="font-semibold">⚠ {counts.forcePick} need{counts.forcePick === 1 ? 's' : ''} a form selected.</span>{' '}
+                          The form determines the allergen and %DV, so the engine won&apos;t guess — pick the form for each below.
+                        </div>
+                      )}
+                      {counts.structuredCapture > 0 && (
+                        <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-900 leading-relaxed">
+                          <span className="font-semibold">⚠ {counts.structuredCapture} need{counts.structuredCapture === 1 ? 's' : ''} per-strain capture.</span>{' '}
+                          Multi-strain blends require each strain listed (CFU per strain) — fill in the strains for each below.
+                        </div>
+                      )}
                       {counts.partial > 0 && (
                         <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-900 leading-relaxed">
-                          <span className="font-semibold">⚠ {counts.partial} partial match{counts.partial !== 1 ? 'es' : ''} need confirmation.</span>{' '}
-                          Pasted ingredients with low-confidence matches (head-token mismatch or suffix similarity only). Confirm each below before importing — they will not be added until checked.
+                          <span className="font-semibold">⚠ {counts.partial} low-confidence match{counts.partial !== 1 ? 'es' : ''} to confirm.</span>{' '}
+                          These matched on partial similarity only (head-token or suffix). Confirm each suggestion below before importing — they won&apos;t be added until checked.
                         </div>
                       )}
                       {ingredients.length > 0 && (

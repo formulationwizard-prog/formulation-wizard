@@ -82,3 +82,38 @@ describe('Tier-3 force-pick disambiguation (C1 form-sets)', () => {
     }
   });
 });
+
+// COUNT-INVARIANT (F-2, 2026-06-23): the bulk-paste summary banner buckets every
+// parsed row by this SAME predicate. The F-2 bug was lumping force-picks into the
+// "low-confidence partial" bucket. Lock the five-way separation so a future Tier-3
+// sub-case (force-pick, structuredCapture, or a new one) can't silently re-lump.
+describe('count-invariant: five-way bulk-paste classification stays distinct', () => {
+  type Bucket = 'confident' | 'forcePick' | 'structuredCapture' | 'partial' | 'unmatched';
+  // EXACT mirror of the page.tsx counts.reduce predicate (Option A — each Tier-3
+  // sub-case gets its own directive banner clause; none lumped).
+  const classify = (n: string): Bucket => {
+    const r = find(n);
+    if (r.tier === 1 || r.tier === 2) return 'confident';
+    if (r.tier === 3) {
+      if (r.formSet?.structuredCapture) return 'structuredCapture';
+      return r.formSet ? 'forcePick' : 'partial';
+    }
+    return 'unmatched';
+  };
+
+  it('confident — a clean specific-form match (tier 1/2)', () => {
+    expect(classify('L-Selenomethionine')).toBe('confident');
+  });
+  it('forcePick — a declared ambiguous bare term (tier 3 + form-set)', () => {
+    expect(classify('Selenium')).toBe('forcePick');
+  });
+  it('structuredCapture — Multi-Strain is its OWN bucket, NOT lumped into forcePick or partial', () => {
+    expect(classify('Probiotic Blend')).toBe('structuredCapture');
+  });
+  it('partial — collision-driven Tier-3 with no form-set (low-confidence)', () => {
+    expect(classify('Phosphatidylcholine')).toBe('partial');
+  });
+  it('unmatched — a name with no catalog match (tier 4)', () => {
+    expect(classify('Zzz Nonexistent Test Compound 999')).toBe('unmatched');
+  });
+});
