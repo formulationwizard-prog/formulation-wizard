@@ -99,8 +99,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { pushFormulation, pullFormulations, deleteCloudFormulation } from '@/lib/cloudSync';
 import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/regulatoryLimits';
 import { evaluateBucketA } from '@/lib/bucketAGate';
-import { isHardStop } from '@/lib/hardStop';
-import { evaluateReviewStateGate, getCurrentReviewState } from '@/lib/reviewState';
+import { isHardStop, type HardStopEvidence } from '@/lib/hardStop';
+import { evaluateSupplementBucket1Gate } from '@/lib/supplementBucket1Gate';
+import { getCurrentReviewState } from '@/lib/reviewState';
 import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
 import { computeFilingReadiness } from '@/lib/filingReadiness';
@@ -1051,6 +1052,10 @@ export default function FormulationWizard() {
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  // §B WS-B — refuse-to-export dialog (single chokepoint). Holds the hard-stop
+  // evidence + the deferred export action for the override path.
+  const [exportRefusal, setExportRefusal] = useState<{ docType: string; evidence: readonly HardStopEvidence[]; proceed: () => void } | null>(null);
+  const [overrideRationale, setOverrideRationale] = useState('');
   /** If true, applying a bulk paste REPLACES the current formulation instead of appending. */
   const [replaceOnPaste, setReplaceOnPaste] = useState(true);
   const [showFullHaccp, setShowFullHaccp] = useState(false);
@@ -1804,87 +1809,44 @@ export default function FormulationWizard() {
    * doctrine. Production future maturation: replace window.confirm with custom
    * modal + capture override rationale in audit trail.
    */
-  const printLabel = () => {
-    // Pillar 3 ReviewStateGate wire-up (2026-05-26 per novice-readiness-quad
-    // memo §3). Fires BEFORE the FALCPA species-naming gate because review
-    // state is more fundamental — if the review is mid-flow (draft / submitted
-    // / rejected), label-compliance issues are downstream concerns: export
-    // shouldn't proceed regardless of whether allergen statement is FALCPA-
-    // perfect.
-    //
-    // Behavior today (pre-Review-UI):
-    //   • Formulation never saved → no SavedFormulation exists → undefined
-    //     state → gate clears.
-    //   • Saved formulation with no reviews[] → undefined state → gate clears.
-    //   • Saved formulation with reviews in {draft, submitted, rejected} →
-    //     gate HARD-STOPS with operator-overridable refusal dialog.
-    //   • Saved formulation with reviews in {approved, version_locked} → gate
-    //     clears.
-    //
-    // Since no Review-creation UI exists yet (per current-capability inventory
-    // 2026-05-25 finding #2 — gates tested + exported + UNCONSUMED), this gate
-    // is functionally no-op for ALL operators today. The wire-up puts the
-    // rails in place for when Review-creation UI lands. First of three Pillar
-    // 3 wire-ups; IdentityTestGate + DiseaseClaimGate follow on subsequent
-    // commits.
-    //
-    // Override pattern matches the existing FALCPA gate below: window.confirm
-    // + override-accepted-proceeds. Custom modal upgrade flagged as Pillar 3
-    // polish work (per quad memo §3 — "Each gate wires into the appropriate UI
-    // surface ... operator-overridable confirmation dialog explaining what's
-    // failing + how to fix").
-    const currentSaved = savedFormulations.find(f => f.name === formulationName.trim());
-    const currentReviewState = getCurrentReviewState(currentSaved?.reviews);
-    const reviewGate = evaluateReviewStateGate(currentReviewState);
-    if (isHardStop(reviewGate)) {
-      const reviewViolationLines = reviewGate.evidence
-        .map((e, i) => `${i + 1}. ${e.subject} — ${e.detail}`)
-        .join('\n');
-      const reviewOverrideConfirmed = window.confirm(
-        `⚠ PA REVIEW STATE GATE FIRED — REFUSE TO EXPORT (default)\n\n` +
-        `${reviewGate.reason}\n\n` +
-        `${reviewViolationLines}\n\n` +
-        `Citation: PA-Review State Machinery (docs/architecture/pa-review-state-machinery-proposal.md)\n\n` +
-        `Override (proceed with print anyway) = export-compliance risk on operator. ` +
-        `Recommended: transition the review to 'approved' or 'version_locked' before printing.\n\n` +
-        `Press OK to OVERRIDE and print anyway. Press Cancel to refuse the print (recommended).`
-      );
-      if (!reviewOverrideConfirmed) return;
-    }
-
-    // FALCPA species-naming hard-stop gate per 21 CFR 101.36(b)(1)(i)(B).
-    const gate = evaluateAllergenGate({ allergenMatches: allergenStatement });
-    if (isHardStop(gate)) {
-      const violationLines = gate.evidence
-        .map((e, i) => `${i + 1}. ${e.subject} — ${e.detail}`)
-        .join('\n');
-      const overrideConfirmed = window.confirm(
-        `⚠ FALCPA SPECIES-NAMING GATE FIRED — REFUSE TO EXPORT (default)\n\n` +
-        `${gate.reason}\n\n` +
-        `${violationLines}\n\n` +
-        `Citation: ${B1_ALLERGEN_CITATION_LOCAL}\n\n` +
-        `Override (proceed with print anyway) = label-compliance risk on operator. ` +
-        `Recommended: cancel + return to Build Base Sheet + correct catalog ingredient ` +
-        `data so species name appears (e.g., 'Coconut' not 'Tree Nuts').\n\n` +
-        `Press OK to OVERRIDE and print anyway. Press Cancel to refuse the print (recommended).`
-      );
-      if (!overrideConfirmed) return;
-    }
-    document.body.classList.add('print-label-only');
-    const cleanup = () => {
-      document.body.classList.remove('print-label-only');
-      window.removeEventListener('afterprint', cleanup);
-    };
-    window.addEventListener('afterprint', cleanup);
-    window.print();
-    // Safety: some browsers don't fire afterprint reliably if dialog is cancelled fast
-    setTimeout(cleanup, 3000);
+  // §B WS-B — SINGLE EXPORT CHOKEPOINT. Every supplement-mode export egress
+  // (SFP label, PDS, Raw Material Spec, Batch Sheet) routes through this: it
+  // composes the Bucket-1 harm-critical gate (evaluateSupplementBucket1Gate) and
+  // either runs `proceed` (cleared) or opens the refuse-to-export dialog (hard-
+  // stop) carrying the gate's evidence. Replaces the per-button piecemeal gating
+  // that left PDS / Batch / Spec ungated and the composed gate uncalled. F&B mode
+  // no-ops here (its exports use the bucketAGate track — a future hook on this
+  // same chokepoint). Increment-1 wires the params available today: allergen
+  // species-naming (§B1, fires) + disease-claim (§B2, fires) + review-state
+  // (rails — no-op until Review-creation UI lands). Net-quantity (§B5) +
+  // identity-test (§B3) plumb in increment-2; the composed gate skips them when
+  // their params are undefined. § DO NOT add an export egress that bypasses this.
+  const gateBeforeExport = (docType: string, proceed: () => void) => {
+    if (mode !== 'supplements') { proceed(); return; }   // F&B exports → bucketAGate track (post-August)
+    const saved = savedFormulations.find(f => f.name === formulationName.trim());
+    const result = evaluateSupplementBucket1Gate({
+      allergenMatches: allergenStatement,
+      diseaseClaimFlags: analyzeDraftClaim(suppDraftClaim || ''),
+      reviewState: getCurrentReviewState(saved?.reviews),
+    });
+    if (!result.hardStop) { proceed(); return; }
+    setOverrideRationale('');
+    setExportRefusal({ docType, evidence: result.evidence, proceed });
   };
 
-  // Local citation constant inlined to avoid cross-module re-export for a single
-  // user-facing string; mirrors B1_ALLERGEN_CITATION from lib/supplementAllergen.ts.
-  // If this string drifts, the lib-module constant is the source of truth.
-  const B1_ALLERGEN_CITATION_LOCAL = '21 CFR 101.36(b)(1)(i)(B); FALCPA + FASTER Act';
+  const printLabel = () => {
+    gateBeforeExport('Supplement Facts label', () => {
+      document.body.classList.add('print-label-only');
+      const cleanup = () => {
+        document.body.classList.remove('print-label-only');
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+      // Safety: some browsers don't fire afterprint reliably if dialog is cancelled fast
+      setTimeout(cleanup, 3000);
+    });
+  };
 
   /**
    * Reset the formulation to an empty state. Does NOT clear product type,
@@ -4485,6 +4447,52 @@ export default function FormulationWizard() {
         />
       )}
 
+      {/* §B WS-B — refuse-to-export dialog (single chokepoint for every supplement export) */}
+      {exportRefusal && (
+        <div className="fixed inset-0 bg-black/70 z-[120] flex items-center justify-center p-4" onClick={() => setExportRefusal(null)}>
+          <div className="bg-white rounded-xl max-w-lg w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="bg-red-600 text-white px-5 py-3 rounded-t-xl">
+              <h2 className="text-base font-bold">⚠ Refuse to export — {exportRefusal.docType}</h2>
+              <p className="text-xs text-red-100 mt-0.5">The harm-critical floor blocked this export. Fix the issue below, or override with a written reason (export-compliance risk is on you).</p>
+            </div>
+            <div className="p-5 space-y-3">
+              <ul className="space-y-1.5 text-sm text-gray-800">
+                {exportRefusal.evidence.map((ev, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="text-red-600 font-bold shrink-0">{i + 1}.</span>
+                    <span><span className="font-semibold">{ev.subject}</span> — {ev.detail}</span>
+                  </li>
+                ))}
+              </ul>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Override reason (required to proceed anyway)</label>
+                <textarea
+                  value={overrideRationale}
+                  onChange={e => setOverrideRationale(e.target.value)}
+                  rows={2}
+                  className="w-full border border-gray-300 rounded p-2 text-sm"
+                  placeholder="Why is export appropriate despite the block? (captured to the audit trail)"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button onClick={() => setExportRefusal(null)} className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200">Cancel (recommended)</button>
+                <button
+                  disabled={overrideRationale.trim().length < 4}
+                  onClick={() => {
+                    // INTERIM (increment-1): override rationale captured + logged. Persistent home =
+                    // the append-only event model (0003 lifecycle spine / LotEvent); wired in increment-3.
+                    console.warn('[export-override]', { docType: exportRefusal.docType, rationale: overrideRationale.trim(), violations: exportRefusal.evidence.length });
+                    const proceed = exportRefusal.proceed;
+                    setExportRefusal(null);
+                    proceed();
+                  }}
+                  className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >Override &amp; export anyway</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* BUILD TAB */}
       {activeTab === 'build' && (
         <div className="max-w-[1700px] 2xl:max-w-[80vw] mx-auto px-6 lg:px-8 py-8">
@@ -9158,7 +9166,7 @@ export default function FormulationWizard() {
               <div className="flex items-center justify-between p-4 border-b border-gray-200 print:hidden bg-gray-50">
                 <h2 className="text-lg font-bold text-gray-800">📄 Packaging Data Sheet</h2>
                 <div className="flex gap-2">
-                  <button onClick={() => window.print()} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
+                  <button onClick={() => gateBeforeExport('Packaging Data Sheet', () => window.print())} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
                   <button onClick={() => setShowPackagingSheet(false)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200">Close</button>
                 </div>
               </div>
@@ -9464,7 +9472,7 @@ export default function FormulationWizard() {
               <div className="flex items-center justify-between p-4 border-b border-gray-200 print:hidden bg-gray-50">
                 <h2 className="text-lg font-bold text-gray-800">📋 Raw Material Spec Sheet</h2>
                 <div className="flex gap-2">
-                  <button onClick={() => window.print()} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
+                  <button onClick={() => gateBeforeExport('Raw Material Spec Sheet', () => window.print())} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
                   <button onClick={() => setSpecSheetIngredientIndex(null)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200">Close</button>
                 </div>
               </div>
@@ -10744,7 +10752,7 @@ export default function FormulationWizard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-bold text-gray-800">🏭 Batch Sheet Generator</h2>
               <button
-                onClick={() => window.print()}
+                onClick={() => gateBeforeExport('Batch Sheet', () => window.print())}
                 disabled={ingredients.length === 0}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
               >
