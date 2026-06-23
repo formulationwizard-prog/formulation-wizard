@@ -13,7 +13,7 @@
 //   • Plain lines like "Soybean Oil 700 g" or "700g Soybean Oil"
 // ============================================================
 import type { IndustrialIngredient } from '../types';
-import { UNITS } from './utils';
+import { UNITS, isCountUnit } from './utils';
 import { harmCriticalDifferenceExists } from './supplementHarmCritical';
 import { lookupFormSet, forcePickReason, type FormSet, type FormMarker } from './formSets';
 
@@ -84,6 +84,11 @@ const UNIT_ALIASES: Record<string, string> = {
   // 1000× error class). Phase 2 implementation-discovery finding #11.
   mg: 'mg', milligram: 'mg', milligrams: 'mg',
   mcg: 'mcg', microgram: 'mcg', micrograms: 'mcg', ug: 'mcg', μg: 'mcg',
+  // Count (CFU) — preserved as a count unit; isCountUnit() keeps these out of weight math.
+  'billion cfu': 'Billion CFU', 'billions cfu': 'Billion CFU', 'bn cfu': 'Billion CFU',
+  'million cfu': 'Million CFU', 'millions cfu': 'Million CFU',
+  'trillion cfu': 'Trillion CFU', 'trillions cfu': 'Trillion CFU',
+  cfu: 'CFU',
   oz: 'oz', ounce: 'oz', ounces: 'oz',
   lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
   // Volume (metric)
@@ -112,7 +117,7 @@ export const VOLUME_UNITS = new Set(Object.keys(VOLUME_TO_ML));
 // D3" no longer falls through to default 'g'). Order matters in regex
 // alternation: mcg listed BEFORE mg (irrelevant for ambiguity given the
 // literal-character matching, but consistency with the alias table order).
-const QTY_UNIT_PATTERN = /(\d+(?:[.,]\d+)?)\s*(gallons?|gal|quarts?|qt|pints?|pt|kg|mcg|micrograms?|μg|ug|mg|milligrams?|g|oz|lbs?|ml|l\b|fl\s*oz|floz|fluid\s*ounces?|tsp|teaspoons?|tbsp|tbs|tbl|tablespoons?|cups?|\bc\b|grams?|kilograms?|ounces?|pounds?|milliliters?|millilitres?|liters?|litres?)\b/i;
+const QTY_UNIT_PATTERN = /(\d+(?:[.,]\d+)?)\s*(billions?\s*cfu|millions?\s*cfu|trillions?\s*cfu|bn\s*cfu|cfu|gallons?|gal|quarts?|qt|pints?|pt|kg|mcg|micrograms?|μg|ug|mg|milligrams?|g|oz|lbs?|ml|l\b|fl\s*oz|floz|fluid\s*ounces?|tsp|teaspoons?|tbsp|tbs|tbl|tablespoons?|cups?|\bc\b|grams?|kilograms?|ounces?|pounds?|milliliters?|millilitres?|liters?|litres?)\b/i;
 
 /**
  * Normalize fraction notation to decimal floats.
@@ -848,7 +853,7 @@ export function parsePastedFormula(text: string, db: IndustrialIngredient[]): Pa
       originalLine: rawLine,
       parsedName: name,
       parsedQty: finalQty,
-      parsedUnit: UNITS.includes(finalUnit) ? finalUnit : 'g',
+      parsedUnit: (UNITS.includes(finalUnit) || isCountUnit(finalUnit)) ? finalUnit : 'g',
       matchedItem: match.item,
       matchTier: match.tier,
       matchReason: match.reason,

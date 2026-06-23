@@ -21,7 +21,7 @@
 // ============================================================
 import type { Ingredient } from '../types';
 import type { ModeId } from './modes';
-import { UNIT_TO_GRAMS } from './utils';
+import { UNIT_TO_GRAMS, isCountUnit } from './utils';
 import { computePerServingScale } from './supplementMath';
 import { keywordMatch } from './keywordMatch';
 import { resolveElementalFactor } from './elementalFactors';
@@ -328,6 +328,7 @@ export interface SupplementFactsData {
  * Convert an ingredient's quantity (in its original unit) to grams.
  */
 function ingredientGrams(ing: Ingredient): number {
+  if (isCountUnit(ing.unit)) return 0; // a count (CFU) is not a weight — never enters formula mass
   return ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
 }
 
@@ -405,6 +406,22 @@ export function buildSupplementFacts(params: {
 
     if (group === 'excipient') {
       excipientList.push({ name: ing.name, grams: ingredientGrams(ing) });
+      continue;
+    }
+
+    // Count-based actives (CFU / probiotics) — a count is NOT a weight: it never
+    // enters formula mass or per-serving scaling. Emit the count exactly as
+    // entered, no %DV (21 CFR 101.36 — probiotics are declared by colony-forming
+    // units). The mass-scaling path below would corrupt it (10 Billion ≠ a mass).
+    if (isCountUnit(ing.unit)) {
+      otherActivesRows.push({
+        displayName: cleanFormName(ing.name),
+        amount: ing.qty,
+        unit: ing.unit,
+        percentDV: null,
+        group,
+        sourceName: ing.name,
+      });
       continue;
     }
 

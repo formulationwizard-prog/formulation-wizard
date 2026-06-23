@@ -38,6 +38,7 @@ import {
   fdaRoundCalcium,
   fdaRoundPercentDVMacros,
   fdaRoundPercentDVMicros,
+  isCountUnit,
 } from '@/lib/utils';
 import { computeUnitEconomics, costPerKgToPerLb, costPerLbToPerKg } from '@/lib/unitEconomics';
 import { extractNeckCode, isClosureCompatible, needsExternalClosure } from '@/lib/data/packaging';
@@ -1317,7 +1318,7 @@ export default function FormulationWizard() {
   };
 
   const totalCost = ingredients.reduce((sum, ing) => sum + ((ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000) * (ing.costPerKg || 0), 0);
-  const totalWeightKg = ingredients.reduce((sum, ing) => sum + (ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000, 0);
+  const totalWeightKg = ingredients.reduce((sum, ing) => sum + (isCountUnit(ing.unit) ? 0 : (ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1)) / 1000), 0);
   const totalBatchGrams = totalWeightKg * 1000;
 
   // Convention B reliable per-serving fill mass (grams). Count forms derive it

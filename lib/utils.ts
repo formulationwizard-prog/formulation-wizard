@@ -51,6 +51,12 @@ export interface UnitCoercion {
   note: string | null;
 }
 
+// ----- Count units (CFU) — a count is NOT a weight ---------------------------
+// Probiotics declare by colony-forming units, not mass. A count must never be
+// fed into weight math: the `|| 1` grams fallback would treat "10 Billion CFU"
+// as 10 g — a misbranding-grade error. isCountUnit() guards every mass site.
+export const isCountUnit = (unit: string): boolean => /\bcfu\b/i.test(unit);
+
 /**
  * Coerce a (qty, unit) pair into a mode's allowed unit set (LB #3 fix, Option C).
  *
@@ -72,6 +78,9 @@ export function coerceUnitToAllowed(
   allowedUnits: string[],
 ): UnitCoercion {
   if (allowedUnits.includes(unit)) return { qty, unit, note: null };
+  // Count units (CFU) pass through untouched — not convertible to a mass/volume
+  // allowed unit, and coercing them to grams would corrupt the count.
+  if (isCountUnit(unit)) return { qty, unit, note: null };
 
   const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
@@ -229,7 +238,7 @@ export const emptyNutrition = (): Nutrition => ({
  * Convert a quantity in `unit` to grams (or ml, treated as 1:1 for water-like).
  */
 export const toGrams = (qty: number, unit: string): number =>
-  qty * (UNIT_TO_GRAMS[unit] || 1);
+  isCountUnit(unit) ? 0 : qty * (UNIT_TO_GRAMS[unit] || 1);
 
 // ============================================================
 // FDA NUTRITION FACTS ROUNDING (21 CFR 101.9)
