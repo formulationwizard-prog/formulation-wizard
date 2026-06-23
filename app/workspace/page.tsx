@@ -1848,12 +1848,12 @@ export default function FormulationWizard() {
     });
   };
 
-  // §B WS-B — RA review packet export. Routes through the SAME export chokepoint
+  // §B WS-B — Formulation Verification Report export. Routes through the SAME export chokepoint
   // as the label/PDS/Batch (harm-critical gate fires first), then prints the packet
   // card scoped via #supp-card-ra-packet. Force-expands the card first (rAF) so its
   // sections are in the DOM before print — the card collapse uses conditional render.
   const exportRaPacket = () => {
-    gateBeforeExport('RA review packet', () => {
+    gateBeforeExport('Formulation Verification Report', () => {
       setSuppCardsManuallyToggled(prev => ({ ...prev, 'ra-packet': true }));
       requestAnimationFrame(() => {
         document.body.classList.add('print-ra-packet-only');
@@ -8175,7 +8175,7 @@ export default function FormulationWizard() {
                     <button type="button" onClick={() => toggleSuppCard('ra-packet', raExpanded)} className="w-full flex items-center justify-between mb-4 flex-wrap gap-2 text-left">
                       <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                         <span className="text-xs opacity-60">{raExpanded ? '▼' : '▶'}</span>
-                        📋 RA Review Packet — {packet.overallState === 'has-hard-stops' ? `${packet.hardStopCount} hard-stop${packet.hardStopCount === 1 ? '' : 's'} to resolve` : 'Ready for reviewer sign-off'}
+                        📋 Formulation Verification Report — {packet.overallState === 'has-hard-stops' ? `${packet.hardStopCount} hard-stop${packet.hardStopCount === 1 ? '' : 's'} to resolve` : 'Ready for reviewer sign-off'}
                       </h2>
                       <span className="text-[10px] uppercase tracking-wide text-gray-500">Sign-off bundle · 21 CFR 111</span>
                     </button>
