@@ -443,6 +443,19 @@ input:focus, select:focus, textarea:focus {
     max-height: 100vh !important;
     overflow: hidden !important;
   }
+  /* RA review packet export — same scoping as the label, targets the packet card. */
+  body.print-ra-packet-only,
+  body.print-ra-packet-only * { visibility: hidden; }
+  body.print-ra-packet-only #supp-card-ra-packet,
+  body.print-ra-packet-only #supp-card-ra-packet * { visibility: visible; }
+  body.print-ra-packet-only #supp-card-ra-packet {
+    position: absolute; left: 0; top: 0; width: 100%;
+    padding: 0.25in; border: 0; border-radius: 0; box-shadow: none; background: white;
+  }
+  body.print-ra-packet-only .print\:hidden { display: none !important; visibility: hidden !important; }
+  html:has(body.print-ra-packet-only),
+  body.print-ra-packet-only { height: auto !important; max-height: 100vh !important; overflow: hidden !important; }
+  body.print-ra-packet-only > * { max-height: 100vh !important; overflow: hidden !important; }
 }
 
 /* ============================================================

@@ -1848,6 +1848,26 @@ export default function FormulationWizard() {
     });
   };
 
+  // §B WS-B — RA review packet export. Routes through the SAME export chokepoint
+  // as the label/PDS/Batch (harm-critical gate fires first), then prints the packet
+  // card scoped via #supp-card-ra-packet. Force-expands the card first (rAF) so its
+  // sections are in the DOM before print — the card collapse uses conditional render.
+  const exportRaPacket = () => {
+    gateBeforeExport('RA review packet', () => {
+      setSuppCardsManuallyToggled(prev => ({ ...prev, 'ra-packet': true }));
+      requestAnimationFrame(() => {
+        document.body.classList.add('print-ra-packet-only');
+        const cleanup = () => {
+          document.body.classList.remove('print-ra-packet-only');
+          window.removeEventListener('afterprint', cleanup);
+        };
+        window.addEventListener('afterprint', cleanup);
+        window.print();
+        setTimeout(cleanup, 3000);
+      });
+    });
+  };
+
   /**
    * Reset the formulation to an empty state. Does NOT clear product type,
    * packaging choices, or formulation name — those are user-selected context
@@ -8175,6 +8195,9 @@ export default function FormulationWizard() {
                         ))}
                       </div>
                       <p className="text-[10px] text-gray-500 italic leading-snug border-t border-gray-200 pt-3">{packet.disclaimer}</p>
+                      <div className="print:hidden mt-3 flex justify-end">
+                        <button type="button" onClick={() => exportRaPacket()} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700 font-medium">🖨 Export / Print packet</button>
+                      </div>
                     </>)}
                   </div>
                 );
