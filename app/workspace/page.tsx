@@ -5034,7 +5034,7 @@ export default function FormulationWizard() {
                       {counts.structuredCapture > 0 && (
                         <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-900 leading-relaxed">
                           <span className="font-semibold">⚠ {counts.structuredCapture} need{counts.structuredCapture === 1 ? 's' : ''} per-strain capture.</span>{' '}
-                          Multi-strain blends require each strain listed (CFU per strain) — fill in the strains for each below.
+                          Multi-strain probiotic blends must list each strain on the label (21 CFR 101.36(c)). Per-strain entry is coming — for now, enter the blend as attested, or skip.
                         </div>
                       )}
                       {counts.partial > 0 && (
