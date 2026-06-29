@@ -2,6 +2,8 @@
 
 **Branch:** `feat/intake-friendly-fixes` (off `integration-aug-mvp`). **All work committed + PUSHED to origin; working tree clean** (only pre-existing noise: settings.local, some docs/catalog/*, untracked scratch). **Not merged to main.**
 
+> **GTM/LAUNCH PLAN (read alongside this):** [strategy/amazon-cgmp-wedge-launch-2026-06-28.md](strategy/amazon-cgmp-wedge-launch-2026-06-28.md) — the converged Amazon-cGMP-mandate wedge launch (Opus brainstorm + CC stress-test). **Re-entry: read the strategy doc, confirm the cut-line, then queue Session 1 = MVP-blocking finalization (F-10 #1, count-mass CFU, wire-or-scope §B5/§B3).** The strategy's product-floor IS this audit's launch-blocker list — they converge.
+
 ---
 
 ## WHAT LANDED THIS SESSION (2026-06-28) — 10 commits, all pushed, 1528 tests green
