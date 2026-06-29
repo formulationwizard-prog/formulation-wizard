@@ -4993,6 +4993,10 @@ export default function FormulationWizard() {
                     // Tier 4 = no match found.
                     const counts = parsedRows.reduce(
                       (a, r) => {
+                        // F-10: rows flagged with a parse issue are tallied separately
+                        // (below) — never folded into the match-tier counts (an IU row
+                        // can match the catalog at tier 1 yet must NOT read as importable).
+                        if (r.parseIssue) return a;
                         if (r.matchTier === 1 || r.matchTier === 2) a.confident++;
                         else if (r.matchTier === 3) {
                           if (r.formSet?.structuredCapture) a.structuredCapture++;
@@ -5004,8 +5008,33 @@ export default function FormulationWizard() {
                       },
                       { confident: 0, forcePick: 0, structuredCapture: 0, partial: 0, unmatched: 0 },
                     );
+                    // F-10 honest-engine: lines the parser surfaced rather than dropped.
+                    const needConversion = parsedRows.filter(r => r.parseIssue === 'unit-needs-conversion').length;
+                    const missingAmount = parsedRows.filter(r => r.parseIssue === 'no-quantity').length;
+                    const badUnit = parsedRows.filter(r => r.parseIssue === 'unrecognized-unit').length;
                     const importableCount = parsedRows.filter(r => r.accepted && r.matchedItem).length;
                     const skipRow = (idx: number) => setParsedRows(parsedRows.filter((_, i) => i !== idx));
+                    // F-10: apply the offered IU→mcg conversion (vitamin D — form-independent).
+                    // Re-resolves through the SAME match path so the converted row imports normally.
+                    const applyConversion = (idx: number) => {
+                      const row = parsedRows[idx];
+                      if (!row.suggestedConversion) return;
+                      const resolved = findBestMatchWithTier(row.parsedName, INDUSTRIAL_DB);
+                      const next = [...parsedRows];
+                      next[idx] = {
+                        ...row,
+                        parsedQty: row.suggestedConversion.toQty,
+                        parsedUnit: row.suggestedConversion.toUnit,
+                        parseIssue: undefined,
+                        rawUnitToken: undefined,
+                        suggestedConversion: undefined,
+                        matchedItem: resolved.item,
+                        matchTier: resolved.tier,
+                        matchReason: resolved.reason,
+                        accepted: resolved.tier <= 2 && resolved.item !== null,
+                      };
+                      setParsedRows(next);
+                    };
                     // §6 force-pick: resolve a row to a chosen specific form. Re-resolves the
                     // specific label through the SAME findBestMatchWithTier path (a specific form
                     // never force-picks), then persists the chosen label + its honesty markers.
@@ -5037,6 +5066,9 @@ export default function FormulationWizard() {
                           {counts.structuredCapture > 0 && <span className="text-amber-700"> • {counts.structuredCapture} need strains</span>}
                           {counts.partial > 0 && <span className="text-amber-700"> • {counts.partial} to confirm</span>}
                           {counts.unmatched > 0 && <span className="text-red-500"> • {counts.unmatched} unmatched</span>}
+                          {needConversion > 0 && <span className="text-indigo-600"> • {needConversion} need a unit fix</span>}
+                          {missingAmount > 0 && <span className="text-amber-700"> • {missingAmount} missing an amount</span>}
+                          {badUnit > 0 && <span className="text-red-500"> • {badUnit} unrecognized unit</span>}
                         </p>
                         <button
                           onClick={applyParsedRows}
@@ -5046,6 +5078,24 @@ export default function FormulationWizard() {
                           {replaceOnPaste && ingredients.length > 0 ? '⟳ Replace with' : '+ Add'} {importableCount} ingredient{importableCount !== 1 ? 's' : ''}
                         </button>
                       </div>
+                      {needConversion > 0 && (
+                        <div className="text-[11px] bg-indigo-50 border border-indigo-200 rounded p-2 mb-2 text-indigo-900 leading-relaxed">
+                          <span className="font-semibold">⎈ {needConversion} line{needConversion === 1 ? '' : 's'} use{needConversion === 1 ? 's' : ''} International Units (IU).</span>{' '}
+                          The FDA 2016 Supplement Facts panel declares vitamins in mcg/mg, not IU (21 CFR 101.36). We kept the line — convert it below before importing. We never silently drop or grams-coerce an IU amount.
+                        </div>
+                      )}
+                      {missingAmount > 0 && (
+                        <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-900 leading-relaxed">
+                          <span className="font-semibold">⚠ {missingAmount} line{missingAmount === 1 ? '' : 's'} had no amount.</span>{' '}
+                          We surfaced {missingAmount === 1 ? 'it' : 'them'} instead of dropping silently — add the quantity in the paste box and re-preview, or skip below.
+                        </div>
+                      )}
+                      {badUnit > 0 && (
+                        <div className="text-[11px] bg-red-50 border border-red-200 rounded p-2 mb-2 text-red-900 leading-relaxed">
+                          <span className="font-semibold">✗ {badUnit} line{badUnit === 1 ? '' : 's'} had an unrecognized unit.</span>{' '}
+                          We did <span className="font-semibold">not</span> assume grams (a silent 1000×-class error) — fix the unit in the paste box and re-preview, or skip below.
+                        </div>
+                      )}
                       {counts.forcePick > 0 && (
                         <div className="text-[11px] bg-amber-50 border border-amber-200 rounded p-2 mb-2 text-amber-900 leading-relaxed">
                           <span className="font-semibold">⚠ {counts.forcePick} need{counts.forcePick === 1 ? 's' : ''} a form selected.</span>{' '}
@@ -5088,8 +5138,16 @@ export default function FormulationWizard() {
                           //   Tier 1/2 (matched + accepted): emerald
                           //   Tier 3 (partial — confirm):    amber
                           //   Tier 4 (no match):             red
-                          const rowClass = tier === 1 || tier === 2
-                            ? 'bg-emerald-50 border border-emerald-100'
+                          // F-10 parse-issue rows take their own treatment (indigo for the
+                          // convertible IU case, amber/red for needs-attention) ahead of tier.
+                          const rowClass = r.parseIssue === 'unit-needs-conversion'
+                            ? 'bg-indigo-50 border border-indigo-200'
+                            : r.parseIssue === 'unrecognized-unit'
+                              ? 'bg-red-50 border border-red-200'
+                            : r.parseIssue === 'no-quantity'
+                              ? 'bg-amber-50 border border-amber-200'
+                            : tier === 1 || tier === 2
+                              ? 'bg-emerald-50 border border-emerald-100'
                             : tier === 3
                               ? 'bg-amber-50 border border-amber-200'
                               : 'bg-red-50 border border-red-100';
@@ -5098,7 +5156,7 @@ export default function FormulationWizard() {
                             <input
                               type="checkbox"
                               checked={r.accepted}
-                              disabled={!r.matchedItem}
+                              disabled={!r.matchedItem || !!r.parseIssue}
                               onChange={(e) => {
                                 const next = [...parsedRows];
                                 next[idx] = { ...next[idx], accepted: e.target.checked };
@@ -5107,7 +5165,75 @@ export default function FormulationWizard() {
                               className="mt-0.5"
                             />
                             <div className="flex-1">
-                              {(tier === 1 || tier === 2) && r.matchedItem && (
+                              {/* F-10: a parser-surfaced line (IU / no amount / typo'd unit). Takes
+                                  precedence over the match-tier branches — never silently dropped. */}
+                              {r.parseIssue === 'unit-needs-conversion' && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-indigo-200 text-indigo-900 rounded font-medium">⎈ Convert unit</span>
+                                    <span className="font-semibold text-gray-800">{r.parsedName}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} {r.rawUnitToken || 'IU'}</span>
+                                  </div>
+                                  <p className="text-gray-700 mt-0.5">
+                                    International Units (IU) can&apos;t go on the FDA 2016 Supplement Facts panel — vitamins are declared in mcg or mg (21 CFR 101.36).
+                                  </p>
+                                  {r.suggestedConversion ? (
+                                    <>
+                                      <div className="flex flex-wrap gap-2 mt-1.5 items-center">
+                                        <button onClick={() => applyConversion(idx)}
+                                          className="px-2 py-0.5 text-[11px] bg-indigo-600 text-white rounded hover:bg-indigo-700 transition">
+                                          Convert to {r.suggestedConversion.toQty} {r.suggestedConversion.toUnit}
+                                        </button>
+                                        <button onClick={() => skipRow(idx)}
+                                          className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition">Skip this line</button>
+                                      </div>
+                                      <p className="text-[11px] text-gray-500 mt-1">{r.suggestedConversion.note}</p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="text-gray-700 mt-0.5 text-[11px]">
+                                        This vitamin&apos;s IU→mcg factor depends on its chemical form (vitamin A and E differ), so the engine won&apos;t guess. Enter the mcg/mg amount from your spec or COA, or skip.
+                                      </p>
+                                      <div className="mt-1.5">
+                                        <button onClick={() => skipRow(idx)}
+                                          className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition">Skip this line</button>
+                                      </div>
+                                    </>
+                                  )}
+                                </>
+                              )}
+                              {r.parseIssue === 'no-quantity' && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Missing amount</span>
+                                    <span className="font-semibold text-gray-800">{r.parsedName}</span>
+                                  </div>
+                                  <p className="text-gray-700 mt-0.5">
+                                    No quantity found on this line — every ingredient needs an amount. Add it in the paste box above and re-preview, or skip.
+                                  </p>
+                                  <div className="mt-1.5">
+                                    <button onClick={() => skipRow(idx)}
+                                      className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition">Skip this line</button>
+                                  </div>
+                                </>
+                              )}
+                              {r.parseIssue === 'unrecognized-unit' && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="px-1.5 py-0.5 bg-red-200 text-red-900 rounded font-medium">✗ Unrecognized unit</span>
+                                    <span className="font-semibold text-gray-800">{r.parsedName}</span>
+                                    <span className="text-gray-600">→ {r.parsedQty} <span className="font-mono text-red-600">{r.rawUnitToken}</span></span>
+                                  </div>
+                                  <p className="text-gray-700 mt-0.5">
+                                    &ldquo;<span className="font-mono">{r.rawUnitToken}</span>&rdquo; isn&apos;t a unit the engine recognizes — likely a typo. We did <span className="font-semibold">not</span> assume grams. Fix the unit in the paste box above and re-preview, or skip.
+                                  </p>
+                                  <div className="mt-1.5">
+                                    <button onClick={() => skipRow(idx)}
+                                      className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 transition">Skip this line</button>
+                                  </div>
+                                </>
+                              )}
+                              {!r.parseIssue && (tier === 1 || tier === 2) && r.matchedItem && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-emerald-200 text-emerald-900 rounded font-medium">✓ Matched</span>
@@ -5123,7 +5249,7 @@ export default function FormulationWizard() {
                                   )}
                                 </>
                               )}
-                              {tier === 3 && r.matchedItem && !r.chosenForm && (
+                              {!r.parseIssue && tier === 3 && r.matchedItem && !r.chosenForm && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Confirm match</span>
@@ -5160,7 +5286,7 @@ export default function FormulationWizard() {
                                 </>
                               )}
                               {/* §6 force-pick chooser — declared ambiguous bare term, no default */}
-                              {tier === 3 && r.formSet && !r.formSet.structuredCapture && !r.chosenForm && (
+                              {!r.parseIssue && tier === 3 && r.formSet && !r.formSet.structuredCapture && !r.chosenForm && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Pick a form</span>
@@ -5212,7 +5338,7 @@ export default function FormulationWizard() {
                                 </>
                               )}
                               {/* §6 structured-capture target — Probiotic Multi-Strain (Phase-2 builder) */}
-                              {tier === 3 && r.formSet?.structuredCapture && !r.chosenForm && (
+                              {!r.parseIssue && tier === 3 && r.formSet?.structuredCapture && !r.chosenForm && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-medium">⚠ Per-strain capture</span>
@@ -5229,7 +5355,7 @@ export default function FormulationWizard() {
                                 </>
                               )}
                               {/* §6 chosen form — resolved via force-pick, markers shown honestly */}
-                              {tier === 3 && r.chosenForm && (
+                              {!r.parseIssue && tier === 3 && r.chosenForm && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-emerald-200 text-emerald-900 rounded font-medium">✓ Form selected</span>
@@ -5247,7 +5373,7 @@ export default function FormulationWizard() {
                                   )}
                                 </>
                               )}
-                              {tier === 4 && (
+                              {!r.parseIssue && tier === 4 && (
                                 <>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="px-1.5 py-0.5 bg-red-200 text-red-900 rounded font-medium">✗ No match</span>
