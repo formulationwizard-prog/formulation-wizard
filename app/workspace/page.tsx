@@ -108,7 +108,7 @@ import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
 import { computeFilingReadiness } from '@/lib/filingReadiness';
 import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
-import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV, formatNearZeroWarning, perServingActiveMgMap } from '@/lib/supplementLabeling';
+import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV, formatNearZeroWarning, perServingActiveMgMap, perCapsulePhysicalMassMg } from '@/lib/supplementLabeling';
 import { stripCatalogQaTokens } from '@/lib/labelDisplay';
 import { SupplementFactsPanel } from '@/components/SupplementFactsPanel';
 import { PROVENANCE_BY_NAME } from '@/lib/data/supplementProvenance';
@@ -1596,13 +1596,9 @@ export default function FormulationWizard() {
 
     // Supplement-mode rule sets
     if (mode === 'supplements' && ingredients.length > 0) {
-      const scaleSupp = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
-      const pmByName = new Map<string, number>();
-      for (const ing of ingredients) {
-        const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-        const pot = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor) ? ing.foodData.data.potencyFactor : 1;
-        pmByName.set(ing.name, g * scaleSupp * 1000 * pot);
-      }
+      // F-3/F-11: per-serving active mg via the shared resolver — no fill-scaling,
+      // no `|1` grams-trap; identical to the SFP + other safety surfaces by construction.
+      const pmByName = perServingActiveMgMap(ingredients, suppUnitsPerServing || 1);
 
       // Safety (UL / banned / interaction)
       const safetyFindings = checkSupplementSafety(ingredients, pmByName, suppAudience);
@@ -4528,13 +4524,9 @@ export default function FormulationWizard() {
               their state is green; default-expand when there are findings.
               ═══════════════════════════════════════════════════════════════ */}
           {mode === 'supplements' && ingredients.length > 0 && (() => {
-            const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
-            const pmByName = new Map<string, number>();
-            for (const ing of ingredients) {
-              const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-              const pot = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor) ? ing.foodData.data.potencyFactor : 1;
-              pmByName.set(ing.name, g * scale * 1000 * pot);
-            }
+            // F-3/F-11: per-serving active mg via the shared resolver — no fill-scaling,
+            // no `|1` grams-trap; identical to the SFP + other safety surfaces by construction.
+            const pmByName = perServingActiveMgMap(ingredients, suppUnitsPerServing || 1);
             const safetySum = summarizeFindings(checkSupplementSafety(ingredients, pmByName, suppAudience));
             const over = computeOverages(ingredients, pmByName, { shelfLifeMonths: suppShelfLifeMonths, storage: suppStorage, amberPackaging: suppAmberPkg, desiccant: suppDesiccant, nitrogenFlush: suppNitrogen, tocopherolAntioxidant: suppTocopherol });
             const compatSum = summarizeCompatibility(checkCompatibility(ingredients, {
@@ -4591,19 +4583,21 @@ export default function FormulationWizard() {
                   unitsPerServing: suppUnitsPerServing,
                   lastEdited: lastEditedCountField,
                 });
-                // Round 11 Phase 3 post-A.5 follow-up (2026-05-17) — Bug #9.
-                // Pass `unitsPerServing` instead of `reconciled.totalUnits`
-                // so per-unit fill weight computes correctly under the
-                // locked-in per-serving entry model (rulebook §II.11
-                // label-claim vs ingredient-mass doctrine). Operator-side
-                // Test 2b surfaced this: card showed 74% green "On target"
-                // while the status pill rendered "Low fill" (~1%) because
-                // assessProducibility was dividing per-serving total by
-                // batch-total-unit-count instead of per-serving-unit-count.
+                // F-3: per-capsule fill mass = Σ(entered) directly — entered amounts
+                // ARE per-capsule, so the formula sum IS the per-capsule mass.
+                // perCapsulePhysicalMassMg sums physical mass (no potency, no fill-
+                // scaling, no `|1` grams-trap; count→0, unsupported→excluded);
+                // totalUnits:1 because the mass passed is already per-capsule.
+                // RETIRED: the prior code divided totalBatchGrams by units under the
+                // superseded per-serving-entry model — it understated fill by the unit
+                // count and could greenlight a physically unbuildable capsule (§A:
+                // 1103 mg actives in a 680 mg '0' shell read as 81% "on target").
+                // (§II.11 governs active-vs-ingredient mass, NOT per-serving entry —
+                // the old comment miscited it.)
                 const prod = assessProducibility({
                   form: suppDeliveryForm,
-                  totalMassG: totalBatchGrams,
-                  totalUnits: suppUnitsPerServing,
+                  totalMassG: perCapsulePhysicalMassMg(ingredients) / 1000,
+                  totalUnits: 1,
                   capacityMg: capsuleCapacityMg(suppCapsuleSize),
                 });
                 // Map ProducibilityState → PillTier:
@@ -8264,13 +8258,10 @@ export default function FormulationWizard() {
                   assembles; the reviewer signs.
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && ingredients.length > 0 && (() => {
-                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
-                const pmByName = new Map<string, number>();
-                for (const ing of ingredients) {
-                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor) ? ing.foodData.data.potencyFactor : 1;
-                  pmByName.set(ing.name, g * scale * 1000 * potency);
-                }
+                // F-3/F-11: per-serving active mg via the shared resolver — no fill-scaling,
+                // no `|1` grams-trap. The RA sign-off packet's Safety + Overage now run on
+                // the SAME numbers the label declares (prior packets did not — regenerate them).
+                const pmByName = perServingActiveMgMap(ingredients, suppUnitsPerServing || 1);
                 const seedServings = servingsPerContainerOverride ?? 0;
                 const seedTotalUnits = totalUnitsOverride ?? deriveTotalUnits(seedServings, suppUnitsPerServing);
                 const reconciled = reconcileCountInputs({ servings: seedServings, totalUnits: seedTotalUnits, unitsPerServing: suppUnitsPerServing, lastEdited: lastEditedCountField });
@@ -8284,7 +8275,9 @@ export default function FormulationWizard() {
                   allergenGate: evaluateAllergenGate({ allergenMatches: allergenStatement }),
                   diseaseClaimGate: evaluateDiseaseClaimGate(analyzeDraftClaim(suppDraftClaim || '')),
                   overageSummary: computeOverages(ingredients, pmByName, { shelfLifeMonths: suppShelfLifeMonths, storage: suppStorage, amberPackaging: suppAmberPkg, desiccant: suppDesiccant, nitrogenFlush: suppNitrogen, tocopherolAntioxidant: suppTocopherol }),
-                  producibility: assessProducibility({ form: suppDeliveryForm, totalMassG: totalBatchGrams, totalUnits: reconciled.totalUnits, capacityMg }),
+                  // F-3: per-capsule fill = Σ(entered) directly (totalUnits:1); matches the
+                  // status-strip Producibility tile — the two sites no longer disagree.
+                  producibility: assessProducibility({ form: suppDeliveryForm, totalMassG: perCapsulePhysicalMassMg(ingredients) / 1000, totalUnits: 1, capacityMg }),
                   determination: determineFilingRequirement(null, {}, 'supplements'),
                 });
                 const verdictStyle = (v: string) =>

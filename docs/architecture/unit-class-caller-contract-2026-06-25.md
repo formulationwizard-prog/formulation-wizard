@@ -13,6 +13,12 @@
 | **Specs (pH / a_w / moisture)** | mass-weighted | **exclude** + footer *"N count-based ingredient(s) excluded — counts don't contribute mass."* | **exclude** + footer *"N ingredient(s) with unreadable amounts excluded."* |
 | **Allergen / NDI / claims** | name-based | name-based | name-based — *unitClass-independent* (CC's earlier finding: these read the name, not the mass) |
 | **Incomplete-formula flag** (Σ per-capsule vs. fill) | sum the mass | a count adds **0** to the mass-sum (safe) | **null can't sum** → flag *"N ingredient(s) have unreadable amounts — can't verify the formula fills the capsule. Fix the units, or re-enter in mg/mcg/g."* |
+| **Producibility / fit** (Σ per-capsule vs. capsule capacity) | sum **physical** mass via `perCapsulePhysicalMassMg` (no potency — full carrier mass fills the shell) | count adds **0** | **excluded** (mass unknown) |
+
+## Implementation status (2026-06-28)
+- **`perServingActiveMgMap(ingredients, unitsPerServing)`** (lib/supplementLabeling.ts) is the single safety-map construction (physical mg × potency). **All four safety/stability/overage consumers route through it** — rule-sets safety, status-strip pills, the Safety/Stability/Overage cards, and the RA review packet (commits `7fb16fe` + Unit 2a). The pre-existing four hand-rolled copies (which carried fill-scaling + the `|| 1` grams-trap) are retired.
+- **`perCapsulePhysicalMassMg(ingredients)`** feeds producibility: per-capsule fill = Σ(entered) directly (entered ARE per-capsule under F-3), `totalUnits: 1` — **never `÷ units`** (the retired per-serving-entry model understated fill and could greenlight an unbuildable capsule).
+- **Cost / specs rows above are NOT yet routed** — cost de-scale is the named-deferred follow-on; specs is future.
 
 ## The two load-bearing rules under the matrix
 1. **`null` is excluded, never summed as 0.** Mass engines that aggregate (Σ for the fill check, formula total, cost) must drop `null` rows and **flag** them — summing null-as-zero silently absorbs an unparseable ingredient into the total (the F-10 silent-drop class).
@@ -20,6 +26,6 @@
 
 ## Bench-test matrix (every cell is an assertion)
 - A paste with one of each class → each engine behaves per its row above (mass computes; count excluded-with-ceiling or count-rendered; unsupported excluded-with-ceiling or recovery-prompted).
-- **F-11 convergence:** the SFP path and the `perServingMgByName` (safety/stability/claims) path, both routed through `perServingAmounts`, produce **identical mass numbers** for every `mass` ingredient — no path divergence.
+- **F-11 convergence (FOUR-WAY, proven):** the SFP path and **all four** safety-map consumers route through `perServingAmounts` (via `perServingActiveMgMap`), producing **identical mass numbers** for every `mass` ingredient — cross-site identity is by construction (same call). Tested in `harness-sfp-august-golden.test.ts` (F-11 describe) + the §A producibility overfill regression.
 
 *This contract is referenced by the resolver docstring; steps 2–8 implement each caller against its row; the bench-test asserts each cell.*

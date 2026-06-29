@@ -14,8 +14,9 @@
 // target, never a dose scaler). Living — extends as new shapes/surfaces land (§7).
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { buildSupplementFacts, perServingActiveMgMap } from '../supplementLabeling';
+import { buildSupplementFacts, perServingActiveMgMap, perCapsulePhysicalMassMg } from '../supplementLabeling';
 import { perServingAmounts } from '../perServingAmounts';
+import { assessProducibility, capsuleCapacityMg } from '../servingModel';
 import { UNIT_TO_GRAMS } from '../utils';
 import type { Ingredient } from '../../types';
 
@@ -129,11 +130,14 @@ describe('HARNESS · GOLDEN A2 — F-3 1000× tripwire', () => {
 });
 
 // ── F-11 — cross-path mass identity (supplements-scoped) ──────────────────────
-// The SFP and the safety/stability/overage map BOTH derive per-serving PHYSICAL
-// mass from the ONE resolver (perServingAmounts), so neither can reintroduce
-// independent fill-scaling. Asserted on potency-1, non-DV ingredients where
-// physical == active == rendered. DV-basis rows legitimately differ by
-// elemental/equiv (applied only in the SFP) — out of scope for this identity.
+// FOUR-WAY now: the SFP and ALL safety-map consumers route through the one
+// resolver. The four consumers — rule-sets safety (page.tsx ~1599), status-strip
+// pills (~4531), the Safety/Stability/Overage cards (~6861/8357), and the RA
+// review packet (~8268) — every one calls perServingActiveMgMap(), which is
+// perServingAmounts × potency. So none can reintroduce independent fill-scaling
+// or the |1 grams-trap; cross-site identity is by construction (same call).
+// Asserted here on potency-1, non-DV ingredients where physical == active ==
+// rendered. DV-basis rows legitimately differ by elemental/equiv (SFP-only).
 describe('HARNESS · F-11 — SFP mass == safety-path mass == resolver physical (no path re-scales)', () => {
   const F = [ing('L-Theanine (Suntheanine)', 200, 'Amino Acids'), ing('Ashwagandha (KSM-66)', 600, 'Herbal Extracts')];
   const names = ['L-Theanine (Suntheanine)', 'Ashwagandha (KSM-66)'];
@@ -159,6 +163,41 @@ describe('HARNESS · F-11 — SFP mass == safety-path mass == resolver physical 
     const sfpMg = row.amount! * (row.unit === 'g' ? 1000 : 1);
     expect(sfpMg).toBeCloseTo(250 * 2 * 0.5, 4);       // 250 mg × 2 units × 0.5 potency = 250
     expect(safety.get('NMN Beadlet (carrier-loaded)')!).toBeCloseTo(sfpMg, 6);
+  });
+});
+
+// ── PRODUCIBILITY — F-3 per-capsule fill (§A overfill regression) ─────────────
+// §A Sleep Stack actives (1103 mg/cap) cannot fit a '0' capsule (680 mg cap).
+//   Pre-F-3-propagation: producibility computed (1103 ÷ 2 units) ÷ 680 = 81% →
+//     FALSE greenlight ("on target") for a physically unbuildable capsule.
+//   Post-F-3-propagation: 1103 ÷ 680 = 162% → over-fill, impossible.
+// This guards against the per-serving-entry model residue (÷units) creeping back
+// into producibility. The §A walkthrough is why per-capsule entry had to propagate.
+describe('PRODUCIBILITY · §A overfill regression — per-capsule fill, not ÷units', () => {
+  const SLEEP = [
+    ing('Magnesium Glycinate', 300, 'Minerals'),
+    ing('L-Theanine (Suntheanine)', 200, 'Amino Acids'),
+    ing('Melatonin', 3, 'Specialty'),
+    ing('Ashwagandha (KSM-66)', 600, 'Herbal Extracts'),
+  ];
+  it('Σ entered = per-capsule fill mass (1103 mg), independent of units-per-serving', () => {
+    expect(perCapsulePhysicalMassMg(SLEEP)).toBeCloseTo(1103, 0);
+  });
+  it("§A: 1103 mg actives in a '0' capsule (680 mg) → over-fill, NOT a false greenlight", () => {
+    const prod = assessProducibility({
+      form: 'capsule',
+      totalMassG: perCapsulePhysicalMassMg(SLEEP) / 1000,
+      totalUnits: 1,
+      capacityMg: capsuleCapacityMg('0'),
+    });
+    expect(prod.state).toBe('over-fill');
+  });
+  it('a fitting formula (400 mg in a 680 mg \'0\' capsule) reads producible', () => {
+    const ok = [ing('L-Theanine', 200, 'Amino Acids'), ing('Magnesium Glycinate', 200, 'Minerals')];
+    const prod = assessProducibility({
+      form: 'capsule', totalMassG: perCapsulePhysicalMassMg(ok) / 1000, totalUnits: 1, capacityMg: capsuleCapacityMg('0'),
+    });
+    expect(prod.state).toBe('producible'); // 400/680 = 59% → green
   });
 });
 

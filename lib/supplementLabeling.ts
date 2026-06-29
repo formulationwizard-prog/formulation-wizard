@@ -376,6 +376,30 @@ export function perServingActiveMgMap(ingredients: Ingredient[], unitsPerServing
 }
 
 /**
+ * Per-CAPSULE physical fill mass (mg) = Σ entered physical mass, no potency, no
+ * fill-scaling, no `|| 1` grams-trap. Count units → 0 (a count adds no mass);
+ * unsupported units → EXCLUDED (mass unknown, never fabricated).
+ *
+ * This is the powder mass that must fit the capsule — the producibility / fit
+ * input under F-3 (entered amounts ARE per-capsule; their sum IS the per-capsule
+ * mass). NOT active mass: a carrier-loaded SKU's FULL mass (carrier + active)
+ * occupies the capsule, so potency is deliberately NOT applied here.
+ *
+ * Replaces the retired pattern of feeding `totalBatchGrams` (which carries the
+ * `|| 1` grams-trap for CFU/IU) and DIVIDING by units (the superseded
+ * per-serving-entry model) into assessProducibility.
+ */
+export function perCapsulePhysicalMassMg(ingredients: Ingredient[]): number {
+  const physical = perServingAmounts(ingredients.map(i => ({ name: i.name, qty: i.qty, unit: i.unit })), 1);
+  let mg = 0;
+  for (const ing of ingredients) {
+    const psa = physical.get(ing.name);
+    if (psa && psa.mg !== null) mg += psa.mg; // count contributes 0; unsupported excluded
+  }
+  return mg;
+}
+
+/**
  * Build structured Supplement Facts from the ingredient list.
  *
  * @param ingredients  Active formulation ingredients.
