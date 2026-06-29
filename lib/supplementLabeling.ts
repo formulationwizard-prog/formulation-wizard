@@ -490,14 +490,31 @@ export function buildSupplementFacts(params: {
       continue;
     }
 
-    // Count-based actives (CFU / probiotics) — a count is NOT a weight: it never
-    // enters formula mass or per-serving scaling. Emit the count exactly as
-    // entered, no %DV (21 CFR 101.36 — probiotics are declared by colony-forming
-    // units). The mass-scaling path below would corrupt it (10 Billion ≠ a mass).
+    // Count-based actives (CFU / AFU — probiotics) declared by colony-forming
+    // units, no %DV (21 CFR 101.36). A count is NOT a weight — it never enters
+    // formula MASS or fill-scaling (the mass path below would corrupt it: 10
+    // Billion ≠ a mass). BUT the declared per-serving COUNT must still respect
+    // the §101.36(b)(2)(i) "declared amount = actual per-serving amount" rule:
+    //
+    //   per-serving count = entered-per-capsule × unitsPerServing
+    //
+    // This MIRRORS the F-3 mass-branch fix for the count class — same model
+    // (entry IS per-capsule; serving = per-capsule × units; NO fill-scaling),
+    // different unit semantics (count in CFU vs mass in mg via psa.mg). Without
+    // the × units a 5 Bn CFU/cap × 2-cap serving under-declares as 5 Bn (should
+    // be 10 Bn) — misbranding, the F-3 shape in the count path. Future readers:
+    // the two branches are deliberately symmetric; do not treat them differently.
+    //
+    // Unset unitsPerServing defaults to 1 (per-capsule = per-serving), preserving
+    // the single-capsule contract. The blank-until-real ("—") treatment the mass
+    // branch applies on unset units rides with the next increment, where the count
+    // value flows through perServingAmounts (which already classifies/handles UNSET).
     if (isCountUnit(ing.unit)) {
+      const unitsForCount = (mode === 'supplements' && unitsPerServing && unitsPerServing >= 1)
+        ? unitsPerServing : 1;
       otherActivesRows.push({
         displayName: cleanFormName(ing.name),
-        amount: ing.qty,
+        amount: ing.qty * unitsForCount,
         unit: ing.unit,
         percentDV: null,
         group,
