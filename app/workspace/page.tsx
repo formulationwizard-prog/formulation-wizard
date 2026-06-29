@@ -8310,6 +8310,9 @@ export default function FormulationWizard() {
                   ndiSummary: analyzeNDI(ingredients.map(i => i.name)),
                   allergenMatches: allergenStatement,
                   allergenGate: evaluateAllergenGate({ allergenMatches: allergenStatement }),
+                  // Unit C — the reviewer sees which allergen declarations are catalog defaults
+                  // pending COA (same single source as the workspace chrome annotation).
+                  unverifiedAllergenDeclarations: unverifiedAllergenSources(ingredients),
                   diseaseClaimGate: evaluateDiseaseClaimGate(analyzeDraftClaim(suppDraftClaim || '')),
                   overageSummary: computeOverages(ingredients, pmByName, { shelfLifeMonths: suppShelfLifeMonths, storage: suppStorage, amberPackaging: suppAmberPkg, desiccant: suppDesiccant, nitrogenFlush: suppNitrogen, tocopherolAntioxidant: suppTocopherol }),
                   // F-3: per-capsule fill = Σ(entered) directly (totalUnits:1); matches the

@@ -77,4 +77,18 @@ describe('HARNESS · #18 RA-review packet — composition + verdict roll-up', ()
   it('determination section always requests reviewer sign-off (PA gate)', () => {
     expect(buildRAReviewPacket(cleanInput()).sections.find(s => s.id === 'determination')!.needsReviewerSignoff).toBe(true);
   });
+
+  // Unit C — unverified catalog-default allergen declarations surface to the reviewer.
+  it('unverified allergen declarations → named in the allergen section + needs reviewer sign-off', () => {
+    const sec = buildRAReviewPacket({ ...cleanInput(), unverifiedAllergenDeclarations: ['Lactobacillus acidophilus NCFM'] })
+      .sections.find(s => s.id === 'allergen')!;
+    expect(sec.summary).toMatch(/pending supplier COA verification: Lactobacillus acidophilus NCFM/);
+    expect(sec.needsReviewerSignoff).toBe(true); // unverified → reviewer must confirm
+  });
+
+  it('no unverified declarations → no unverified note, no sign-off (clean allergen section)', () => {
+    const sec = buildRAReviewPacket(cleanInput()).sections.find(s => s.id === 'allergen')!;
+    expect(sec.summary).not.toMatch(/pending supplier COA verification:/);
+    expect(sec.needsReviewerSignoff).toBe(false);
+  });
 });

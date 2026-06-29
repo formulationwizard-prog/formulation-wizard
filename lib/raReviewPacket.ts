@@ -55,6 +55,11 @@ export interface RAReviewPacketInput {
   ndiSummary: NDISummary;
   allergenMatches: readonly AllergenMatch[];
   allergenGate: AllergenGateResult;
+  /** Ingredient names whose allergen declaration is a catalog default pending supplier
+   *  COA (from unverifiedAllergenSources). Surfaces in the allergen section so the reviewer
+   *  sees which declarations are unverified — same list as the workspace chrome annotation
+   *  (Unit B/C single source). Optional: omitted → no unverified-declarations note. */
+  unverifiedAllergenDeclarations?: readonly string[];
   diseaseClaimGate: DiseaseClaimGateResult;
   overageSummary: OverageSummary;
   producibility: ProducibilityAssessment;
@@ -86,13 +91,20 @@ function ndiSection(n: NDISummary): RAReviewSection {
   return { id: 'ndi', title: 'NDI Compliance', authority: 'DSHEA §8 / 21 U.S.C. 350b / 21 CFR 190.6', verdict, summary, citations: ['21 U.S.C. 350b', '21 CFR 190.6'], needsReviewerSignoff: verdict !== 'cleared' };
 }
 
-function allergenSection(matches: readonly AllergenMatch[], gate: AllergenGateResult): RAReviewSection {
+function allergenSection(matches: readonly AllergenMatch[], gate: AllergenGateResult, unverified: readonly string[] = []): RAReviewSection {
   if (gate.hardStop) {
     return { id: 'allergen', title: 'Allergen Disclosure (FALCPA/FASTER)', authority: '21 U.S.C. 321(qq) / 21 CFR 101.36(b)(1)(i)(B)', verdict: 'hard-stop', summary: gate.reason, citations: dedupe(gate.evidence.map(e => e.citation)), needsReviewerSignoff: true };
   }
   const contains = generateContainsStatement(matches);
-  const summary = contains ? `${contains} Auto-detected; supplier COA must confirm or deny cross-contact.` : 'No major allergens auto-detected; supplier COA must confirm cross-contact status.';
-  return { id: 'allergen', title: 'Allergen Disclosure (FALCPA/FASTER)', authority: '21 U.S.C. 321(qq) / 21 CFR 101.36(b)(1)(i)(B)', verdict: 'advisory', summary, citations: ['21 U.S.C. 321(qq)(1)', '21 CFR 101.36(b)(1)(i)(B)'], needsReviewerSignoff: false };
+  const base = contains ? `${contains} Auto-detected; supplier COA must confirm or deny cross-contact.` : 'No major allergens auto-detected; supplier COA must confirm cross-contact status.';
+  // Unit C — surface the unverified catalog-default declarations for the reviewer (same
+  // list as the workspace chrome annotation). The regulated Contains: statement above is
+  // unchanged; this only flags verification status. When present, the reviewer is asked to
+  // confirm, so the section needs sign-off.
+  const unverifiedNote = unverified.length > 0
+    ? ` Catalog-default allergen declaration(s) pending supplier COA verification: ${unverified.join(', ')}.`
+    : '';
+  return { id: 'allergen', title: 'Allergen Disclosure (FALCPA/FASTER)', authority: '21 U.S.C. 321(qq) / 21 CFR 101.36(b)(1)(i)(B)', verdict: 'advisory', summary: base + unverifiedNote, citations: ['21 U.S.C. 321(qq)(1)', '21 CFR 101.36(b)(1)(i)(B)'], needsReviewerSignoff: unverified.length > 0 };
 }
 
 function claimsSection(gate: DiseaseClaimGateResult): RAReviewSection {
@@ -125,7 +137,7 @@ export function buildRAReviewPacket(input: RAReviewPacketInput): RAReviewPacket 
   const sections: RAReviewSection[] = [
     safetySection(input.safetyFindings),
     ndiSection(input.ndiSummary),
-    allergenSection(input.allergenMatches, input.allergenGate),
+    allergenSection(input.allergenMatches, input.allergenGate, input.unverifiedAllergenDeclarations),
     claimsSection(input.diseaseClaimGate),
     stabilitySection(input.overageSummary),
     producibilitySection(input.producibility),
