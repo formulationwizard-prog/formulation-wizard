@@ -30,7 +30,8 @@ function params(ingredients: Ingredient[]) {
   return {
     ingredients, mode: 'supplements' as const,
     servingSizeInGrams: 1, totalBatchGrams,
-    supplementServingMassG: totalBatchGrams,           // serving = formula → scale 1.0 (recipe-ratio identity-equivalent; tests dose math, not blank-state)
+    supplementServingMassG: totalBatchGrams,           // (legacy field; ignored by the F-3 supplement path — dose keys on units)
+    unitsPerServing: 1,                                // F-3: 1 unit/serving → per-serving = entered per-capsule (identity); tests dose math, not blank-state
     servingsPerContainer: 30, servingSizeLabel: '2 Capsules',
     caloriesPerServing: 0,
     macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },

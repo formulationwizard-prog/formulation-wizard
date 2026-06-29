@@ -23,6 +23,7 @@ import type { Ingredient } from '../types';
 import type { ModeId } from './modes';
 import { UNIT_TO_GRAMS, isCountUnit } from './utils';
 import { computePerServingScale } from './supplementMath';
+import { perServingAmounts } from './perServingAmounts';
 import { keywordMatch } from './keywordMatch';
 import { resolveElementalFactor } from './elementalFactors';
 import { resolveEquivalenceFactor } from './nutrientEquivalence';
@@ -364,9 +365,23 @@ export function buildSupplementFacts(params: {
    *  because the manufacturer is declaring sources in a separate ingredient statement
    *  (§101.4(g)) instead. Either/or, never both. Default false (sources in the SFP). */
   omitSourceParens?: boolean;
+  /** F-3 (supplements): capsules/units per serving. per-serving = entered
+   *  per-capsule × this, via perServingAmounts — NO fill-scaling. Unset/0 →
+   *  blank-until-real ("—"). Ignored in non-supplement modes (legacy scale). */
+  unitsPerServing?: number;
 }): SupplementFactsData {
   const { ingredients, mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG, servingsPerContainer, servingSizeLabel,
-          caloriesPerServing, macroPerServing, omitSourceParens = false } = params;
+          caloriesPerServing, macroPerServing, omitSourceParens = false, unitsPerServing } = params;
+
+  // F-3 single source of truth (supplements only): per-serving PHYSICAL mass =
+  // entered per-capsule × unitsPerServing, NO fill-scaling, unit-class-aware
+  // (mass / count / unsupported). Built once; the dose + blend-floor both derive
+  // from it below, so the SFP can never diverge from the perServingMgByName path
+  // (F-11). Null when units are unset (< 1) → blank-until-real ("—"). Other modes
+  // keep the legacy fill-scaled MaybeValue path untouched (byte-identical F&B).
+  const psMap = (mode === 'supplements' && unitsPerServing && unitsPerServing >= 1)
+    ? perServingAmounts(ingredients.map(i => ({ name: i.name, qty: i.qty, unit: i.unit })), unitsPerServing)
+    : null;
 
   // Per-serving scaling — routes through the shared helper so the SFP
   // matches the Safety / Determination / NDI / Claims / Stability surfaces.
@@ -431,14 +446,37 @@ export function buildSupplementFacts(params: {
     const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
       ? ing.foodData.data.potencyFactor : 1;
 
-    // PHYSICAL ingredient mass per serving, in mg — computed BEFORE potency.
-    // This is the mass actually weighed into the blend (a carrier-loaded SKU is
-    // mostly carrier by mass), so it — not the active amount — is what the
-    // uniform-blend floor must be measured against.
-    const physicalMassMg = ingredientGrams(ing) * scale * 1000;
+    // F-3 / F-10 (supplements): an UNSUPPORTED unit (IU, typo — anything not in
+    // the mass table) has UNKNOWN mass. Render the row honestly with NO amount,
+    // never the `|| 1` grams-trap fabrication that ingredientGrams would yield
+    // (5000 IU → "5000 g"). The entered unit is preserved so the operator can
+    // correct it. This is the no-silent-drop path: surfaced, not dropped.
+    const psa = psMap?.get(ing.name);
+    if (psa && psa.unitClass === 'unsupported') {
+      otherActivesRows.push({
+        displayName: cleanFormName(ing.name),
+        amount: null, unit: psa.unit, percentDV: null, group, sourceName: ing.name,
+      });
+      continue;
+    }
 
-    // Amount of ACTIVE per serving, in grams (or ml treated as 1:1)
-    const gramsPerServing = ingredientGrams(ing) * scale * potency;
+    // Per-serving PHYSICAL mass (mg) — the single source the dose AND the blend-
+    // floor both derive from. Supplements: psa.mg (entered per-capsule × units,
+    // NO fill-scaling; UNSET when units are unset → blank-until-real "—"). Other
+    // modes: the legacy fill-scaled MaybeValue, byte-identical to before. The
+    // physical mass is BEFORE potency — a carrier-loaded SKU is mostly carrier by
+    // mass, so this (not the active amount) is what the uniform-blend floor checks.
+    const physMgMaybe: MaybeValue<number> = mode === 'supplements'
+      ? (psa && psa.mg !== null ? real(psa.mg) : UNSET)
+      : combine(combine(combine(real(ingredientGrams(ing)), formulaMassMaybe, (i, t) => i / t), servingMassMaybe, (p, s) => p * s), real(1000), (g, f) => g * f);
+    const physicalMassMg = isUnset(physMgMaybe) ? 0 : valueOf(physMgMaybe)!;
+
+    // ACTIVE-existence guard + source-attribution grams. Units-INDEPENDENT in
+    // supplements mode so a units-unset ingredient still renders ("—") instead of
+    // being skipped here; the blank-until-real lives in physMgMaybe, not the guard.
+    const gramsPerServing = mode === 'supplements'
+      ? ingredientGrams(ing) * potency
+      : ingredientGrams(ing) * scale * potency;
     if (gramsPerServing <= 0) continue;
 
     const dv = findDVEntry(ing.name);
@@ -459,11 +497,13 @@ export function buildSupplementFacts(params: {
       // folic acid→DFE, tryptophan→NE, all-rac→α-tocopherol). 1.0 when already in basis.
       const equiv = dv.basis ? resolveEquivalenceFactor(ing.name, dv.basis) : 1;
       const toUnit = (mg: number) => dv.unit === 'mcg' ? mg * 1000 : dv.unit === 'g' ? mg / 1000 : mg;
-      // Active mass per serving in the DV basis, as MaybeValue: ingredient grams in the
-      // serving = (ingredient ÷ formula) × serving mass; UNSET serving → UNSET → "—".
-      const ingInServingG = combine(combine(real(ingredientGrams(ing)), formulaMassMaybe, (i, t) => i / t), servingMassMaybe, (p, s) => p * s);
-      const activeMgMaybe = combine(ingInServingG, real(potency * 1000 * elemental * equiv), (g, f) => g * f);
-      const folicMgMaybe = combine(ingInServingG, real(potency * 1000 * elemental), (g, f) => g * f); // pre-DFE (folic acid mass)
+      // Active mass per serving in the DV basis, as MaybeValue. Derived from the
+      // ONE per-serving physical mass (physMgMaybe, already in mg — so NO ×1000
+      // here; that bridge was the 1000× misbranding surface). potency/elemental/
+      // equiv are CONVERSIONS (the factor boundary), applied on top of the
+      // physical mass. UNSET physical (units unset) → UNSET → "—".
+      const activeMgMaybe = combine(physMgMaybe, real(potency * elemental * equiv), (mg, f) => mg * f);
+      const folicMgMaybe = combine(physMgMaybe, real(potency * elemental), (mg, f) => mg * f); // pre-DFE (folic acid mass)
       // REGULATION: 21 CFR 101.36(d)(2) — accumulate by nutrient (displayName+basis); ONE
       // summed row is emitted after the loop, not one row per source ingredient.
       const key = `${dv.displayName}|${dv.basis ?? ''}`;
@@ -477,9 +517,10 @@ export function buildSupplementFacts(params: {
       warnLabelUnit = dv.unit;
       labelRoundsToZero = !isUnset(activeMgMaybe) && formatSupplementAmount(toUnit(valueOf(activeMgMaybe)!), dv.unit) === '0';
     } else {
-      // No DV — display in mg (or g if >= 1000 mg) with "†". MaybeValue so an UNSET
-      // serving mass (blank fill, recipe-ratio) → "—", not the entered amount.
-      const mgMaybe = combine(combine(combine(real(ingredientGrams(ing)), formulaMassMaybe, (i, t) => i / t), servingMassMaybe, (p, s) => p * s), real(potency * 1000), (g, f) => g * f);
+      // No DV — display in mg (or g if >= 1000 mg) with "†". Derived from the ONE
+      // per-serving physical mass (physMgMaybe, already mg — no ×1000). UNSET
+      // physical (units unset) → "—", not the entered amount.
+      const mgMaybe = combine(physMgMaybe, real(potency), (mg, f) => mg * f);
       const mg = isUnset(mgMaybe) ? null : valueOf(mgMaybe)!;
       const displayAmount: number | null = mg === null ? null : (mg >= 1000 ? mg / 1000 : mg);
       const displayUnit = mg !== null && mg >= 1000 ? 'g' : 'mg';

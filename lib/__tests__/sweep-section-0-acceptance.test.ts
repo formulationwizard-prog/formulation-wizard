@@ -7,7 +7,8 @@
 // formulas × INPUT STATES, every one run through ALL surfaces, asserting the rookie-bug
 // CLASS is absent at scale — not one formula, the whole space:
 //   1. No NaN / ±Infinity in any rendered legal-label value (the #1 rookie class).
-//   2. Blank-until-real holds: unset fill → every dose "—" (null), never a fabricated number.
+//   2. Blank-until-real holds: unset UNITS/serving → every dose "—" (null), never fabricated (F-3:
+//      per-serving = entered per-capsule × units, no fill-scaling; the fill is the fit target).
 //   3. No surface throws on any formula × state (no crash reaches a pilot user).
 //   4. Magnitude sanity: no 4× / 1000× unit errors — values stay within sane bounds.
 //   5. Cross-surface consistency: cost tracks the SFP scale; the RA-packet aggregates cleanly.
@@ -54,11 +55,13 @@ const FORMULAS: { name: string; ings: Ingredient[] }[] = [
   ]},
 ];
 
+// F-3 input states: the dose now keys on UNITS/serving (not fill). Fill still
+// varies to exercise the OTHER surfaces (blend-floor, cost, producibility).
 const STATES: { label: string; perCapMg: number; units: number }[] = [
-  { label: 'blank fill', perCapMg: 0, units: 2 },
-  { label: '350 mg/cap', perCapMg: 350, units: 2 },
-  { label: '660 mg/cap', perCapMg: 660, units: 2 },
-  { label: 'overfill 2000 mg/cap', perCapMg: 2000, units: 2 },
+  { label: 'blank units', perCapMg: 350, units: 0 },
+  { label: '1 unit/serving', perCapMg: 350, units: 1 },
+  { label: '2 units/serving @ 660', perCapMg: 660, units: 2 },
+  { label: 'overfill 2000 mg/cap, 2 units', perCapMg: 2000, units: 2 },
 ];
 
 const finite = (x: number | null) => x === null || (Number.isFinite(x) && !Number.isNaN(x));
@@ -83,14 +86,14 @@ describe('SWEEP §0 — golden formulas × input states × all surfaces', () => 
         }
       });
 
-      it(`${label} — blank-until-real: ${state.perCapMg === 0 ? 'unset fill → ALL doses "—"' : 'set fill → finite doses'}`, () => {
+      it(`${label} — blank-until-real: ${state.units === 0 ? 'unset units → ALL doses "—"' : 'set units → finite doses'}`, () => {
         const { facts } = runAllSurfaces(formula.ings, state);
         const rows = allRows(facts);
-        if (state.perCapMg === 0) {
-          // Unset serving mass → every dose must be null ("—"), never a fabricated number.
+        if (state.units === 0) {
+          // F-3: units/serving unset → every mass dose must be null ("—"), never fabricated.
           for (const r of rows) expect(r.amount, `${r.displayName} should be "—"`).toBeNull();
         } else {
-          // Set fill → at least one real dose, none NaN.
+          // Set units → at least one real dose, none NaN. Fill no longer scales the dose.
           expect(rows.some(r => typeof r.amount === 'number' && r.amount > 0)).toBe(true);
         }
       });
@@ -117,6 +120,7 @@ function runAllSurfaces(ings: Ingredient[], state: { perCapMg: number; units: nu
   }
   const facts = buildSupplementFacts({
     ingredients: ings, mode: 'supplements', servingSizeInGrams: 0, totalBatchGrams, supplementServingMassG,
+    unitsPerServing: state.units, // F-3: per-serving = entered per-capsule × units (no fill-scaling)
     servingsPerContainer: 30, servingSizeLabel: state.units > 0 ? `${state.units} Capsules` : '—', caloriesPerServing: 0,
     macroPerServing: { totalFat: 0, totalCarbs: 0, protein: 0, sodium: 0, totalSugars: 0 },
   });

@@ -149,6 +149,9 @@ function assembleSupplementFacts(
     servingSizeInGrams: totalBatchGrams,
     totalBatchGrams,
     supplementServingMassG,
+    // F-3: /start models 1 unit = 1 serving (entered amount IS per-serving),
+    // matching perServingMgByName above (grams × 1000). NOT fill-scaled.
+    unitsPerServing: 1,
     servingsPerContainer: opts.servingsPerContainer,
     servingSizeLabel: opts.servingSizeLabel,
     omitSourceParens: false, // sources declared in the SFP (default)

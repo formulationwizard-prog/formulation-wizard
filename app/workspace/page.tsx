@@ -7273,6 +7273,9 @@ export default function FormulationWizard() {
                     servingSizeInGrams,
                     totalBatchGrams,
                     supplementServingMassG: suppServingMassG,
+                    // F-3: per-serving = entered per-capsule × units (no fill-scaling).
+                    // 0 = unset → SFP amounts render "—" (blank-until-real).
+                    unitsPerServing: suppUnitsPerServing,
                     servingsPerContainer,
                     servingSizeLabel,
                     // 21 CFR 101.36(d): drop the SFP source parens when the operator declares
@@ -7782,6 +7785,8 @@ export default function FormulationWizard() {
                   servingSizeInGrams,
                   totalBatchGrams,
                   supplementServingMassG: suppServingMassG,
+                  // F-3: per-serving = entered per-capsule × units (no fill-scaling).
+                  unitsPerServing: suppUnitsPerServing,
                   servingsPerContainer,
                   servingSizeLabel: `${servingSize}${servingUnit}`,
                   caloriesPerServing: perServing(nutrition.calories),
