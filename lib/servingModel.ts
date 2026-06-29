@@ -358,7 +358,7 @@ export function assessProducibility(input: ProducibilityInput): ProducibilityAss
       case 'red':
         return {
           state: 'over-fill',
-          reason: `Fill weight ${fillWeightMg.toFixed(0)} mg exceeds capsule capacity ${input.capacityMg} mg (${(utilization * 100).toFixed(0)}% utilization). Reduce ingredient mass or select a larger capsule size.`,
+          reason: `Formula totals ${fillWeightMg.toFixed(0)} mg per capsule; the selected capsule holds ${input.capacityMg} mg (${(utilization * 100).toFixed(0)}% — over-fill, impossible as specified). Reduce actives, choose a larger capsule (e.g. 00 ≈ 950 mg, 000 ≈ 1370 mg), or split across more capsules per serving.`,
         };
       case 'amber-high':
         return {
@@ -368,7 +368,7 @@ export function assessProducibility(input: ProducibilityInput): ProducibilityAss
       case 'amber-low':
         return {
           state: 'low-fill',
-          reason: `Fill weight ${fillWeightMg.toFixed(0)} mg is only ${(utilization * 100).toFixed(0)}% of capsule capacity. Consider a smaller capsule for cost optimization.`,
+          reason: `Formula totals ${fillWeightMg.toFixed(0)} mg per capsule — only ${(utilization * 100).toFixed(0)}% of the selected ${input.capacityMg} mg capsule. Add filler from the catalog (MCC, rice flour, DCP, etc.) to complete the formula, or choose a smaller capsule.`,
         };
       case 'green':
         return {

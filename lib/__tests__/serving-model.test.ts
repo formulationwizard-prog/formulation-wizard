@@ -364,7 +364,7 @@ describe('assessProducibility (SP11 — Producibility status card)', () => {
   it('capsule: 50g / 60 caps / 680mg = ~122% utilization → over-fill', () => {
     const result = assessProducibility(input({ totalMassG: 50 }));
     expect(result.state).toBe('over-fill');
-    expect(result.reason.toLowerCase()).toContain('exceeds');
+    expect(result.reason.toLowerCase()).toContain('larger capsule'); // broadened remediation copy (Unit 2b)
   });
 
   it('capsule: 39g / 60 caps / 680mg = ~95.6% utilization → approaching over-fill', () => {

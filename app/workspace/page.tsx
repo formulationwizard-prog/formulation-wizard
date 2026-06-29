@@ -103,6 +103,7 @@ import { checkCompliance, formatAmount, type ComplianceFinding } from '@/lib/reg
 import { evaluateBucketA } from '@/lib/bucketAGate';
 import { isHardStop, type HardStopEvidence } from '@/lib/hardStop';
 import { evaluateSupplementBucket1Gate } from '@/lib/supplementBucket1Gate';
+import { evaluateSafetyCompletenessGate, type ExportDocType } from '@/lib/safetyCompletenessGate';
 import { getCurrentReviewState } from '@/lib/reviewState';
 import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
@@ -1821,21 +1822,41 @@ export default function FormulationWizard() {
   // (rails — no-op until Review-creation UI lands). Net-quantity (§B5) +
   // identity-test (§B3) plumb in increment-2; the composed gate skips them when
   // their params are undefined. § DO NOT add an export egress that bypasses this.
-  const gateBeforeExport = (docType: string, proceed: () => void) => {
+  const EXPORT_DOC_LABELS: Record<ExportDocType, string> = {
+    'sfp-label': 'Supplement Facts label',
+    'fvr-packet': 'Formulation Verification Report',
+    'pds': 'Packaging Data Sheet',
+    'raw-material-spec': 'Raw Material Spec Sheet',
+    'batch-sheet': 'Batch Sheet',
+  };
+  const gateBeforeExport = (docType: ExportDocType, proceed: () => void) => {
     if (mode !== 'supplements') { proceed(); return; }   // F&B exports → bucketAGate track (post-August)
     const saved = savedFormulations.find(f => f.name === formulationName.trim());
-    const result = evaluateSupplementBucket1Gate({
+    // Compose BOTH export gates at the single chokepoint: the Companion-Spec §B
+    // labeling floor (Bucket 1) AND the analysis-completeness preconditions
+    // (safety-completeness — units-per-serving, scoped to per-serving doc types).
+    // Refuse if EITHER fires; the refusal modal carries the combined evidence.
+    const bucket1 = evaluateSupplementBucket1Gate({
       allergenMatches: allergenStatement,
       diseaseClaimFlags: analyzeDraftClaim(suppDraftClaim || ''),
       reviewState: getCurrentReviewState(saved?.reviews),
     });
-    if (!result.hardStop) { proceed(); return; }
+    const completeness = evaluateSafetyCompletenessGate({
+      docType,
+      deliveryForm: suppDeliveryForm,
+      unitsPerServing: suppUnitsPerServing,
+    });
+    const evidence = [
+      ...(bucket1.hardStop ? bucket1.evidence : []),
+      ...(completeness.hardStop ? completeness.evidence : []),
+    ];
+    if (evidence.length === 0) { proceed(); return; }
     setOverrideRationale('');
-    setExportRefusal({ docType, evidence: result.evidence, proceed });
+    setExportRefusal({ docType: EXPORT_DOC_LABELS[docType], evidence, proceed });
   };
 
   const printLabel = () => {
-    gateBeforeExport('Supplement Facts label', () => {
+    gateBeforeExport('sfp-label', () => {
       document.body.classList.add('print-label-only');
       const cleanup = () => {
         document.body.classList.remove('print-label-only');
@@ -1853,7 +1874,7 @@ export default function FormulationWizard() {
   // card scoped via #supp-card-ra-packet. Force-expands the card first (rAF) so its
   // sections are in the DOM before print — the card collapse uses conditional render.
   const exportRaPacket = () => {
-    gateBeforeExport('Formulation Verification Report', () => {
+    gateBeforeExport('fvr-packet', () => {
       setSuppCardsManuallyToggled(prev => ({ ...prev, 'ra-packet': true }));
       requestAnimationFrame(() => {
         document.body.classList.add('print-ra-packet-only');
@@ -4616,7 +4637,7 @@ export default function FormulationWizard() {
                 const stateToDetail: Record<ProducibilityState, string> = {
                   'over-fill':   'Over-fill — impossible as specified',
                   'approaching': 'Approaching over-fill',
-                  'low-fill':    'Low fill — consider smaller capsule',
+                  'low-fill':    'Low fill — add filler or smaller capsule',
                   'unknown':     'Pending — add ingredients',
                   'producible':  'Producible',
                 };
@@ -9300,7 +9321,7 @@ export default function FormulationWizard() {
               <div className="flex items-center justify-between p-4 border-b border-gray-200 print:hidden bg-gray-50">
                 <h2 className="text-lg font-bold text-gray-800">📄 Packaging Data Sheet</h2>
                 <div className="flex gap-2">
-                  <button onClick={() => gateBeforeExport('Packaging Data Sheet', () => window.print())} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
+                  <button onClick={() => gateBeforeExport('pds', () => window.print())} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
                   <button onClick={() => setShowPackagingSheet(false)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200">Close</button>
                 </div>
               </div>
@@ -9606,7 +9627,7 @@ export default function FormulationWizard() {
               <div className="flex items-center justify-between p-4 border-b border-gray-200 print:hidden bg-gray-50">
                 <h2 className="text-lg font-bold text-gray-800">📋 Raw Material Spec Sheet</h2>
                 <div className="flex gap-2">
-                  <button onClick={() => gateBeforeExport('Raw Material Spec Sheet', () => window.print())} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
+                  <button onClick={() => gateBeforeExport('raw-material-spec', () => window.print())} className="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700">🖨 Print / PDF</button>
                   <button onClick={() => setSpecSheetIngredientIndex(null)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200">Close</button>
                 </div>
               </div>
@@ -10886,7 +10907,7 @@ export default function FormulationWizard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-bold text-gray-800">🏭 Batch Sheet Generator</h2>
               <button
-                onClick={() => gateBeforeExport('Batch Sheet', () => window.print())}
+                onClick={() => gateBeforeExport('batch-sheet', () => window.print())}
                 disabled={ingredients.length === 0}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition text-sm font-medium"
               >
