@@ -1695,10 +1695,15 @@ export default function FormulationWizard() {
   // (each ingredient contributes its per-100g × (qty/100)).
   // To render per-serving on the FDA label, scale by servingSize / batchWeight.
   const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
+  // F-3: supplement nutrient values are PER-CAPSULE (entered amounts ARE per-capsule),
+  // so per-serving = per-capsule × units — NOT fill-scaled. (Matters for gummies and any
+  // supplement with non-trivial macros; near-zero for typical capsules.) F&B keeps the
+  // batch→serving mass fraction. Floor units to 1 when unset.
+  const perServingFactor = mode === 'supplements' ? (suppUnitsPerServing || 1) : scale;
   /** Raw per-serving amount for a nutrient (no rounding — use fdaRound* for display). */
-  const perServing = (val: number) => val * scale;
+  const perServing = (val: number) => val * perServingFactor;
   /** Raw %DV (0-100+) for a nutrient with a valid DV. Returns 0 when DV is 0. */
-  const rawPct = (val: number, dv: number) => dv > 0 ? (val * scale / dv) * 100 : 0;
+  const rawPct = (val: number, dv: number) => dv > 0 ? (val * perServingFactor / dv) * 100 : 0;
 
   const addIngredient = () => {
     if (!newIngredient || !newQty) { alert('Please enter both ingredient name and quantity'); return; }
@@ -8819,6 +8824,10 @@ export default function FormulationWizard() {
                 const perUnitScale = packageSizeInGrams > 0 && totalBatchGrams > 0
                   ? packageSizeInGrams / totalBatchGrams
                   : 0;
+                // F-3-SAFE (verified, not a per-capsule/batch bug): totalBatchGrams CANCELS here —
+                // carbon = avgCarbon × (totalBatchGrams/1000) × (packageSize/totalBatchGrams)
+                // = avgCarbon × packageSize/1000 (CO₂e per package). Independent of whether
+                // totalBatchGrams is per-capsule or batch. Do not "fix" — there's nothing to fix.
                 const carbonPerUnit = sust.avgCarbonKgCo2ePerUnit * (totalBatchGrams / 1000) * perUnitScale;
                 const waterPerUnit = sust.avgWaterLitersPerUnit * (totalBatchGrams / 1000) * perUnitScale;
 
@@ -10987,6 +10996,10 @@ export default function FormulationWizard() {
           {/* Batch Sheet Document */}
           {ingredients.length > 0 && (() => {
             const targetBatchGrams = batchSize * (UNIT_TO_GRAMS[batchSizeUnit] || 1000);
+            // F-3-SAFE (verified, not a per-capsule/batch bug): scaleFactor is a proportional
+            // multiplier (scale the entered formula up to the target production batch). Correct
+            // whether totalBatchGrams is per-capsule (supplements) or a batch total (F&B) — it's
+            // a ratio; each ingredient × scaleFactor gives its target-batch quantity. Not a fix target.
             const scaleFactor = totalBatchGrams > 0 ? targetBatchGrams / totalBatchGrams : 1;
             // Header identity lookup: stable product fields come from the saved
             // formulation record (Product # + Version); they're the document's
