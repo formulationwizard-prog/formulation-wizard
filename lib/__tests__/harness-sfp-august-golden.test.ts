@@ -14,7 +14,8 @@
 // target, never a dose scaler). Living — extends as new shapes/surfaces land (§7).
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { buildSupplementFacts } from '../supplementLabeling';
+import { buildSupplementFacts, perServingActiveMgMap } from '../supplementLabeling';
+import { perServingAmounts } from '../perServingAmounts';
 import { UNIT_TO_GRAMS } from '../utils';
 import type { Ingredient } from '../../types';
 
@@ -124,6 +125,40 @@ describe('HARNESS · GOLDEN A2 — F-3 1000× tripwire', () => {
     expect(r, 'IU ingredient must be SURFACED, not silently dropped').toBeTruthy();
     expect(r!.amount, 'mass is UNKNOWN — never fabricated (5000 IU is NOT 5000 g)').toBeNull();
     expect(r!.unit).toBe('IU'); // entered unit preserved so the operator can correct it
+  });
+});
+
+// ── F-11 — cross-path mass identity (supplements-scoped) ──────────────────────
+// The SFP and the safety/stability/overage map BOTH derive per-serving PHYSICAL
+// mass from the ONE resolver (perServingAmounts), so neither can reintroduce
+// independent fill-scaling. Asserted on potency-1, non-DV ingredients where
+// physical == active == rendered. DV-basis rows legitimately differ by
+// elemental/equiv (applied only in the SFP) — out of scope for this identity.
+describe('HARNESS · F-11 — SFP mass == safety-path mass == resolver physical (no path re-scales)', () => {
+  const F = [ing('L-Theanine (Suntheanine)', 200, 'Amino Acids'), ing('Ashwagandha (KSM-66)', 600, 'Herbal Extracts')];
+  const names = ['L-Theanine (Suntheanine)', 'Ashwagandha (KSM-66)'];
+  for (const units of [1, 2, 3]) {
+    it(`units=${units}: all three paths agree, independent of fill`, () => {
+      const facts = sfp(F, 660, units); // fill irrelevant to the dose
+      const safety = perServingActiveMgMap(F, units);
+      const physical = perServingAmounts(F.map(i => ({ name: i.name, qty: i.qty, unit: i.unit })), units);
+      for (const name of names) {
+        const row = facts.otherActivesRows.find(r => r.sourceName === name)!;
+        const sfpMg = row.amount! * (row.unit === 'g' ? 1000 : 1);
+        expect(safety.get(name)!).toBeCloseTo(sfpMg, 6);         // SFP == safety map
+        expect(physical.get(name)!.mg!).toBeCloseTo(sfpMg, 6);   // SFP == resolver physical
+        expect(physical.get(name)!.mg!).toBeCloseTo(safety.get(name)!, 6); // potency 1 → physical == active
+      }
+    });
+  }
+  it('potency is applied consistently across paths (SFP non-DV amount == safety map, both post-potency)', () => {
+    const carrier = [ing('NMN Beadlet (carrier-loaded)', 250, 'Specialty', 0.5)];
+    const facts = sfp(carrier, 660, 2);
+    const safety = perServingActiveMgMap(carrier, 2);
+    const row = facts.otherActivesRows.find(r => /NMN/.test(r.displayName))!;
+    const sfpMg = row.amount! * (row.unit === 'g' ? 1000 : 1);
+    expect(sfpMg).toBeCloseTo(250 * 2 * 0.5, 4);       // 250 mg × 2 units × 0.5 potency = 250
+    expect(safety.get('NMN Beadlet (carrier-loaded)')!).toBeCloseTo(sfpMg, 6);
   });
 });
 

@@ -108,7 +108,7 @@ import { suggestHaccpCategory, detectSpecTagMismatch } from '@/lib/haccp';
 import { determineFilingRequirement, defaultQaTestsForCategory, PROCESS_METHODS, type QaTest } from '@/lib/scheduledProcess';
 import { computeFilingReadiness } from '@/lib/filingReadiness';
 import { FilingReadinessWidget } from '@/components/FilingReadinessWidget';
-import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV, formatNearZeroWarning } from '@/lib/supplementLabeling';
+import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV, formatNearZeroWarning, perServingActiveMgMap } from '@/lib/supplementLabeling';
 import { stripCatalogQaTokens } from '@/lib/labelDisplay';
 import { SupplementFactsPanel } from '@/components/SupplementFactsPanel';
 import { PROVENANCE_BY_NAME } from '@/lib/data/supplementProvenance';
@@ -6857,17 +6857,11 @@ export default function FormulationWizard() {
               {mode === 'supplements' && ingredients.length > 0 && (() => {
                 // Compute per-serving mg for every ingredient so the checker can
                 // compare against UL thresholds. Serving-scale the batch mass.
-                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
-                const perServingMgByName = new Map<string, number>();
-                for (const ing of ingredients) {
-                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
-                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
-                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
-                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
-                    ? ing.foodData.data.potencyFactor : 1;
-                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
-                }
+                // F-3/F-11: per-serving active mg via the shared resolver — entered
+                // per-capsule × units, NO fill-scaling, no `|1` grams-trap; the SAME
+                // numbers the SFP declares. Floor units to 1 so UL/stability checks at
+                // least per-capsule before units-per-serving is set.
+                const perServingMgByName = perServingActiveMgMap(ingredients, suppUnitsPerServing || 1);
                 const findings = checkSupplementSafety(ingredients, perServingMgByName, suppAudience);
                 const summary = summarizeFindings(findings);
                 if (findings.length === 0) return null;
@@ -7767,17 +7761,11 @@ export default function FormulationWizard() {
                   ═══════════════════════════════════════════════════════════ */}
               {mode === 'supplements' && ingredients.length > 0 && (() => {
                 // Build %DV table from Supplement Facts data for nutrient content claims
-                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
-                const perServingMgByName = new Map<string, number>();
-                for (const ing of ingredients) {
-                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
-                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
-                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
-                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
-                    ? ing.foodData.data.potencyFactor : 1;
-                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
-                }
+                // F-3/F-11: per-serving active mg via the shared resolver — entered
+                // per-capsule × units, NO fill-scaling, no `|1` grams-trap; the SAME
+                // numbers the SFP declares. Floor units to 1 so UL/stability checks at
+                // least per-capsule before units-per-serving is set.
+                const perServingMgByName = perServingActiveMgMap(ingredients, suppUnitsPerServing || 1);
                 // Reuse the supplement-facts data for vitamin/mineral rows
                 const facts = buildSupplementFacts({
                   ingredients,
@@ -8353,17 +8341,11 @@ export default function FormulationWizard() {
                 // code applied raw F&B ratio in supplements mode — produced
                 // wrong overage projections (under-stated by factor of
                 // servings). All 5 sites now route through the helper.
-                const scale = computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG });
-                const perServingMgByName = new Map<string, number>();
-                for (const ing of ingredients) {
-                  const g = ing.qty * (UNIT_TO_GRAMS[ing.unit] || 1);
-                  // Apply potencyFactor for carrier-loaded SKUs (e.g. Vit D3 100,000 IU/g on MCC
-                  // is only 0.25% active by mass). Defaults to 1.0 — the ingredient mass IS the
-                  // active mass. This prevents false UL hard-stops on triturated / beadlet forms.
-                  const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
-                    ? ing.foodData.data.potencyFactor : 1;
-                  perServingMgByName.set(ing.name, g * scale * 1000 * potency);
-                }
+                // F-3/F-11: per-serving active mg via the shared resolver — entered
+                // per-capsule × units, NO fill-scaling, no `|1` grams-trap; the SAME
+                // numbers the SFP declares. Floor units to 1 so UL/stability checks at
+                // least per-capsule before units-per-serving is set.
+                const perServingMgByName = perServingActiveMgMap(ingredients, suppUnitsPerServing || 1);
                 const overage = computeOverages(ingredients, perServingMgByName, {
                   shelfLifeMonths: suppShelfLifeMonths,
                   storage: suppStorage,

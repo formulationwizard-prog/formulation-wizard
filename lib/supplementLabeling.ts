@@ -334,6 +334,48 @@ function ingredientGrams(ing: Ingredient): number {
 }
 
 /**
+ * Active mg per serving, keyed by ingredient name — the map the safety / claims /
+ * stability / overage engines consume. PHYSICAL per-serving mass from
+ * perServingAmounts (NO fill-scaling, F-3) × potencyFactor.
+ *
+ * THE SINGLE CONSTRUCTION for these maps. It replaces four hand-rolled copies
+ * (3 in app/workspace/page.tsx + 1 in app/start/page.tsx) that each computed
+ * `qty × (UNIT_TO_GRAMS||1) × scale × 1000 × potency` — carrying BOTH the
+ * fill-scaling bug (the F-3 misbranding shape, in the UL/stability path) AND the
+ * `|| 1` grams-trap (a CFU or IU entry fed to UL checks as that many GRAMS).
+ *
+ * - MASS:        physical mg × potency.
+ * - COUNT (CFU): 0 — a count adds no mass; count-based limits are checked
+ *                separately (count-mass consolidation). Safe to feed 0 to mass-UL.
+ * - UNSUPPORTED (IU/typo): OMITTED — mass unknown, never fabricated. Consumers
+ *                read absent as 0 (`?? 0`) = no UL/stability contribution (matches
+ *                the SFP "unknown" treatment; F-10 surfaces recovery elsewhere).
+ *
+ * F-11: the SFP and this map both derive per-serving PHYSICAL mass from the ONE
+ * resolver — so UL/stability checks use the same numbers the label declares.
+ * Potency is applied here (the caller factor boundary). Elemental/equiv are
+ * DV-basis conversions the SFP applies and are intentionally NOT applied here —
+ * that preserves the pre-existing safety-path factoring (elemental-mass-for-UL is
+ * a separate correctness question, out of scope for the scaling consolidation).
+ *
+ * @param unitsPerServing capsules/units per serving. Safety callers should floor
+ *   to 1 (check ≥ per-capsule against UL even before units are set); the SFP keys
+ *   blank-until-real on the raw value (0 → "—"). When ≥ 1, both agree (F-11).
+ */
+export function perServingActiveMgMap(ingredients: Ingredient[], unitsPerServing: number): Map<string, number> {
+  const physical = perServingAmounts(ingredients.map(i => ({ name: i.name, qty: i.qty, unit: i.unit })), unitsPerServing);
+  const out = new Map<string, number>();
+  for (const ing of ingredients) {
+    const psa = physical.get(ing.name);
+    if (!psa || psa.mg === null) continue; // unsupported → omit (never the |1 grams-trap)
+    const potency = (ing.foodData?.type === 'industrial' && ing.foodData.data?.potencyFactor)
+      ? ing.foodData.data.potencyFactor : 1;
+    out.set(ing.name, psa.mg * potency);
+  }
+  return out;
+}
+
+/**
  * Build structured Supplement Facts from the ingredient list.
  *
  * @param ingredients  Active formulation ingredients.
@@ -583,6 +625,12 @@ export function buildSupplementFacts(params: {
     // distinct form like "Riboflavin 5-Phosphate" stays), then dedupe.
     const sourceNames = [...new Set(
       acc.sources
+        // COUPLING NOTE (F-3): `grams` here is consumed ONLY as a sort comparator —
+        // it orders the "(as A, B)" source names by contribution (largest first);
+        // only s.name reaches the output below. That is why `gramsPerServing` can be
+        // the de-scaled per-capsule value in supplements mode without changing any
+        // rendered amount (de-scaling is monotonic → ordering is preserved). If a
+        // future change RENDERS this grams value, the de-scale must be revisited.
         .sort((a, b) => b.grams - a.grams || a.name.localeCompare(b.name))
         .map(s => cleanFormName(s.name))
         .filter(n => n.toLowerCase() !== dv.displayName.toLowerCase()),

@@ -45,7 +45,7 @@
 
 import { useMemo, useState } from 'react';
 import { SUPPLEMENT_INGREDIENTS } from '@/lib/data/supplements';
-import { buildSupplementFacts, type SupplementFactsData } from '@/lib/supplementLabeling';
+import { buildSupplementFacts, perServingActiveMgMap, type SupplementFactsData } from '@/lib/supplementLabeling';
 import { detectAllergensDetailed, type AllergenMatch } from '@/lib/supplementAllergen';
 import { detectStructureFunctionClaims } from '@/lib/supplementClaims';
 import { selectSupplementDisclaimer } from '@/lib/supplementDisclaimer';
@@ -130,17 +130,10 @@ function assembleSupplementFacts(
   const claimCount = detectStructureFunctionClaims(ingredients.map((i) => i.name)).length;
   const dsheaDisclaimer = selectSupplementDisclaimer(claimCount);
 
-  // Safety engine — same checker the workspace Safety card uses. perServingMg is
-  // ingredient mass × scale × 1000 × potency (elemental conversion happens inside
-  // checkSupplementSafety). scale = 1 here (serving mass = formula mass), matching
-  // the panel's per-serving scaling so the catch review and the SFP never disagree.
-  const perServingMgByName = new Map<string, number>();
-  for (const ing of ingredients) {
-    const grams = ing.qty * (UNIT_TO_GRAMS[ing.unit] ?? 1);
-    const potency =
-      ing.foodData?.type === 'industrial' ? ing.foodData.data?.potencyFactor ?? 1 : 1;
-    perServingMgByName.set(ing.name, grams * 1000 * potency);
-  }
+  // Safety engine — same checker AND the same per-serving resolver the workspace +
+  // SFP use (F-11): physical mg (no fill-scaling, no `?1` grams-trap) × potency.
+  // /start models 1 unit = 1 serving (entered amount IS per-serving).
+  const perServingMgByName = perServingActiveMgMap(ingredients, 1);
   const findings = checkSupplementSafety(ingredients, perServingMgByName, 'general');
 
   const facts = buildSupplementFacts({
