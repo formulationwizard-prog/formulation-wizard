@@ -8,6 +8,7 @@ import {
   resolveAllergenVerification,
   isCoaVerifiedAllergens,
   unverifiedAllergenSources,
+  canClaimAllergenFree,
 } from '../allergenVerification';
 import { PROVENANCE_BY_NAME } from '../data/supplementProvenance';
 import type { Provenance } from '../../types';
@@ -90,5 +91,31 @@ describe('isCoaVerifiedAllergens — gates the affirmative free-of claim', () =>
     const sampleName = Object.keys(PROVENANCE_BY_NAME)[0];
     const prov = PROVENANCE_BY_NAME[sampleName]?.['allergens'];
     expect(isCoaVerifiedAllergens(sampleName)).toBe(prov?.kind === 'coa');
+  });
+});
+
+describe('canClaimAllergenFree — doctrine-2 gate (no free-of without positive verification)', () => {
+  const allVerified = () => true;
+  const noneVerified = () => false;
+
+  it('present allergen → NEVER free-of, even if everything is COA-verified', () => {
+    expect(canClaimAllergenFree(true, [{ name: 'X' }], allVerified)).toBe(false);
+  });
+
+  it('empty formula → no claim', () => {
+    expect(canClaimAllergenFree(false, [], allVerified)).toBe(false);
+  });
+
+  it('no allergen present + EVERY ingredient COA-verified → free-of EARNED (the only true path)', () => {
+    expect(canClaimAllergenFree(false, [{ name: 'X' }, { name: 'Y' }], allVerified)).toBe(true);
+  });
+
+  it('no allergen present but a single ingredient unverified → NOT free-of (absence of data ≠ free)', () => {
+    const oneUnverified = (n: string) => n !== 'Y'; // Y not verified
+    expect(canClaimAllergenFree(false, [{ name: 'X' }, { name: 'Y' }], oneUnverified)).toBe(false);
+  });
+
+  it('against the REAL map (all unknown) → false: the claim is unreachable until COAs land', () => {
+    expect(canClaimAllergenFree(false, [{ name: 'Vitamin C (Ascorbic Acid USP, Fine)' }])).toBe(false);
   });
 });

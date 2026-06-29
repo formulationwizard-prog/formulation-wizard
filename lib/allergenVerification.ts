@@ -79,3 +79,29 @@ export function unverifiedAllergenSources(
 export function isCoaVerifiedAllergens(name: string): boolean {
   return PROVENANCE_BY_NAME[name]?.['allergens']?.kind === 'coa';
 }
+
+/**
+ * DOCTRINE 2 ENFORCEMENT — may a formula make the affirmative "Contains no major
+ * allergens" / allergen-free claim? TRUE only when BOTH hold:
+ *   (a) NO FALCPA major allergen is present (the caller passes this — derived from
+ *       the combined inline + name-detected allergen statement), AND
+ *   (b) EVERY ingredient's allergen profile is COA-verified (kind 'coa') — POSITIVE
+ *       confirmation of absence, not mere absence of data.
+ *
+ * Absence of a Contains: statement is NOT a free-of claim; only positive COA across
+ * every ingredient earns it. Returns false for every real formula today (all entries
+ * 'unknown' → no ingredient is COA-verified) — the claim is EARNED as COAs land (the
+ * flywheel). The affirmative RENDER is deferred until a COA-verified-absent entry
+ * exists to test it against; this helper is the gate that render MUST call.
+ *
+ * @param isVerified injected for testability (default: the real isCoaVerifiedAllergens).
+ */
+export function canClaimAllergenFree(
+  hasPresentMajorAllergen: boolean,
+  ingredients: { name: string }[],
+  isVerified: (name: string) => boolean = isCoaVerifiedAllergens,
+): boolean {
+  if (hasPresentMajorAllergen) return false;          // an allergen is present → never free-of
+  if (ingredients.length === 0) return false;         // empty formula → nothing to claim
+  return ingredients.every(i => isVerified(i.name));  // every ingredient COA-verified → earned
+}
