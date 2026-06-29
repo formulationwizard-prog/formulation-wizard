@@ -57,6 +57,23 @@ export interface UnitCoercion {
 // as 10 g — a misbranding-grade error. isCountUnit() guards every mass site.
 export const isCountUnit = (unit: string): boolean => /\bcfu\b/i.test(unit);
 
+// IU (International Units) — the parser RECOGNIZES these so a pasted "5000 IU" is
+// never silently dropped (no qty match) nor grams-misparsed (the `|| 1` trap would
+// make "5000 IU" → 5000 g). But IU carries NO computable mass (deliberately absent
+// from UNIT_TO_GRAMS) and is NOT a fresh entry option (absent from UNITS): the FDA
+// 2016 Supplement Facts rule retired IU in favor of mcg/mg (21 CFR 101.36 / FDA
+// conversion guidance), so an IU amount is itself a labeling gap to SURFACE and
+// CONVERT, not a unit to keep. Recognized-but-non-mass: survives parsing, routes to
+// honest handling + the mcg conversion offer. Distinct from a typo'd/unknown unit.
+export const isInternationalUnit = (unit: string): boolean => /\bi\.?\s*u\.?\b/i.test(unit);
+
+/** FDA-verified IU→mcg factor for vitamin D (D2 ergocalciferol AND D3 cholecalciferol —
+ *  identical, fixed by FDA/IOM definition): 1 IU = 0.025 mcg (40 IU = 1 mcg). Source:
+ *  FDA "Converting Units of Measure for Folate, Niacin, and Vitamins A, D, and E"
+ *  (fda.gov/media/129863) + 21 CFR 101.36. Vitamins A and E are FORM-dependent — NOT
+ *  handled here; they convert via the form-set + equivalence machinery (fast-follow). */
+export const VITAMIN_D_IU_TO_MCG = 0.025;
+
 /**
  * Coerce a (qty, unit) pair into a mode's allowed unit set (LB #3 fix, Option C).
  *

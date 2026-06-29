@@ -13,7 +13,7 @@
 //   • Plain lines like "Soybean Oil 700 g" or "700g Soybean Oil"
 // ============================================================
 import type { IndustrialIngredient } from '../types';
-import { UNITS, isCountUnit } from './utils';
+import { UNITS, isCountUnit, isInternationalUnit, VITAMIN_D_IU_TO_MCG } from './utils';
 import { harmCriticalDifferenceExists } from './supplementHarmCritical';
 import { lookupFormSet, forcePickReason, type FormSet, type FormMarker } from './formSets';
 
@@ -68,6 +68,20 @@ export interface ParsedRow {
   accepted: boolean;
   /** If a volume unit was converted to mass using ingredient density, a human-readable note. */
   volumeNote?: string;
+  /**
+   * F-10 honest-engine: a line the parser RECOGNIZED as an ingredient line but could
+   * not cleanly resolve. The row is still emitted (never silently dropped) with
+   * accepted=false so the drawer surfaces it for operator attention.
+   *  - 'no-quantity'        : ingredient-like text, no parseable amount.
+   *  - 'unrecognized-unit'  : an amount + a unit-like token we couldn't map (likely typo).
+   *  - 'unit-needs-conversion': a recognized but non-mass unit (IU) that the FDA 2016
+   *                             panel requires converted to mcg/mg before labeling.
+   */
+  parseIssue?: 'no-quantity' | 'unrecognized-unit' | 'unit-needs-conversion';
+  /** Raw unit token as the operator typed it (for 'unrecognized-unit'/'unit-needs-conversion' display). */
+  rawUnitToken?: string;
+  /** A concrete, applyable conversion offer (e.g. IU→mcg for vitamin D). null when not auto-convertible. */
+  suggestedConversion?: { toQty: number; toUnit: string; note: string };
 }
 
 /**
@@ -89,6 +103,11 @@ const UNIT_ALIASES: Record<string, string> = {
   'million cfu': 'Million CFU', 'millions cfu': 'Million CFU',
   'trillion cfu': 'Trillion CFU', 'trillions cfu': 'Trillion CFU',
   cfu: 'CFU',
+  // International Units — recognized so "5000 IU" is never silently dropped or
+  // grams-misparsed. NOT a mass unit (absent from UNIT_TO_GRAMS) and NOT a fresh
+  // entry option (absent from UNITS): the FDA 2016 panel rule retired IU → mcg/mg,
+  // so an IU amount is a labeling gap to SURFACE + CONVERT, not a unit to keep.
+  iu: 'IU', 'i.u.': 'IU', 'international unit': 'IU', 'international units': 'IU',
   oz: 'oz', ounce: 'oz', ounces: 'oz',
   lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
   // Volume (metric)
@@ -117,7 +136,7 @@ export const VOLUME_UNITS = new Set(Object.keys(VOLUME_TO_ML));
 // D3" no longer falls through to default 'g'). Order matters in regex
 // alternation: mcg listed BEFORE mg (irrelevant for ambiguity given the
 // literal-character matching, but consistency with the alias table order).
-const QTY_UNIT_PATTERN = /(\d+(?:[.,]\d+)?)\s*(billions?\s*cfu|millions?\s*cfu|trillions?\s*cfu|bn\s*cfu|cfu|gallons?|gal|quarts?|qt|pints?|pt|kg|mcg|micrograms?|μg|ug|mg|milligrams?|g|oz|lbs?|ml|l\b|fl\s*oz|floz|fluid\s*ounces?|tsp|teaspoons?|tbsp|tbs|tbl|tablespoons?|cups?|\bc\b|grams?|kilograms?|ounces?|pounds?|milliliters?|millilitres?|liters?|litres?)\b/i;
+const QTY_UNIT_PATTERN = /(\d+(?:[.,]\d+)?)\s*(billions?\s*cfu|millions?\s*cfu|trillions?\s*cfu|bn\s*cfu|cfu|iu|international\s*units?|gallons?|gal|quarts?|qt|pints?|pt|kg|mcg|micrograms?|μg|ug|mg|milligrams?|g|oz|lbs?|ml|l\b|fl\s*oz|floz|fluid\s*ounces?|tsp|teaspoons?|tbsp|tbs|tbl|tablespoons?|cups?|\bc\b|grams?|kilograms?|ounces?|pounds?|milliliters?|millilitres?|liters?|litres?)\b/i;
 
 /**
  * Normalize fraction notation to decimal floats.
@@ -773,6 +792,9 @@ export function parsePastedFormula(text: string, db: IndustrialIngredient[]): Pa
     let rawQty = 0;
     let rawUnit = 'g';
     let nameCandidates: string[] = [];
+    // F-10: a unit-like token we recognized as a unit field but couldn't map (likely a
+    // typo, e.g. "mgg"). Set in Pass 2 so we flag the row instead of grams-coercing it.
+    let unrecognizedUnitToken: string | undefined;
 
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
@@ -807,14 +829,26 @@ export function parsePastedFormula(text: string, db: IndustrialIngredient[]): Pa
       // to exclude the qty and unit fields.
       if (qtyIdx !== -1) {
         nameCandidates = fields.filter((_, i) => i !== qtyIdx && i !== unitIdx);
-        if (unitIdx === -1) rawUnit = 'g'; // default to grams if no unit column given
+        if (unitIdx === -1) {
+          rawUnit = 'g'; // default to grams if no unit column given
+          // F-10: in a "Name | Qty | Unit" paste where we couldn't map the unit, the
+          // unit is the trailing field after the qty. Flag a short unrecognized token
+          // there (likely a typo) rather than silently coercing the amount to grams.
+          // A 2-column "Name | 500" (qty is the last field) has no trailing unit and
+          // correctly keeps the grams default.
+          const trailing = fields[fields.length - 1]?.trim();
+          if (fields.length >= 3 && qtyIdx !== fields.length - 1 && trailing &&
+              trailing.length <= 6 && /^[a-zA-Z][a-zA-Z.]*$/.test(trailing) &&
+              !UNIT_ALIASES[trailing.toLowerCase()]) {
+            unrecognizedUnitToken = trailing;
+          }
+        }
       }
     }
 
-    // If no qty found anywhere, skip the line
-    if (rawQty <= 0) continue;
-
-    // Clean name candidates: drop % values, pure numbers, short stubs, row numbers, bullet refs
+    // Clean name candidates: drop % values, pure numbers, short stubs, row numbers, bullet refs.
+    // (Done BEFORE the skip decisions so an unparseable-but-ingredient-like line can still
+    //  be SURFACED rather than silently dropped — F-10 honest-engine.)
     nameCandidates = nameCandidates
       .map(s => s.replace(/\d+(?:\.\d+)?\s*%/g, '').trim())
       .map(s => s.replace(/^\d+\s*[.):]\s*/, '').trim()) // "1. Name" / "1) Name" / "1: Name"
@@ -827,7 +861,35 @@ export function parsePastedFormula(text: string, db: IndustrialIngredient[]): Pa
     const name = nameCandidates
       .sort((a, b) => b.length - a.length)[0] || '';
 
+    // --- Decision tree (F-10: a recognized ingredient line must never silently vanish) ---
+    // Genuinely empty/structural line (no name AND no amount) → legitimately skip.
+    if (!name && rawQty <= 0) continue;
+    // Obvious prose (a long sentence, not an ingredient name) → skip, like the header/divider
+    // skips above. A real ingredient name is short; >10 words is a directions/marketing line.
+    if (rawQty <= 0 && name.split(/\s+/).length > 10) continue;
+    // Ingredient-like text but no parseable amount → SURFACE for attention, do not drop.
+    if (rawQty <= 0) {
+      const m = findBestMatchWithTier(name, db);
+      rows.push({
+        originalLine: rawLine, parsedName: name, parsedQty: 0, parsedUnit: 'g',
+        matchedItem: m.item, matchTier: m.tier, matchReason: m.reason, formSet: m.formSet,
+        accepted: false, parseIssue: 'no-quantity',
+      });
+      continue;
+    }
+    // An amount but no recognizable ingredient name → structural noise (stray number); skip.
     if (!name) continue;
+    // An amount + a unit-like token we couldn't map (likely a typo) → SURFACE for fix,
+    // never silently coerce the amount to grams (the old Mode-2 misparse).
+    if (unrecognizedUnitToken) {
+      const m = findBestMatchWithTier(name, db);
+      rows.push({
+        originalLine: rawLine, parsedName: name, parsedQty: rawQty, parsedUnit: 'g',
+        matchedItem: m.item, matchTier: m.tier, matchReason: m.reason, formSet: m.formSet,
+        accepted: false, parseIssue: 'unrecognized-unit', rawUnitToken: unrecognizedUnitToken,
+      });
+      continue;
+    }
 
     // Volume → mass conversion using ingredient density (now that we have a name).
     let finalQty = rawQty;
@@ -848,19 +910,44 @@ export function parsePastedFormula(text: string, db: IndustrialIngredient[]): Pa
       volumeNote = `${rawQty} ${rawUnit} → ${finalQty} g (density ${density.toFixed(2)} g/ml · ${densitySource})`;
     }
 
+    // F-10: International Units are RECOGNIZED but carry no computable mass — the FDA
+    // 2016 Supplement Facts rule (21 CFR 101.36) retired IU in favor of mcg/mg. Surface
+    // the row as needs-conversion (never auto-accept an IU amount into a panel that must
+    // declare mcg) and, for vitamin D (the unambiguous, form-independent factor), offer
+    // the exact conversion the operator can apply.
+    let parseIssue: ParsedRow['parseIssue'];
+    let rawUnitToken: string | undefined;
+    let suggestedConversion: ParsedRow['suggestedConversion'];
+    if (isInternationalUnit(finalUnit)) {
+      parseIssue = 'unit-needs-conversion';
+      rawUnitToken = 'IU';
+      if (/\bvitamin\s*d\d?\b|cholecalciferol|ergocalciferol/i.test(name)) {
+        const mcg = Math.round(finalQty * VITAMIN_D_IU_TO_MCG * 1000) / 1000;
+        suggestedConversion = {
+          toQty: mcg,
+          toUnit: 'mcg',
+          note: `${finalQty} IU vitamin D = ${mcg} mcg (1 IU = 0.025 mcg; the FDA 2016 Supplement Facts panel requires mcg)`,
+        };
+      }
+    }
+
     const match = findBestMatchWithTier(name, db);
     rows.push({
       originalLine: rawLine,
       parsedName: name,
       parsedQty: finalQty,
-      parsedUnit: (UNITS.includes(finalUnit) || isCountUnit(finalUnit)) ? finalUnit : 'g',
+      parsedUnit: (UNITS.includes(finalUnit) || isCountUnit(finalUnit) || isInternationalUnit(finalUnit)) ? finalUnit : 'g',
       matchedItem: match.item,
       matchTier: match.tier,
       matchReason: match.reason,
       formSet: match.formSet,
       // Tier 1/2 default-accepted; Tier 3 requires user confirmation; Tier 4 = no match.
-      accepted: match.tier <= 2 && match.item !== null,
+      // An IU row is held back (accepted=false) until the operator resolves the conversion.
+      accepted: match.tier <= 2 && match.item !== null && !parseIssue,
       volumeNote,
+      parseIssue,
+      rawUnitToken,
+      suggestedConversion,
     });
   }
 
