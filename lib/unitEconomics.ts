@@ -2,20 +2,20 @@
 // Unit-economics cost math — count-based supplements vs mass-based F&B.
 // ------------------------------------------------------------
 // Pure + test-locked. F&B uses a "fraction of a batch" model. Supplements use a
-// per-serving model under CONVENTION B (recipe-ratio — LIVE since 2026-06-07,
-// SUPPLEMENT_CONVENTION_B_ENABLED = true): the entered ingredient rows are the
-// RECIPE (proportions), and one serving delivers (servingMass / formulaMass)× of it.
+// per-serving model under the F-3 PER-CAPSULE convention (2026-06-28): the entered
+// ingredient rows ARE the per-capsule formula, so totalCost is the PER-CAPSULE
+// material cost and one serving is `unitsPerServing` capsules.
 // So per-serving cost = totalCost × perServingScale, where the caller passes
-// perServingScale = computePerServingScale(...) — the SAME factor the SFP doses and
-// the UL / dosage checks use. Cost therefore TRACKS the panel: when the SFP shows
-// 377 mg at a 660 mg fill, the per-serving cost reflects that 377 mg, not the
-// recipe's 200 mg. The per-serving model also avoids the bogus "serving > batch"
+// perServingScale = unitsPerServing — the SAME basis the F-3 SFP uses (per-capsule
+// × units, NO fill-scaling). Cost therefore TRACKS the panel: a 90 mg/capsule active
+// at 2 capsules/serving shows 180 mg on the SFP and the per-serving cost reflects two
+// capsules' worth. The per-serving model also avoids the bogus "serving > batch"
 // warning that F&B's fraction model tripped on a multi-capsule serving.
 //
-// Blank-until-real safety net: an UNSET fill → computePerServingScale returns
-// identity (1.0) → cost = the entered recipe's cost, never a capsule-capacity-
-// inflated value. That capacity-scaling inflation was the ~4× SFP + cost bug
-// retired 2026-06-05 — do NOT reintroduce capsule-capacity scaling here.
+// RETIRED (F-3): the caller previously passed computePerServingScale (the Convention-B
+// fill-scale, servingMass/formulaMass) — that inflated per-serving cost by the same
+// factor F-3 retired at the SFP. Do NOT reintroduce fill-scaling or capsule-capacity
+// scaling here. Blank-until-real: units unset → caller floors to 1 (one capsule's cost).
 // ============================================================
 
 /** 1 lb in grams (matches the constant in lib/netQuantity.ts). */
@@ -23,9 +23,10 @@ export const LB_TO_G = 453.59237;
 const KG_TO_G = 1000;
 
 export type CostModel =
-  // Supplement contract (Convention A): each ingredient row is one serving's
-  // dose, so the summed ingredient cost IS the per-serving cost (scale 1.0).
-  // Package scales by servings.
+  // Supplement contract (F-3 per-capsule): each ingredient row is one CAPSULE's
+  // amount, so the summed ingredient cost is the PER-CAPSULE cost; per-serving =
+  // per-capsule × unitsPerServing (caller passes perServingScale = units). Package
+  // scales by servings.
   | 'per-serving'
   // F&B: ingredient rows are an arbitrary batch; serving/package are recovered
   // as mass fractions of that batch.
@@ -51,10 +52,10 @@ export interface UnitEconomicsInput {
   packagingCostPerUnit: number;
   /**
    * Per-serving scale, used only by the 'per-serving' model:
-   * per-serving cost = totalCost × this. Under Convention A (August launch) this
-   * is 1.0 — the entered formula IS one serving. Retained as the post-launch
-   * Convention-B seam (servingMass / batchMass); stays 1.0 while
-   * SUPPLEMENT_CONVENTION_B_ENABLED is false. Defaults to 1.0.
+   * per-serving cost = totalCost × this. Under F-3 the caller passes
+   * `unitsPerServing` — totalCost is the per-capsule material cost, so this scales
+   * it to the per-serving (per-capsule × units) cost. NO fill-scaling. Floored to 1
+   * (one capsule's cost) when units are unset. Defaults to 1.0.
    */
   perServingScale?: number;
 }
@@ -80,9 +81,8 @@ export function computeUnitEconomics(i: UnitEconomicsInput): UnitEconomicsResult
   const perKg = i.totalWeightKg > 0 ? i.totalCost / i.totalWeightKg : 0;
 
   if (i.costModel === 'per-serving') {
-    // Convention A: totalCost IS the per-serving material cost (each row is one
-    // serving's dose), so scale is 1.0. The × scale stays as the post-launch
-    // Convention-B seam (one serving = servingMass/batchMass of the recipe).
+    // F-3: totalCost is the PER-CAPSULE material cost; scale = unitsPerServing
+    // scales it to per-serving (per-capsule × units). NO fill-scaling.
     const scale = i.perServingScale ?? 1;
     const perServing = i.totalCost * scale;
     const perUnit = i.unitsPerServing > 0 ? perServing / i.unitsPerServing : null;

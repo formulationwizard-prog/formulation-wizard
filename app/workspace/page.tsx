@@ -9928,11 +9928,14 @@ export default function FormulationWizard() {
             // fraction model (delivered cost × package/batch share). The supplement path fixes
             // the capsule bug where the F&B fraction tripped a bogus "serving > batch" warning.
             // See lib/unitEconomics.ts (computeUnitEconomics).
-            // Convention B: a serving delivers (servingMass / batchMass)× the
-            // entered recipe's material, so the per-serving cost scales by the
-            // same factor the SFP/dosage use. Identity (1) for F&B.
+            // F-3: entered amounts ARE per-capsule, so deliveredIngredientCost is the
+            // PER-CAPSULE material cost; per-serving cost = per-capsule cost × units
+            // (NO fill-scaling — aligned with the F-3 SFP). Floor units to 1 (cost of one
+            // capsule's worth) until units are set. Identity (1) for F&B.
+            // RETIRED: computePerServingScale (the Convention-B fill-scale) — it inflated
+            // per-serving cost by the same factor F-3 retired at the SFP layer.
             const suppServingScale = mode === 'supplements'
-              ? computePerServingScale({ mode, servingSizeInGrams, totalBatchGrams, supplementServingMassG: suppServingMassG })
+              ? (suppUnitsPerServing || 1)
               : 1;
             const ue = computeUnitEconomics({
               costModel: mode === 'supplements' ? 'per-serving' : 'batch-fraction',

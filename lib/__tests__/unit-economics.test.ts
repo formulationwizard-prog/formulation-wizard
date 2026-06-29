@@ -34,7 +34,7 @@ describe('computeUnitEconomics — capsule supplement (per-serving model)', () =
   it('cost per capsule = serving cost / units per serving', () => {
     expect(r.perUnit).toBeCloseTo(0.030, 6);
   });
-  it('cost per serving = summed ingredient cost at identity scale (pre-Convention-B default)', () => {
+  it('cost per serving = entered (per-capsule) cost at default scale 1.0 (no units scale passed)', () => {
     expect(r.perServing).toBeCloseTo(0.060, 6);
   });
   it('ingredient cost per bottle = per serving × servings per container', () => {
@@ -49,26 +49,25 @@ describe('computeUnitEconomics — capsule supplement (per-serving model)', () =
   });
 });
 
-describe('computeUnitEconomics — Convention B per-serving scaling', () => {
-  // Entered recipe (batch) material cost $0.10; the serving fills to 1.5× the
-  // batch mass (e.g. 2 × 750mg caps = 1500mg vs a 1000mg recipe). The per-serving
-  // cost must scale to the actual fill, not stay at the entered-recipe cost —
-  // matching the SFP/dosage which scale by the same factor. Without this, cost
-  // per serving was understated by the fill factor (the bug operator caught
-  // 2026-05-29 on "sleepy time": $0.268 shown vs ~$0.364 true at 1.36× fill).
-  const scaled: UnitEconomicsInput = { ...capA, totalCost: 0.10, perServingScale: 1.5 };
+describe('computeUnitEconomics — F-3 per-serving scaling (× unitsPerServing)', () => {
+  // F-3 (2026-06-28): totalCost is the PER-CAPSULE material cost; the caller passes
+  // perServingScale = unitsPerServing, so per-serving cost = per-capsule cost × units.
+  // RETIRED: the scale was the Convention-B fill factor (servingMass/batchMass) — that
+  // inflated per-serving cost by the same factor F-3 retired at the SFP layer.
+  // Here: $0.10/capsule material, 2 capsules/serving → $0.20/serving.
+  const scaled: UnitEconomicsInput = { ...capA, totalCost: 0.10, perServingScale: 2 };
   const r = computeUnitEconomics(scaled);
-  it('per serving = batch cost × per-serving scale', () => {
-    expect(r.perServing).toBeCloseTo(0.15, 6); // 0.10 × 1.5
+  it('per serving = per-capsule cost × units', () => {
+    expect(r.perServing).toBeCloseTo(0.20, 6); // 0.10 × 2
   });
-  it('per capsule = scaled serving cost / units per serving', () => {
-    expect(r.perUnit).toBeCloseTo(0.075, 6); // 0.15 / 2
+  it('per capsule = per-serving cost / units = the entered per-capsule cost', () => {
+    expect(r.perUnit).toBeCloseTo(0.10, 6); // 0.20 / 2 → the per-capsule cost
   });
-  it('per bottle scales too (scaled per-serving × servings + packaging)', () => {
-    expect(r.ingredientCostPerPackage).toBeCloseTo(4.5, 6); // 0.15 × 30
-    expect(r.perPackage).toBeCloseTo(4.9, 6); // + $0.40 packaging
+  it('per bottle = per-serving × servings + packaging', () => {
+    expect(r.ingredientCostPerPackage).toBeCloseTo(6.0, 6); // 0.20 × 30
+    expect(r.perPackage).toBeCloseTo(6.4, 6); // + $0.40 packaging
   });
-  it('falls back to identity (Convention A) when no scale is supplied', () => {
+  it('units unset / no scale supplied → one capsule\'s cost (caller floors to 1)', () => {
     const id = computeUnitEconomics({ ...scaled, perServingScale: undefined });
     expect(id.perServing).toBeCloseTo(0.10, 6);
   });

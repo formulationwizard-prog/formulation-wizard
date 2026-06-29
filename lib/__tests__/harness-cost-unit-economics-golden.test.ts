@@ -1,10 +1,12 @@
 // ============================================================
 // HARNESS — cost / unit economics (#9). Spec §5.
 // ------------------------------------------------------------
-// The critical assertion: under Convention B the per-serving COST tracks the same
-// recipe-ratio scale as the SFP doses — when the panel shows 377 mg at a 660 mg fill,
-// the cost reflects that 377 mg, not the 200 mg recipe. Plus blank-until-real (no
-// vendor pricing → 0, the render-blank signal). See docs/audits/cost-unit-economics-2026-06-08.md.
+// The critical assertion (F-3, 2026-06-28): the per-serving COST uses the same basis
+// as the F-3 SFP — per-capsule cost × unitsPerServing, NO fill-scaling. totalCost is the
+// PER-CAPSULE material cost; the caller passes perServingScale = units. RETIRED: the
+// Convention-B fill-scale (servingMass/formulaMass) that inflated cost by the same factor
+// F-3 retired at the SFP. Plus blank-until-real (no vendor pricing → 0, the render-blank
+// signal). See docs/audits/cost-unit-economics-2026-06-08.md.
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { computeUnitEconomics } from '../unitEconomics';
@@ -15,21 +17,22 @@ const base = {
   packagingCostPerUnit: 0.5,
 };
 
-describe('HARNESS · #9 cost — per-serving tracks the recipe-ratio (consistent with the SFP)', () => {
-  it('scale 1.0 (serving = formula, 350 fill) → per-serving = recipe cost ($1.00)', () => {
-    expect(computeUnitEconomics({ ...base, perServingScale: 1.0 }).perServing).toBeCloseTo(1.0, 3);
+describe('HARNESS · #9 cost — per-serving = per-capsule cost × units (F-3, consistent with the SFP)', () => {
+  // totalCost $1.00 = per-capsule material cost; units = 2 → per-serving = $2.00.
+  it('scale = units (2) → per-serving = per-capsule cost × 2 ($2.00)', () => {
+    expect(computeUnitEconomics({ ...base, perServingScale: 2 }).perServing).toBeCloseTo(2.0, 3);
   });
-  it('scale 1.8857 (660 fill) → per-serving scales with the dose ($1.886, not the recipe $1.00)', () => {
-    expect(computeUnitEconomics({ ...base, perServingScale: 1320 / 700 }).perServing).toBeCloseTo(1.886, 2);
+  it('does NOT fill-scale — at units=2 it is $2.00, never the retired fill-scaled $1.886', () => {
+    expect(computeUnitEconomics({ ...base, perServingScale: 2 }).perServing).not.toBeCloseTo(1.886, 2);
   });
-  it('per-unit = per-serving ÷ units/serving ($1.00 / 2 = $0.50)', () => {
-    expect(computeUnitEconomics({ ...base, perServingScale: 1.0 }).perUnit).toBeCloseTo(0.5, 3);
+  it('per-unit = per-serving ÷ units = the per-capsule cost ($2.00 / 2 = $1.00)', () => {
+    expect(computeUnitEconomics({ ...base, perServingScale: 2 }).perUnit).toBeCloseTo(1.0, 3);
   });
-  it('per-package = per-serving × servings + packaging ($1.00×30 + $0.50 = $30.50)', () => {
-    expect(computeUnitEconomics({ ...base, perServingScale: 1.0 }).perPackage).toBeCloseTo(30.5, 2);
+  it('per-package = per-serving × servings + packaging ($2.00×30 + $0.50 = $60.50)', () => {
+    expect(computeUnitEconomics({ ...base, perServingScale: 2 }).perPackage).toBeCloseTo(60.5, 2);
   });
   it('blank-until-real: no vendor pricing (totalCost 0) → 0 (the render-blank signal, NOT a fabricated $)', () => {
-    const r = computeUnitEconomics({ ...base, totalCost: 0, totalWeightKg: 0, perServingScale: 1.0 });
+    const r = computeUnitEconomics({ ...base, totalCost: 0, totalWeightKg: 0, perServingScale: 2 });
     expect(r.perServing).toBe(0);
     expect(r.perKg).toBe(0);
   });
