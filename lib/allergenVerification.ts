@@ -58,6 +58,19 @@ export function resolveAllergenVerification(name: string): AllergenVerification 
   return classifyAllergenProvenance(PROVENANCE_BY_NAME[name]?.['allergens']);
 }
 
+/** Formula-level: ingredient names that carry an allergen declaration which is NOT
+ *  COA-verified (kind 'unknown' catalog-default, or uncovered/no-provenance). This is
+ *  the list both the workspace-chrome "confirm with COA" annotation (Unit B) and the
+ *  FVR reviewer flag (Unit C) surface — single source so chrome and packet agree.
+ *  Never drops a warning: it reports which declarations are unverified, never removes them. */
+export function unverifiedAllergenSources(
+  ingredients: { name: string; allergens?: readonly string[] }[],
+): string[] {
+  return ingredients
+    .filter(i => (i.allergens?.length ?? 0) > 0 && resolveAllergenVerification(i.name).status !== 'verified')
+    .map(i => i.name);
+}
+
 /** COA-verified specifically — the gold standard required to gate an affirmative
  *  "Contains no major allergens" / "Free of X" claim. A vendor spec or label
  *  declaration is verified-with-source, but the affirmative FREE-OF claim requires

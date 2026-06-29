@@ -113,6 +113,7 @@ import { buildSupplementFacts, formatSupplementAmount, formatSupplementDV, forma
 import { stripCatalogQaTokens } from '@/lib/labelDisplay';
 import { SupplementFactsPanel } from '@/components/SupplementFactsPanel';
 import { PROVENANCE_BY_NAME } from '@/lib/data/supplementProvenance';
+import { unverifiedAllergenSources } from '@/lib/allergenVerification';
 import { checkSupplementSafety, summarizeFindings, type Audience as SupplementAudience } from '@/lib/supplementSafetyLimits';
 import { computePerServingScale, deriveSupplementServingMassG } from '@/lib/supplementMath';
 import { validateServingSizeInput } from '@/lib/servingSize';
@@ -7761,12 +7762,22 @@ export default function FormulationWizard() {
                   {allergenStatement.length > 0 ? (
                     <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
                       <p className="text-red-800 font-semibold text-sm">Contains: {formatAllergenListBody(allergenStatement)}</p>
-                      <p className="text-red-600 text-[10px] mt-1">Always verify allergens with supplier COA before labeling.</p>
+                      {/* Unit B — provenance-specific verify note (CHROME ONLY; the regulated
+                          Contains: statement above + on the SFP/PDS/Batch stays byte-faithful).
+                          Names which allergen declarations are catalog defaults pending COA vs
+                          COA-verified, via resolveAllergenVerification. Doctrine: never drops the
+                          warning — only reports verification status. */}
+                      <p className="text-red-600 text-[10px] mt-1">{(() => {
+                        const unverified = unverifiedAllergenSources(ingredients);
+                        return unverified.length > 0
+                          ? `Catalog-default allergen${unverified.length > 1 ? 's' : ''} pending supplier COA — confirm before label print: ${unverified.join(', ')}.`
+                          : 'All allergen declarations are COA-verified.';
+                      })()}</p>
                     </div>
                   ) : (
                     <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
                       <p className="text-amber-900 font-semibold text-sm">Verify no allergens present!</p>
-                      <p className="text-amber-700 text-[10px] mt-1">Auto-detection found none, but supplier COA confirms or denies cross-contact risk.</p>
+                      <p className="text-amber-700 text-[10px] mt-1">Auto-detection found none — but absence here is <span className="font-semibold">not a &ldquo;free-of&rdquo; claim</span>. Only a supplier COA confirms absence.</p>
                     </div>
                   )}
                 </div>

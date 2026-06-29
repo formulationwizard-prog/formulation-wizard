@@ -7,6 +7,7 @@ import {
   classifyAllergenProvenance,
   resolveAllergenVerification,
   isCoaVerifiedAllergens,
+  unverifiedAllergenSources,
 } from '../allergenVerification';
 import { PROVENANCE_BY_NAME } from '../data/supplementProvenance';
 import type { Provenance } from '../../types';
@@ -48,6 +49,29 @@ describe('resolveAllergenVerification — against the real provenance map', () =
 
   it('an unknown/uncovered name → no-provenance (inline fallback, honestly flagged)', () => {
     expect(resolveAllergenVerification('Totally Not A Catalog Entry 12345').status).toBe('no-provenance');
+  });
+});
+
+describe('unverifiedAllergenSources — the chrome + FVR list (single source)', () => {
+  it('includes an allergen-bearing ingredient with unverified provenance (real unknown entry)', () => {
+    expect(unverifiedAllergenSources([{ name: 'Vitamin C (Ascorbic Acid USP, Fine)', allergens: ['Milk'] }]))
+      .toEqual(['Vitamin C (Ascorbic Acid USP, Fine)']);
+  });
+
+  it('includes an allergen-bearing UNCOVERED ingredient (no-provenance → not verified)', () => {
+    expect(unverifiedAllergenSources([{ name: 'Some Uncovered Ingredient 999', allergens: ['Soy'] }]))
+      .toEqual(['Some Uncovered Ingredient 999']);
+  });
+
+  it('EXCLUDES ingredients with no allergen declaration (nothing to confirm)', () => {
+    expect(unverifiedAllergenSources([{ name: 'Vitamin C (Ascorbic Acid USP, Fine)', allergens: [] }])).toEqual([]);
+  });
+
+  it('returns only the unverified allergen-bearing names from a mixed formula', () => {
+    expect(unverifiedAllergenSources([
+      { name: 'Vitamin C (Ascorbic Acid USP, Fine)', allergens: ['Milk'] },
+      { name: 'Magnesium Glycinate', allergens: [] },
+    ])).toEqual(['Vitamin C (Ascorbic Acid USP, Fine)']);
   });
 });
 
